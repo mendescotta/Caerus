@@ -18,6 +18,11 @@
 //!   UNHOLD  p1 p2    — release a previously-set hold
 //!   ORPHANS          — remove packages no longer required by anything
 //!   CLEANCACHE       — remove outdated files from the package cache
+//!   VERIFY           — run pkgdb consistency checks
+//!   ALTERNATIVE g p  — select pkg p as the provider for group g
+//!   ADDREPO url      — add a repository (persisted to a caerus-owned
+//!                      xbps.d conf file, never someone else's)
+//!   REMOVEREPO url   — remove a repository previously added by ADDREPO
 //!   QUIT             — exit
 //!
 //! Responses:
@@ -130,6 +135,41 @@ fn respond_ok_or(success: bool, err_msg: &str) {
         println!("ERROR {}", err_msg);
     }
     let _ = io::stdout().flush();
+}
+
+/// A dedicated xbps.d conf file this helper exclusively owns for
+/// repositories added through caerus — ADDREPO/REMOVEREPO only ever
+/// touch this one file, never anything a user or another tool set up
+/// under /etc/xbps.d/, so there's no risk of clobbering unrelated
+/// config or losing track of what caerus itself is responsible for.
+const MANAGED_REPO_CONF: &str = "/etc/xbps.d/90-caerus.conf";
+
+fn add_repo(url: &str) -> Result<(), String> {
+    let existing = std::fs::read_to_string(MANAGED_REPO_CONF).unwrap_or_default();
+    let line = format!("repository={}", url);
+    if existing.lines().any(|l| l == line) {
+        return Ok(()); // already present, nothing to do
+    }
+    let mut updated = existing;
+    if !updated.is_empty() && !updated.ends_with('\n') {
+        updated.push('\n');
+    }
+    updated.push_str(&line);
+    updated.push('\n');
+    std::fs::write(MANAGED_REPO_CONF, updated).map_err(|e| e.to_string())
+}
+
+fn remove_repo(url: &str) -> Result<(), String> {
+    let Ok(existing) = std::fs::read_to_string(MANAGED_REPO_CONF) else {
+        return Ok(()); // file doesn't exist, nothing to remove
+    };
+    let line = format!("repository={}", url);
+    let updated: String = existing
+        .lines()
+        .filter(|l| *l != line)
+        .map(|l| format!("{}\n", l))
+        .collect();
+    std::fs::write(MANAGED_REPO_CONF, updated).map_err(|e| e.to_string())
 }
 
 fn main() {
@@ -252,6 +292,57 @@ fn main() {
             argv.extend(pkgs.iter().map(String::as_str));
             let code = run_xbps(&argv);
             respond_ok_or(code == Some(0), "unhold failed");
+            continue;
+        }
+
+        if line == "VERIFY" {
+            let code = run_xbps(&[
+                "xbps-pkgdb",
+                "-a",
+                "--checks",
+                "files,dependencies,alternatives,pkgdb",
+            ]);
+            respond_ok_or(code == Some(0), "verification failed");
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("ALTERNATIVE ") {
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            if parts.len() != 2 {
+                println!("ERROR expected: ALTERNATIVE <group> <pkgname>");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            let code = run_xbps(&["xbps-alternatives", "-g", parts[0], "-s", parts[1]]);
+            respond_ok_or(code == Some(0), "setting alternative failed");
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("ADDREPO ") {
+            let url = rest.trim();
+            if url.is_empty() {
+                println!("ERROR no url specified");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            match add_repo(url) {
+                Ok(()) => respond_ok_or(true, ""),
+                Err(e) => respond_ok_or(false, &e),
+            }
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("REMOVEREPO ") {
+            let url = rest.trim();
+            if url.is_empty() {
+                println!("ERROR no url specified");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            match remove_repo(url) {
+                Ok(()) => respond_ok_or(true, ""),
+                Err(e) => respond_ok_or(false, &e),
+            }
             continue;
         }
 

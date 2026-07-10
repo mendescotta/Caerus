@@ -686,6 +686,7 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
         extra
             .as_ref()
             .and_then(|e| e.repository.as_deref())
+            .map(crate::backend::repo_names::display_repo)
             .unwrap_or(DASH),
     );
     l.install_date.set_text(

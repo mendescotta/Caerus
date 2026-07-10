@@ -30,9 +30,7 @@ struct WindowState {
     btn_mark_upgrades: gtk::Button,
     btn_unmark_all: gtk::Button,
     btn_apply: gtk::Button,
-    btn_full_upgrade: gtk::Button,
-    btn_remove_orphans: gtk::Button,
-    btn_clean_cache: gtk::Button,
+    menu_buttons: AppMenuButtons,
     search_entry: gtk::SearchEntry,
     btn_search_name_only: gtk::ToggleButton,
     status_label: gtk::Label,
@@ -168,7 +166,7 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     header.pack_end(&btn_search_name_only);
     header.pack_end(&btn_apply);
 
-    let (menu_button, btn_full_upgrade, btn_remove_orphans, btn_clean_cache) = build_app_menu(&window);
+    let (menu_button, menu_buttons) = build_app_menu(&window);
     header.pack_end(&menu_button);
 
     window.set_titlebar(Some(&header));
@@ -229,9 +227,7 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         btn_mark_upgrades,
         btn_unmark_all,
         btn_apply,
-        btn_full_upgrade,
-        btn_remove_orphans,
-        btn_clean_cache,
+        menu_buttons,
         search_entry,
         btn_search_name_only,
         status_label,
@@ -280,15 +276,22 @@ fn flat_menu_button(label: &str) -> gtk::Button {
     btn
 }
 
-/// Returns the menu button plus the three maintenance-action buttons it
-/// contains (Full System Upgrade / Remove Orphaned Packages / Clean
-/// Package Cache) — those need `WindowState` (session, store) to wire
-/// up, which doesn't exist yet at the point in `build_window` where the
-/// header bar is built, so the caller wires their click handlers later
-/// in `wire_up`.
-fn build_app_menu(
-    window: &gtk::ApplicationWindow,
-) -> (gtk::MenuButton, gtk::Button, gtk::Button, gtk::Button) {
+/// The action buttons the app menu contains beyond Keyboard
+/// Shortcuts/About/Quit (which `build_app_menu` wires up entirely on
+/// its own since they don't need `WindowState`). Everything here does,
+/// so `build_window` stashes these on `WindowState` and `wire_up`
+/// attaches their click handlers once it exists.
+struct AppMenuButtons {
+    full_upgrade: gtk::Button,
+    remove_orphans: gtk::Button,
+    clean_cache: gtk::Button,
+    verify_db: gtk::Button,
+    find_owner: gtk::Button,
+    alternatives: gtk::Button,
+    repositories: gtk::Button,
+}
+
+fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuButtons) {
     let menu_button = gtk::MenuButton::new();
     menu_button.set_icon_name("open-menu-symbolic");
     menu_button.set_tooltip_text(Some("Main Menu"));
@@ -299,30 +302,50 @@ fn build_app_menu(
     vbox.set_margin_end(4);
     vbox.set_margin_top(4);
     vbox.set_margin_bottom(4);
-    vbox.set_width_request(230);
+    vbox.set_width_request(240);
 
     let maintenance_header = gtk::Label::new(Some("MAINTENANCE"));
     maintenance_header.set_xalign(0.0);
     maintenance_header.add_css_class("section-header");
-    let btn_full_upgrade = flat_menu_button("Full System Upgrade\u{2026}");
-    btn_full_upgrade.set_tooltip_text(Some("xbps-install -Su — upgrade every installed package"));
-    let btn_remove_orphans = flat_menu_button("Remove Orphaned Packages");
-    btn_remove_orphans.set_tooltip_text(Some(
+    let full_upgrade = flat_menu_button("Full System Upgrade\u{2026}");
+    full_upgrade.set_tooltip_text(Some("xbps-install -Su — upgrade every installed package"));
+    let remove_orphans = flat_menu_button("Remove Orphaned Packages");
+    remove_orphans.set_tooltip_text(Some(
         "xbps-remove -o — drop packages nothing else depends on anymore",
     ));
-    let btn_clean_cache = flat_menu_button("Clean Package Cache");
-    btn_clean_cache.set_tooltip_text(Some(
+    let clean_cache = flat_menu_button("Clean Package Cache");
+    clean_cache.set_tooltip_text(Some(
         "xbps-remove -O — delete cached package files superseded by a newer version",
     ));
+    let verify_db = flat_menu_button("Verify Package Database\u{2026}");
+    verify_db.set_tooltip_text(Some(
+        "xbps-pkgdb -a --checks files,dependencies,alternatives,pkgdb",
+    ));
+
+    let tools_header = gtk::Label::new(Some("TOOLS"));
+    tools_header.set_xalign(0.0);
+    tools_header.add_css_class("section-header");
+    tools_header.set_margin_top(6);
+    let find_owner = flat_menu_button("Find Owning Package\u{2026}");
+    find_owner.set_tooltip_text(Some("xbps-query -o — which package owns a given file"));
+    let alternatives = flat_menu_button("Alternatives\u{2026}");
+    alternatives.set_tooltip_text(Some("Switch between packages providing the same files"));
+    let repositories = flat_menu_button("Repositories\u{2026}");
+    repositories.set_tooltip_text(Some("Add or remove xbps repositories"));
 
     let btn_shortcuts = flat_menu_button("Keyboard Shortcuts");
     let btn_about = flat_menu_button("About Caerus");
     let btn_quit = flat_menu_button("Quit");
 
     vbox.append(&maintenance_header);
-    vbox.append(&btn_full_upgrade);
-    vbox.append(&btn_remove_orphans);
-    vbox.append(&btn_clean_cache);
+    vbox.append(&full_upgrade);
+    vbox.append(&remove_orphans);
+    vbox.append(&clean_cache);
+    vbox.append(&verify_db);
+    vbox.append(&tools_header);
+    vbox.append(&find_owner);
+    vbox.append(&alternatives);
+    vbox.append(&repositories);
     vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     vbox.append(&btn_shortcuts);
     vbox.append(&btn_about);
@@ -331,9 +354,26 @@ fn build_app_menu(
     popover.set_child(Some(&vbox));
     menu_button.set_popover(Some(&popover));
 
-    // Maintenance actions need `WindowState`, wired later; every click
-    // should still close the popover regardless of which button.
-    for btn in [&btn_full_upgrade, &btn_remove_orphans, &btn_clean_cache] {
+    // These all need `WindowState`, wired later; every click should
+    // still close the popover regardless of which button.
+    let buttons = AppMenuButtons {
+        full_upgrade,
+        remove_orphans,
+        clean_cache,
+        verify_db,
+        find_owner,
+        alternatives,
+        repositories,
+    };
+    for btn in [
+        &buttons.full_upgrade,
+        &buttons.remove_orphans,
+        &buttons.clean_cache,
+        &buttons.verify_db,
+        &buttons.find_owner,
+        &buttons.alternatives,
+        &buttons.repositories,
+    ] {
         let popover = popover.clone();
         btn.connect_clicked(move |_| popover.popdown());
     }
@@ -364,7 +404,7 @@ fn build_app_menu(
         });
     }
 
-    (menu_button, btn_full_upgrade, btn_remove_orphans, btn_clean_cache)
+    (menu_button, buttons)
 }
 
 fn show_about_dialog(parent: &gtk::ApplicationWindow) {
@@ -547,24 +587,58 @@ fn wire_up(state: &Rc<WindowState>) {
         });
     }
     {
-        let btn = state.btn_full_upgrade.clone();
+        let btn = state.menu_buttons.full_upgrade.clone();
         let state = state.clone();
         btn.connect_clicked(move |_| {
             on_full_upgrade_clicked(&state);
         });
     }
     {
-        let btn = state.btn_remove_orphans.clone();
+        let btn = state.menu_buttons.remove_orphans.clone();
         let state = state.clone();
         btn.connect_clicked(move |_| {
             run_maintenance_command(&state, "ORPHANS", "Removing Orphaned Packages");
         });
     }
     {
-        let btn = state.btn_clean_cache.clone();
+        let btn = state.menu_buttons.clean_cache.clone();
         let state = state.clone();
         btn.connect_clicked(move |_| {
             run_maintenance_command(&state, "CLEANCACHE", "Cleaning Package Cache");
+        });
+    }
+    {
+        let btn = state.menu_buttons.verify_db.clone();
+        let state = state.clone();
+        btn.connect_clicked(move |_| {
+            run_maintenance_command(&state, "VERIFY", "Verifying Package Database");
+        });
+    }
+    {
+        let btn = state.menu_buttons.find_owner.clone();
+        let window = state.window.clone();
+        btn.connect_clicked(move |_| {
+            crate::ui::file_owner_dialog::show(Some(window.upcast_ref()));
+        });
+    }
+    {
+        let btn = state.menu_buttons.alternatives.clone();
+        let window = state.window.clone();
+        let session = state.session.clone();
+        btn.connect_clicked(move |_| {
+            crate::ui::alternatives_dialog::show(Some(window.upcast_ref()), &session);
+        });
+    }
+    {
+        let btn = state.menu_buttons.repositories.clone();
+        let window = state.window.clone();
+        let session = state.session.clone();
+        let state_for_reload = state.clone();
+        btn.connect_clicked(move |_| {
+            let state_for_reload = state_for_reload.clone();
+            crate::ui::repo_manager::show(Some(window.upcast_ref()), &session, move || {
+                do_reload(&state_for_reload);
+            });
         });
     }
 
