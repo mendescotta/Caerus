@@ -22,7 +22,11 @@ const APP_ID: &str = "org.voidlinux.caerus";
 /// this is purely an *additional* search path, never a replacement.
 fn find_dev_icon_search_dir() -> Option<std::path::PathBuf> {
     let exe = std::fs::read_link("/proc/self/exe").ok()?;
-    let candidate = exe.parent()?.parent()?.join("caerus/data/icons");
+    // exe             = <repo>/target/{debug,release}/caerus
+    // .parent()       = <repo>/target/{debug,release}   (exe's directory)
+    // .parent()       = <repo>/target
+    // .parent()       = <repo>                           <- the one we want
+    let candidate = exe.parent()?.parent()?.parent()?.join("caerus/data/icons");
     candidate
         .join("scalable/apps/org.voidlinux.caerus.svg")
         .is_file()

@@ -222,27 +222,29 @@ fn build(inner: Rc<Inner>) {
         gtk::FilterListModel::new(Some(inner.store.list()), Some(inner.custom_filter.clone()));
     let sort_model = gtk::SortListModel::new(Some(filter_model), None::<gtk::Sorter>);
 
-    let selection = gtk::SingleSelection::new(Some(sort_model.clone()));
-    // autoselect defaults to true, which selects index 0 the instant
-    // the list goes from empty to populated — i.e. mid-load, before the
-    // initial sort has settled — which then swallows the user's actual
-    // first click as a no-op "no change" (see the original's own
-    // comment on this exact bug). Disabling it means nothing is
-    // selected until a real click, which then always fires a fresh,
-    // correctly-ordered selection event.
-    selection.set_autoselect(false);
+    // MultiSelection (rather than SingleSelection) so ctrl/shift-click
+    // range selection works, which the right-click context menu uses
+    // for bulk marking. Unlike SingleSelection it has no "autoselect"
+    // footgun to begin with — nothing is ever selected until a real
+    // click, so the mid-load-swallows-first-click bug the old
+    // SingleSelection comment described doesn't apply here.
+    let selection = gtk::MultiSelection::new(Some(sort_model.clone()));
 
     {
         let inner_s = inner.clone();
         selection.connect_selection_changed(move |model, _pos, _n| {
-            let sel = model.selected();
-            // GTK_INVALID_LIST_POSITION is defined upstream as G_MAXUINT.
-            let pkg = if sel == u32::MAX {
-                None
+            // The single-package callback only fires a package when
+            // exactly one row is selected (0 or 2+ both report `None`,
+            // same as before multi-select existed) — every consumer of
+            // it (the detail pane) only ever made sense for a single
+            // package anyway. Bulk actions instead read the selection
+            // directly at the point they need it (see
+            // `selected_packages` / the context menu).
+            let bitset = model.selection();
+            let pkg = if bitset.size() == 1 {
+                model.item(bitset.minimum()).map(|obj| pkg_of(&obj).pkg().clone())
             } else {
-                model
-                    .selected_item()
-                    .map(|obj| pkg_of(&obj).pkg().clone())
+                None
             };
             for cb in inner_s.on_package_selected.borrow().iter() {
                 cb(pkg.clone());
@@ -387,12 +389,21 @@ fn build(inner: Rc<Inner>) {
                 let inner = inner.clone();
                 let selection = selection.clone();
                 gesture.connect_pressed(move |g, _n_press, x, y| {
-                    let Some(obj) = li.item().map(|o| pkg_of(&o)) else {
+                    if li.item().is_none() {
                         return;
-                    };
-                    selection.set_selected(li.position());
+                    }
+                    let pos = li.position();
+                    // Right-clicking a row that's already part of a
+                    // multi-row selection acts on the whole selection
+                    // (standard file-manager convention); right-clicking
+                    // anything else replaces the selection with just
+                    // that row, same as a plain click would.
+                    if !selection.is_selected(pos) || selection.selection().size() <= 1 {
+                        selection.select_item(pos, true);
+                    }
+                    let selected = selected_packages(&selection);
                     let Some(widget) = g.widget() else { return };
-                    show_context_menu(&widget, x, y, &inner, &obj);
+                    show_context_menu(&widget, x, y, &inner, selected);
                 });
                 l.add_controller(gesture);
             }
@@ -667,36 +678,105 @@ fn request_remove_with_confirm(
     });
 }
 
-/// (button label, target mark, enabled) for a package's current
-/// mark/state — same precedence `DetailPane::update_action_buttons`
-/// uses: a pending mark shows only Unmark; otherwise the options depend
-/// on install state, with Removal/Purge disabled for essential packages.
-fn context_menu_items(pkg: &Package) -> Vec<(&'static str, PkgMark, bool)> {
-    if pkg.mark != PkgMark::None {
-        return vec![("Unmark", PkgMark::None, true)];
-    }
-    match pkg.state {
-        PkgState::NotInstalled => vec![("Mark for Installation", PkgMark::Install, true)],
-        PkgState::Upgradable => vec![
-            ("Mark for Upgrade", PkgMark::Upgrade, true),
-            ("Mark for Removal", PkgMark::Remove, !pkg.essential),
-            ("Mark for Purge", PkgMark::Purge, !pkg.essential),
-        ],
-        _ => vec![
-            ("Mark for Removal", PkgMark::Remove, !pkg.essential),
-            ("Mark for Purge", PkgMark::Purge, !pkg.essential),
-        ],
+/// Whether `mark` is a meaningful action to offer for `pkg` right now —
+/// shared between building menu labels (counting how many selected
+/// packages a mark would apply to) and actually applying a bulk mark,
+/// so the count shown always matches what clicking the button does.
+fn mark_applies_to(pkg: &Package, mark: PkgMark) -> bool {
+    match mark {
+        PkgMark::Install => pkg.state == PkgState::NotInstalled && pkg.mark == PkgMark::None,
+        PkgMark::Upgrade => pkg.state == PkgState::Upgradable && pkg.mark == PkgMark::None,
+        PkgMark::Remove | PkgMark::Purge => {
+            pkg.state != PkgState::NotInstalled && pkg.mark == PkgMark::None && !pkg.essential
+        }
+        PkgMark::None => pkg.mark != PkgMark::None,
     }
 }
 
+/// (button label, target mark, enabled) for a right-clicked selection —
+/// one package, or several when multiple rows are selected. One entry
+/// per mark that applies to at least one package in `pkgs`, labeled
+/// with how many it would affect once there's more than one (singular
+/// wording — "Mark for Installation" rather than "Mark 1 for
+/// Installation" — when there's exactly one, matching how this menu
+/// always read before multi-select existed).
+fn context_menu_items(pkgs: &[Package]) -> Vec<(String, PkgMark, bool)> {
+    let multi = pkgs.len() > 1;
+    let mut items = Vec::new();
+    for mark in [
+        PkgMark::Install,
+        PkgMark::Upgrade,
+        PkgMark::Remove,
+        PkgMark::Purge,
+        PkgMark::None,
+    ] {
+        let n = pkgs.iter().filter(|p| mark_applies_to(p, mark)).count();
+        if n == 0 {
+            continue;
+        }
+        let label = match (mark, multi) {
+            (PkgMark::Install, false) => "Mark for Installation".to_string(),
+            (PkgMark::Install, true) => format!("Mark {} for Installation", n),
+            (PkgMark::Upgrade, false) => "Mark for Upgrade".to_string(),
+            (PkgMark::Upgrade, true) => format!("Mark {} for Upgrade", n),
+            (PkgMark::Remove, false) => "Mark for Removal".to_string(),
+            (PkgMark::Remove, true) => format!("Mark {} for Removal", n),
+            (PkgMark::Purge, false) => "Mark for Purge".to_string(),
+            (PkgMark::Purge, true) => format!("Mark {} for Purge", n),
+            (_, false) => "Unmark".to_string(),
+            (_, true) => format!("Unmark {}", n),
+        };
+        items.push((label, mark, true));
+    }
+    items
+}
+
+/// Applies `mark` to every package in `pkgs` it's actually applicable
+/// to (see `mark_applies_to`) and fires `on_marks_changed` once. Used
+/// for multi-row selections — unlike the single-package paths, this
+/// skips the deps/reverse-deps confirmation dialogs entirely (asking
+/// once per selected package would mean a chain of N modal dialogs),
+/// relying on the pre-Apply summary and xbps's own dependency
+/// resolution to catch anything that actually matters.
+fn apply_bulk_mark(store: &PackageStore, inner: &Rc<Inner>, pkgs: &[Package], mark: PkgMark) {
+    for p in pkgs {
+        if mark_applies_to(p, mark) {
+            store.set_mark(&p.name, mark);
+        }
+    }
+    for f in inner.on_marks_changed.borrow().iter() {
+        f();
+    }
+}
+
+/// Every currently-selected package, in no particular order.
+fn selected_packages(selection: &gtk::MultiSelection) -> Vec<Package> {
+    let n = selection.n_items();
+    let mut out = Vec::new();
+    for i in 0..n {
+        if selection.is_selected(i) {
+            if let Some(obj) = selection.item(i) {
+                out.push(pkg_of(&obj).pkg().clone());
+            }
+        }
+    }
+    out
+}
+
 /// Builds and pops up a small right-click menu, anchored at `(x, y)`
-/// within `widget`, offering the contextual mark actions for `obj`. A
-/// fresh `gtk::Popover` per invocation (rather than one reused instance)
+/// within `widget`, offering mark actions for `selected` (a single
+/// package, or several when multiple rows are selected). A fresh
+/// `gtk::Popover` per invocation (rather than one reused instance)
 /// keeps this stateless between rows; `connect_closed` unparents it so
 /// it doesn't linger once dismissed.
-fn show_context_menu(widget: &gtk::Widget, x: f64, y: f64, inner: &Rc<Inner>, obj: &PackageObject) {
-    let pkg = obj.pkg().clone();
-    let items = context_menu_items(&pkg);
+fn show_context_menu(widget: &gtk::Widget, x: f64, y: f64, inner: &Rc<Inner>, selected: Vec<Package>) {
+    if selected.is_empty() {
+        return;
+    }
+    let items = context_menu_items(&selected);
+    if items.is_empty() {
+        return;
+    }
 
     let popover = gtk::Popover::new();
     popover.set_parent(widget);
@@ -711,8 +791,9 @@ fn show_context_menu(widget: &gtk::Widget, x: f64, y: f64, inner: &Rc<Inner>, ob
     vbox.set_margin_bottom(4);
 
     let root = widget.root().and_downcast::<gtk::Window>();
+    let selected = Rc::new(selected);
     for (label, mark, enabled) in items {
-        let btn = gtk::Button::with_label(label);
+        let btn = gtk::Button::with_label(&label);
         btn.set_has_frame(false);
         if let Some(l) = btn.child().and_downcast::<gtk::Label>() {
             l.set_xalign(0.0);
@@ -721,21 +802,31 @@ fn show_context_menu(widget: &gtk::Widget, x: f64, y: f64, inner: &Rc<Inner>, ob
 
         let store = inner.store.clone();
         let inner = inner.clone();
-        let name = pkg.name.clone();
         let root = root.clone();
+        let selected = selected.clone();
         let popover_weak = popover.downgrade();
         btn.connect_clicked(move |_| {
             if let Some(p) = popover_weak.upgrade() {
                 p.popdown();
             }
-            match mark {
-                PkgMark::Install => {
-                    request_install_with_confirm(root.clone(), &store, &inner, &name, |_| {})
+            if selected.len() == 1 {
+                let name = selected[0].name.clone();
+                match mark {
+                    PkgMark::Install => {
+                        request_install_with_confirm(root.clone(), &store, &inner, &name, |_| {})
+                    }
+                    PkgMark::Remove | PkgMark::Purge => request_remove_with_confirm(
+                        root.clone(),
+                        &store,
+                        &inner,
+                        &name,
+                        mark,
+                        |_| {},
+                    ),
+                    _ => set_mark_and_notify(&store, &inner, &name, mark),
                 }
-                PkgMark::Remove | PkgMark::Purge => {
-                    request_remove_with_confirm(root.clone(), &store, &inner, &name, mark, |_| {})
-                }
-                _ => set_mark_and_notify(&store, &inner, &name, mark),
+            } else {
+                apply_bulk_mark(&store, &inner, &selected, mark);
             }
         });
         vbox.append(&btn);

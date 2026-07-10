@@ -7,6 +7,7 @@
 //! `on_preset_selected()`'s use of `gtk_list_box_row_get_index()`.
 
 use crate::backend::package::FilterMode;
+use crate::backend::repo_names::{display_repo, RepoNames};
 use gtk::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -17,8 +18,20 @@ struct Inner {
     /// Row `i + 1` of `repo_lb` corresponds to `repo_names[i]`; row 0
     /// is always the fixed "All Repositories" row.
     repo_names: RefCell<Vec<String>>,
+    /// User-chosen display names, keyed by repository URL — right-click
+    /// a repository row to set one.
+    display_names: RefCell<RepoNames>,
     on_filter_changed: RefCell<Vec<Box<dyn Fn(FilterMode)>>>,
     on_repository_changed: RefCell<Vec<Box<dyn Fn(Option<String>)>>>,
+}
+
+fn repo_display_text(inner: &Inner, url: &str) -> String {
+    inner
+        .display_names
+        .borrow()
+        .get(url)
+        .map(str::to_string)
+        .unwrap_or_else(|| display_repo(url).to_string())
 }
 
 #[derive(Clone)]
@@ -59,6 +72,119 @@ fn make_text_row(label: &str) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
     row.set_child(Some(&l));
     row
+}
+
+/// A repository row: same look as `make_text_row`, plus a right-click
+/// gesture opening a rename dialog for `url` and a tooltip showing the
+/// full URL (the visible text may be a custom name or the
+/// scheme-stripped URL, either of which can be a truncated/altered
+/// view of it).
+fn build_repo_row(inner: &Rc<Inner>, url: String) -> gtk::ListBoxRow {
+    let l = gtk::Label::new(Some(&repo_display_text(inner, &url)));
+    l.set_xalign(0.0);
+    l.set_hexpand(true);
+    l.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+    l.set_margin_start(8);
+    l.set_margin_end(8);
+    l.set_margin_top(5);
+    l.set_margin_bottom(5);
+    l.set_tooltip_text(Some(&url));
+
+    let row = gtk::ListBoxRow::new();
+    row.set_child(Some(&l));
+
+    let gesture = gtk::GestureClick::new();
+    gesture.set_button(gtk::gdk::BUTTON_SECONDARY);
+    let inner = inner.clone();
+    let label = l.clone();
+    gesture.connect_pressed(move |g, _n_press, _x, _y| {
+        let Some(widget) = g.widget() else { return };
+        let root = widget.root().and_downcast::<gtk::Window>();
+        show_rename_dialog(root, &inner, url.clone(), &label);
+    });
+    l.add_controller(gesture);
+
+    row
+}
+
+/// Lets the user set (or clear) a custom display name for `url`,
+/// updating `label` and persisted storage immediately on Save/Reset.
+fn show_rename_dialog(parent: Option<gtk::Window>, inner: &Rc<Inner>, url: String, label: &gtk::Label) {
+    let dlg = gtk::Window::new();
+    dlg.set_title(Some("Rename Repository"));
+    if let Some(p) = &parent {
+        dlg.set_transient_for(Some(p));
+    }
+    dlg.set_modal(true);
+    dlg.set_resizable(false);
+    dlg.set_default_size(380, -1);
+
+    let outer = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    outer.set_margin_start(16);
+    outer.set_margin_end(16);
+    outer.set_margin_top(16);
+    outer.set_margin_bottom(16);
+
+    let url_label = gtk::Label::new(Some(&url));
+    url_label.set_xalign(0.0);
+    url_label.set_wrap(true);
+    url_label.set_selectable(true);
+    url_label.add_css_class("dim-label");
+    outer.append(&url_label);
+
+    let entry = gtk::Entry::new();
+    entry.set_placeholder_text(Some(display_repo(&url)));
+    if let Some(current) = inner.display_names.borrow().get(&url) {
+        entry.set_text(current);
+    }
+    entry.set_activates_default(true);
+    outer.append(&entry);
+
+    let btn_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    btn_box.set_halign(gtk::Align::End);
+    btn_box.set_margin_top(4);
+    let reset_btn = gtk::Button::with_label("Reset to Default");
+    let cancel_btn = gtk::Button::with_label("Cancel");
+    let save_btn = gtk::Button::with_label("Save");
+    save_btn.add_css_class("suggested-action");
+    btn_box.append(&reset_btn);
+    btn_box.append(&cancel_btn);
+    btn_box.append(&save_btn);
+    outer.append(&btn_box);
+
+    dlg.set_child(Some(&outer));
+    dlg.set_default_widget(Some(&save_btn));
+
+    {
+        let inner = inner.clone();
+        let url = url.clone();
+        let label = label.clone();
+        let dlg = dlg.clone();
+        reset_btn.connect_clicked(move |_| {
+            inner.display_names.borrow_mut().set(&url, "");
+            label.set_text(display_repo(&url));
+            dlg.destroy();
+        });
+    }
+    {
+        let dlg = dlg.clone();
+        cancel_btn.connect_clicked(move |_| dlg.destroy());
+    }
+    {
+        let inner = inner.clone();
+        let url = url.clone();
+        let label = label.clone();
+        let entry = entry.clone();
+        let dlg = dlg.clone();
+        save_btn.connect_clicked(move |_| {
+            inner.display_names.borrow_mut().set(&url, &entry.text());
+            label.set_text(&repo_display_text(&inner, &url));
+            dlg.destroy();
+        });
+    }
+
+    dlg.present();
+    entry.grab_focus();
 }
 
 impl FilterSidebar {
@@ -120,6 +246,7 @@ impl FilterSidebar {
             widget,
             repo_lb: repo_lb.clone(),
             repo_names: RefCell::new(Vec::new()),
+            display_names: RefCell::new(RepoNames::load()),
             on_filter_changed: RefCell::new(Vec::new()),
             on_repository_changed: RefCell::new(Vec::new()),
         });
@@ -216,7 +343,7 @@ impl FilterSidebar {
         }
         self.inner.repo_lb.append(&make_text_row("All Repositories"));
         for r in &repos {
-            self.inner.repo_lb.append(&make_text_row(r));
+            self.inner.repo_lb.append(&build_repo_row(&self.inner, r.clone()));
         }
         *self.inner.repo_names.borrow_mut() = repos;
 
