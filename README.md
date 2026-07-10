@@ -1,3 +1,5 @@
+<img src="caerus/data/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg" width="96" height="96" align="left">
+
 # Caerus
 
 A [Synaptic](https://en.wikipedia.org/wiki/Synaptic_(software))-inspired
@@ -5,6 +7,18 @@ graphical package manager for [Void Linux](https://voidlinux.org/), built
 directly on `libxbps`. GTK4, no root required to run — only the small
 privileged helper that actually installs/removes packages is ever elevated,
 via `pkexec`.
+
+<br clear="left">
+
+## Screenshots
+
+<p float="left">
+  <img src="screenshots/main-window.png" width="49%">
+  <img src="screenshots/package-details.png" width="49%">
+</p>
+<p float="left">
+  <img src="screenshots/search.png" width="49%">
+</p>
 
 ## Features
 
