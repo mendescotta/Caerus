@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Caerus
+GenericName=Package Manager
+Comment=Manage XBPS packages
+Exec=caerus
+Icon=org.voidlinux.caerus
+Terminal=false
+Categories=System;PackageManager;GTK;
+Keywords=package;install;remove;xbps;void;
+StartupNotify=true
+StartupWMClass=caerus

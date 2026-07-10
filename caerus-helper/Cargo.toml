@@ -1,0 +1,15 @@
+[package]
+name = "caerus-helper"
+version = "0.1.0"
+edition = "2021"
+description = "Privileged line-protocol executor for caerus, spawned via pkexec"
+
+# Deliberately zero dependencies: this binary runs as root (via pkexec)
+# and does nothing but shell out to xbps-install/xbps-remove and relay
+# their output — the smaller its dependency graph, the smaller its
+# attack surface as the one privileged component in the whole project.
+[dependencies]
+
+[[bin]]
+name = "caerus-helper"
+path = "src/main.rs"

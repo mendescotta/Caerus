@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4f9d75"/>
+      <stop offset="1" stop-color="#337355"/>
+    </linearGradient>
+    <linearGradient id="lid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6cc499"/>
+      <stop offset="1" stop-color="#4f9d75"/>
+    </linearGradient>
+  </defs>
+
+  <!-- box body -->
+  <path d="M22 54 L64 72 L106 54 L106 100 Q106 106 100 108 L68 120 Q64 121.5 60 120 L28 108 Q22 106 22 100 Z"
+        fill="url(#body)"/>
+
+  <!-- box lid / top face -->
+  <path d="M64 8 L108 26 Q112 27.5 108 30 L66 47 Q64 48 62 47 L20 30 Q16 28 20 26 Z"
+        fill="url(#lid)"/>
+
+  <!-- left flap shading -->
+  <path d="M20 30 L62 47 L62 47 L62 88 L22 71 Z" fill="#3d8664" opacity="0.55"/>
+  <!-- right flap shading -->
+  <path d="M108 30 L66 47 L66 88 L106 71 Z" fill="#2c6a4d" opacity="0.55"/>
+
+  <!-- centre seam -->
+  <path d="M64 48 L64 121" stroke="#28583f" stroke-width="2.5" opacity="0.6" fill="none"/>
+
+  <!-- checkmark badge -->
+  <circle cx="94" cy="94" r="26" fill="#1d3b2c"/>
+  <circle cx="94" cy="94" r="26" fill="none" stroke="#eafff2" stroke-width="2" opacity="0.15"/>
+  <path d="M83 95 L91 103 L107 85" fill="none" stroke="#eafff2" stroke-width="6"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

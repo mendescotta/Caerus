@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+  "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Void Linux</vendor>
+  <vendor_url>https://voidlinux.org</vendor_url>
+
+  <!--
+    The Caerus GUI itself is never privileged. This action authorizes
+    only caerus-helper — the small, headless child process that runs
+    xbps-install/xbps-remove on the GUI's behalf — not the GTK app.
+    The GUI spawns this via plain `pkexec caerus-helper` (no GUI
+    re-exec), then keeps the resulting helper process alive across
+    multiple package operations so repeated actions don't re-prompt.
+  -->
+  <action id="org.voidlinux.caerus.helper">
+    <description>Run the Caerus package manager's privileged helper</description>
+    <message>Authentication is required to install, remove, or update packages via Caerus.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/caerus-helper</annotate>
+  </action>
+</policyconfig>
