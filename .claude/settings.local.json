@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ' *)",
+      "Skill(artifact-design)",
+      "Bash(cargo build *)",
+      "Bash(pkg-config --exists gtk4)",
+      "Bash(pkg-config --exists xbps)",
+      "Bash(find / -maxdepth 4 -iname \"xbps.h\")",
+      "Bash(timeout 60 cargo check)",
+      "Bash(xbps-pkgdb --help)"
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+[package]
+name = "caerus"
+version = "0.1.0"
+edition = "2021"
+description = "A Synaptic-inspired GTK4 package manager for Void Linux, built directly on libxbps"
+
+[dependencies]
+gtk = { package = "gtk4", version = "0.9", features = ["v4_12"] }
+gio = "0.20"
+glib = "0.20"
+gdk = { package = "gdk4", version = "0.9", features = ["v4_12"] }
+xbps-sys = { path = "../xbps-sys" }
+
+[[bin]]
+name = "caerus"
+path = "src/main.rs"
