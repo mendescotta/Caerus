@@ -7,6 +7,7 @@
 use crate::backend::package::{Package, PkgMark, PkgState};
 use crate::backend::package_store::PackageStore;
 use crate::ui::deps_confirm;
+use crate::ui::remove_confirm;
 use gio::prelude::*;
 use gtk::prelude::*;
 use std::cell::RefCell;
@@ -335,8 +336,8 @@ fn wire_buttons(inner: &Rc<Inner>) {
         });
     }
     wire_simple_mark_button(inner, &inner.btn_upgrade, PkgMark::Upgrade);
-    wire_simple_mark_button(inner, &inner.btn_remove, PkgMark::Remove);
-    wire_simple_mark_button(inner, &inner.btn_purge, PkgMark::Purge);
+    wire_remove_button(inner, &inner.btn_remove, PkgMark::Remove);
+    wire_remove_button(inner, &inner.btn_purge, PkgMark::Purge);
     wire_simple_mark_button(inner, &inner.btn_unmark, PkgMark::None);
 
     // Hold/unhold isn't a queued mark — it needs a privileged action of
@@ -383,6 +384,32 @@ fn wire_simple_mark_button(inner: &Rc<Inner>, btn: &gtk::Button, mark: PkgMark) 
         for f in inner.on_mark_changed.borrow().iter() {
             f();
         }
+    });
+}
+
+/// Remove/Purge additionally warn first if anything else still
+/// installed depends on this package (see `remove_confirm`) — unlike
+/// Upgrade/Unmark, which can't break another package's dependencies.
+fn wire_remove_button(inner: &Rc<Inner>, btn: &gtk::Button, mark: PkgMark) {
+    let btn = btn.clone();
+    let inner = inner.clone();
+    btn.connect_clicked(move |_| {
+        let Some(name) = inner.current_pkgname.borrow().clone() else {
+            return;
+        };
+        let root = inner.widget.root().and_downcast::<gtk::Window>();
+        let store = inner.store.clone();
+        let inner2 = inner.clone();
+        let name2 = name.clone();
+        remove_confirm::confirm_remove_impact(root.as_ref(), &store, &name, move |proceed| {
+            if proceed {
+                inner2.store.set_mark(&name2, mark);
+                update_action_buttons(&inner2, None);
+                for f in inner2.on_mark_changed.borrow().iter() {
+                    f();
+                }
+            }
+        });
     });
 }
 

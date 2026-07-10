@@ -281,6 +281,34 @@ impl PackageStore {
         });
         c
     }
+    /// Current (state, mark) for a single package by name, if it's in
+    /// the store at all. Used to check whether a package that
+    /// reverse-depends on something about to be removed is itself still
+    /// going to be installed afterward.
+    pub fn state_and_mark(&self, pkgname: &str) -> Option<(PkgState, PkgMark)> {
+        let mut out = None;
+        self.for_each(|o| {
+            if out.is_none() && o.name() == pkgname {
+                let p = o.pkg();
+                out = Some((p.state, p.mark));
+            }
+        });
+        out
+    }
+
+    /// Names of every package currently in `PkgState::Upgradable`,
+    /// regardless of mark — used to preview a full system upgrade
+    /// before running it (the actual `xbps-install -Su` computes its
+    /// own set; this is the best local approximation of it).
+    pub fn upgradable_names(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        self.for_each(|o| {
+            if o.pkg().state == PkgState::Upgradable {
+                out.push(o.name());
+            }
+        });
+        out
+    }
     pub fn count_marked(&self) -> u32 {
         let mut c = 0;
         self.for_each(|o| {
@@ -528,6 +556,11 @@ unsafe extern "C" fn rpool_repo_cb(
     if idx.is_null() {
         return 0;
     }
+    let repo_uri = if (*repo).uri.is_null() {
+        None
+    } else {
+        Some(CStr::from_ptr((*repo).uri).to_string_lossy().into_owned())
+    };
 
     let keys = xbps_sys::xbps_dictionary_all_keys(idx);
     if keys.is_null() {
@@ -590,6 +623,7 @@ unsafe extern "C" fn rpool_repo_cb(
                 maintainer,
                 install_size: isize_,
                 download_size: dsize,
+                repository: repo_uri.clone(),
                 state: PkgState::NotInstalled,
                 mark: PkgMark::None,
                 essential: false,
@@ -645,6 +679,13 @@ unsafe extern "C" fn pkgdb_cb(
 
     let p = ht.get_mut(&pkgname).unwrap();
     p.version_installed = Some(ver.clone());
+    // The pkgdb entry's own "repository" property is what this
+    // installation actually came from — more authoritative than
+    // whichever currently-configured repo happened to also carry a
+    // matching pkgver, so it wins when present.
+    if let Some(repo) = dict_str(dict, "repository") {
+        p.repository = Some(repo);
+    }
 
     let hold = dict_str(dict, "hold");
     if hold.as_deref() == Some("yes") {

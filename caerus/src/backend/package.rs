@@ -72,6 +72,13 @@ pub struct Package {
     pub maintainer: String,
     pub install_size: u64,
     pub download_size: u64,
+    /// The repository this package's data came from — the source
+    /// repo's URI for anything found in `xbps_rpool_foreach`, or the
+    /// pkgdb's own recorded "repository" property (which takes
+    /// precedence, since it's what an installed package actually came
+    /// from) for installed packages. `None` for local/orphan pkgdb
+    /// entries not backed by any configured repo.
+    pub repository: Option<String>,
     pub state: PkgState,
     pub mark: PkgMark,
     pub essential: bool,

@@ -124,4 +124,10 @@ pub fn confirm_install_deps(
     }
 
     dlg.present();
+    // Without this, GTK hands initial keyboard focus to the first
+    // focusable widget in the window — the selectable-text deps list
+    // above — which shows up as its entire text looking "pre-selected"
+    // the instant the dialog opens. Explicitly focusing the default
+    // button avoids it.
+    install_btn.grab_focus();
 }

@@ -29,11 +29,30 @@ fn strip_log_decoration(line: &str) -> String {
 }
 
 /// The helper emits one line per percentage tick while a package
-/// downloads/installs. Any line containing '%' is one of these
-/// progress ticks; skip it entirely rather than trying to parse out
-/// just the final 100% line.
-fn is_percentage_line(line: &str) -> bool {
-    line.contains('%')
+/// downloads/installs/verifies — xbps-install's own progress format is
+/// `%s: [%s %d%%] %s ETA: %s` (confirmed against its format strings),
+/// i.e. a plain integer immediately followed by a single `%` somewhere
+/// in the line. Returns the *last* such `<digits>%` run in the line
+/// (the ETA/size fields after it don't contain '%', but this is the
+/// safer direction regardless).
+fn extract_percentage(line: &str) -> Option<u8> {
+    let bytes = line.as_bytes();
+    for (i, &b) in bytes.iter().enumerate().rev() {
+        if b != b'%' {
+            continue;
+        }
+        let mut start = i;
+        while start > 0 && bytes[start - 1].is_ascii_digit() {
+            start -= 1;
+        }
+        if start == i {
+            continue; // '%' with no digits immediately before it
+        }
+        if let Ok(pct) = line[start..i].parse::<u32>() {
+            return Some(pct.min(100) as u8);
+        }
+    }
+    None
 }
 
 pub fn run(
@@ -99,11 +118,12 @@ pub fn run(
 
     dlg.set_child(Some(&outer));
 
-    // We have no fine-grained fraction to report — a batch is usually
-    // just one or two protocol commands regardless of how many
-    // packages they cover. A steady pulse, paired with the action
-    // label updating per log line, communicates progress more
-    // honestly than a fraction we don't really have.
+    // Starts as an indeterminate pulse — commands like SYNC/HOLD/ORPHANS
+    // report no percentage at all, so there's nothing better to show
+    // until (if ever) a real one shows up. The moment `append_log` sees
+    // an actual percentage tick (see `extract_percentage`), it flips
+    // `pulsing` to false, which stops this timer for good and switches
+    // the bar to a real fraction from then on.
     let pulsing = Rc::new(Cell::new(true));
     {
         let pulsing = pulsing.clone();
@@ -120,8 +140,17 @@ pub fn run(
     let append_log: Rc<dyn Fn(&str)> = {
         let text_view = text_view.clone();
         let action_label = action_label.clone();
+        let pulsing = pulsing.clone();
+        let progress_bar = progress_bar.clone();
         Rc::new(move |line: &str| {
-            if is_percentage_line(line) {
+            if let Some(pct) = extract_percentage(line) {
+                // A real progress tick — switch the bar from pulsing to
+                // an actual fraction. Still not logged to the Details
+                // pane individually; there can be dozens of these per
+                // file and the surrounding "Installing `foo' ..." line
+                // already says what's happening.
+                pulsing.set(false);
+                progress_bar.set_fraction(pct as f64 / 100.0);
                 return;
             }
             let clean = strip_log_decoration(line);

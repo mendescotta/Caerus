@@ -8,6 +8,7 @@ use crate::backend::package::{
 };
 use crate::backend::package_store::PackageStore;
 use crate::ui::deps_confirm;
+use crate::ui::remove_confirm;
 use gtk::glib;
 use gtk::prelude::*;
 use std::cell::{Cell, RefCell};
@@ -21,6 +22,8 @@ struct Inner {
     current_filter: Cell<FilterMode>,
     current_search: RefCell<String>,
     search_name_only: Cell<bool>,
+    /// `None` = no repository restriction ("All Repositories").
+    current_repo_filter: RefCell<Option<String>>,
     on_package_selected: RefCell<Vec<Box<dyn Fn(Option<Package>)>>>,
     on_marks_changed: RefCell<Vec<Box<dyn Fn()>>>,
 }
@@ -109,6 +112,7 @@ impl PackageList {
             current_filter: Cell::new(FilterMode::All),
             current_search: RefCell::new(String::new()),
             search_name_only: Cell::new(false),
+            current_repo_filter: RefCell::new(None),
             on_package_selected: RefCell::new(Vec::new()),
             on_marks_changed: RefCell::new(Vec::new()),
         });
@@ -150,6 +154,30 @@ impl PackageList {
             .custom_filter
             .changed(gtk::FilterChange::Different);
     }
+    pub fn set_repository_filter(&self, repo: Option<String>) {
+        *self.inner.current_repo_filter.borrow_mut() = repo;
+        self.inner
+            .custom_filter
+            .changed(gtk::FilterChange::Different);
+    }
+
+    /// Distinct, non-empty `repository` values currently in the store,
+    /// sorted — used to populate `FilterSidebar`'s repository rows
+    /// after each load.
+    pub fn available_repositories(&self) -> Vec<String> {
+        let mut set = std::collections::HashSet::new();
+        let n = self.inner.store.list().n_items();
+        for i in 0..n {
+            if let Some(obj) = self.inner.store.list().item(i) {
+                if let Some(repo) = &pkg_of(&obj).pkg().repository {
+                    set.insert(repo.clone());
+                }
+            }
+        }
+        let mut out: Vec<String> = set.into_iter().collect();
+        out.sort();
+        out
+    }
 }
 
 fn build(inner: Rc<Inner>) {
@@ -169,6 +197,11 @@ fn build(inner: Rc<Inner>) {
                 let desc_match =
                     !inner_f.search_name_only.get() && p.short_desc.to_lowercase().contains(&q);
                 if !name_match && !desc_match {
+                    return false;
+                }
+            }
+            if let Some(repo) = inner_f.current_repo_filter.borrow().as_deref() {
+                if p.repository.as_deref() != Some(repo) {
                     return false;
                 }
             }
@@ -524,11 +557,54 @@ fn build(inner: Rc<Inner>) {
     // Sensible default ordering on first load.
     column_view.sort_by_column(Some(&col_name), gtk::SortType::Ascending);
 
+    // Double-click (or Enter on the selected row) is a quick shortcut
+    // for the same toggle the checkbox column and context menu offer —
+    // `single-click-activate` defaults to false, so this only fires on
+    // an actual double-click/Enter, never a plain single click (which
+    // only changes selection, handled above).
+    {
+        let inner = inner.clone();
+        let selection = selection.clone();
+        column_view.connect_activate(move |view, position| {
+            let Some(obj) = selection.item(position).map(|o| pkg_of(&o)) else {
+                return;
+            };
+            let root = view.root().and_downcast::<gtk::Window>();
+            toggle_mark(root, &inner.store, &inner, &obj);
+        });
+    }
+
     let scroll = gtk::ScrolledWindow::new();
     scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
     scroll.set_vexpand(true);
     scroll.set_child(Some(&column_view));
     inner.widget.append(&scroll);
+}
+
+/// Double-click (or Enter) shortcut: clears an existing mark, or
+/// applies the obvious one for the package's current state (Install,
+/// with the same deps confirmation as everywhere else; Upgrade if one's
+/// available; otherwise Remove, unless the package is essential — same
+/// guard the checkbox column and detail pane apply).
+fn toggle_mark(root: Option<gtk::Window>, store: &PackageStore, inner: &Rc<Inner>, obj: &PackageObject) {
+    let (name, state, mark, essential) = {
+        let p = obj.pkg();
+        (p.name.clone(), p.state, p.mark, p.essential)
+    };
+
+    if mark != PkgMark::None {
+        set_mark_and_notify(store, inner, &name, PkgMark::None);
+        return;
+    }
+
+    match state {
+        PkgState::NotInstalled => request_install_with_confirm(root, store, inner, &name, |_| {}),
+        PkgState::Upgradable => set_mark_and_notify(store, inner, &name, PkgMark::Upgrade),
+        _ if !essential => {
+            request_remove_with_confirm(root, store, inner, &name, PkgMark::Remove, |_| {})
+        }
+        _ => {} // essential and already installed: no quick action
+    }
 }
 
 /// Sets `mark` on `pkgname` and fires every registered
@@ -562,6 +638,30 @@ fn request_install_with_confirm(
     deps_confirm::confirm_install_deps(root.as_ref(), &store_for_call, pkgname, move |proceed| {
         if proceed {
             set_mark_and_notify(&store, &inner, &name, PkgMark::Install);
+        }
+        on_result(proceed);
+    });
+}
+
+/// Marking an installed package for Remove/Purge first checks whether
+/// any other still-to-be-installed package depends on it (see
+/// `remove_confirm`). Same `on_result(applied)` shape as
+/// `request_install_with_confirm` above.
+fn request_remove_with_confirm(
+    root: Option<gtk::Window>,
+    store: &PackageStore,
+    inner: &Rc<Inner>,
+    pkgname: &str,
+    mark: PkgMark,
+    on_result: impl Fn(bool) + 'static,
+) {
+    let store_for_call = store.clone();
+    let store = store.clone();
+    let inner = inner.clone();
+    let name = pkgname.to_string();
+    remove_confirm::confirm_remove_impact(root.as_ref(), &store_for_call, pkgname, move |proceed| {
+        if proceed {
+            set_mark_and_notify(&store, &inner, &name, mark);
         }
         on_result(proceed);
     });
@@ -628,10 +728,14 @@ fn show_context_menu(widget: &gtk::Widget, x: f64, y: f64, inner: &Rc<Inner>, ob
             if let Some(p) = popover_weak.upgrade() {
                 p.popdown();
             }
-            if mark == PkgMark::Install {
-                request_install_with_confirm(root.clone(), &store, &inner, &name, |_| {});
-            } else {
-                set_mark_and_notify(&store, &inner, &name, mark);
+            match mark {
+                PkgMark::Install => {
+                    request_install_with_confirm(root.clone(), &store, &inner, &name, |_| {})
+                }
+                PkgMark::Remove | PkgMark::Purge => {
+                    request_remove_with_confirm(root.clone(), &store, &inner, &name, mark, |_| {})
+                }
+                _ => set_mark_and_notify(&store, &inner, &name, mark),
             }
         });
         vbox.append(&btn);
@@ -639,6 +743,33 @@ fn show_context_menu(widget: &gtk::Widget, x: f64, y: f64, inner: &Rc<Inner>, ob
 
     popover.set_child(Some(&vbox));
     popover.popup();
+}
+
+/// Unchecks `cb` without re-firing its own "toggled" handler — but only
+/// if it's still showing the same package `expected_name` was bound to
+/// when the async confirmation dialog was opened (list virtualization
+/// may have rebound this exact widget to a different row while the
+/// modal was up).
+fn revert_checkbox_if_still_bound(
+    obj_weak: &glib::object::WeakRef<PackageObject>,
+    cb_weak: &glib::object::WeakRef<gtk::CheckButton>,
+    expected_name: &str,
+) {
+    let (Some(obj), Some(cb)) = (obj_weak.upgrade(), cb_weak.upgrade()) else {
+        return;
+    };
+    if obj.name() != expected_name {
+        return;
+    }
+    let handler_id = unsafe { cb.data::<glib::SignalHandlerId>("toggle-handler-id") };
+    if let Some(id) = handler_id {
+        let id_ref = unsafe { id.as_ref() };
+        cb.block_signal(id_ref);
+        cb.set_active(false);
+        cb.unblock_signal(id_ref);
+    } else {
+        cb.set_active(false);
+    }
 }
 
 fn on_checkbox_toggled(
@@ -652,47 +783,32 @@ fn on_checkbox_toggled(
         (p.name.clone(), p.state, cb.is_active())
     };
 
-    if active {
-        if state == PkgState::NotInstalled {
-            // Installing something new — check whether it drags in any
-            // not-yet-installed dependencies and confirm with the user
-            // before marking anything. Async: the mark (or lack of
-            // one) is applied in the callback, not here. If the user
-            // cancels, revert the checkbox — but only if it's still
-            // showing the same package (list virtualization may have
-            // rebound this exact widget to a different row while the
-            // modal dialog was open).
-            let root = cb.root().and_downcast::<gtk::Window>();
-            let obj_weak = glib::object::ObjectExt::downgrade(obj);
-            let cb_weak = glib::object::ObjectExt::downgrade(cb);
-            let name_for_revert = name.clone();
-            request_install_with_confirm(root, store, inner, &name, move |proceed| {
-                if !proceed {
-                    if let (Some(obj), Some(cb)) = (obj_weak.upgrade(), cb_weak.upgrade()) {
-                        if obj.name() == name_for_revert {
-                            let handler_id =
-                                unsafe { cb.data::<glib::SignalHandlerId>("toggle-handler-id") };
-                            if let Some(id) = handler_id {
-                                let id_ref = unsafe { id.as_ref() };
-                                cb.block_signal(id_ref);
-                                cb.set_active(false);
-                                cb.unblock_signal(id_ref);
-                            } else {
-                                cb.set_active(false);
-                            }
-                        }
-                    }
-                }
-            });
-            return;
-        }
-        let mark = if state == PkgState::Upgradable {
-            PkgMark::Upgrade
-        } else {
-            PkgMark::Remove
-        };
-        set_mark_and_notify(store, inner, &name, mark);
-    } else {
+    if !active {
         set_mark_and_notify(store, inner, &name, PkgMark::None);
+        return;
+    }
+
+    if state == PkgState::Upgradable {
+        set_mark_and_notify(store, inner, &name, PkgMark::Upgrade);
+        return;
+    }
+
+    // Both remaining cases (installing something new, or removing an
+    // installed one) go through an async confirmation first — deps for
+    // installs, reverse-deps impact for removals — and revert the
+    // checkbox on cancel using the same shared helper.
+    let root = cb.root().and_downcast::<gtk::Window>();
+    let obj_weak = glib::object::ObjectExt::downgrade(obj);
+    let cb_weak = glib::object::ObjectExt::downgrade(cb);
+    let name_for_revert = name.clone();
+    let on_result = move |proceed: bool| {
+        if !proceed {
+            revert_checkbox_if_still_bound(&obj_weak, &cb_weak, &name_for_revert);
+        }
+    };
+    if state == PkgState::NotInstalled {
+        request_install_with_confirm(root, store, inner, &name, on_result);
+    } else {
+        request_remove_with_confirm(root, store, inner, &name, PkgMark::Remove, on_result);
     }
 }

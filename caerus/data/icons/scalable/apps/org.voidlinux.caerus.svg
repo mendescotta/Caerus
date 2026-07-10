@@ -1,35 +1,45 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
   <defs>
-    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#4f9d75"/>
-      <stop offset="1" stop-color="#337355"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5fb488"/>
+      <stop offset="1" stop-color="#2f6b4c"/>
     </linearGradient>
-    <linearGradient id="lid" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#6cc499"/>
-      <stop offset="1" stop-color="#4f9d75"/>
+    <linearGradient id="boxTop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#eafff2"/>
+    </linearGradient>
+    <linearGradient id="boxLeft" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eafff2"/>
+      <stop offset="1" stop-color="#c9ede0"/>
+    </linearGradient>
+    <linearGradient id="boxRight" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#dff5ec"/>
+      <stop offset="1" stop-color="#b3ded1"/>
     </linearGradient>
   </defs>
 
-  <!-- box body -->
-  <path d="M22 54 L64 72 L106 54 L106 100 Q106 106 100 108 L68 120 Q64 121.5 60 120 L28 108 Q22 106 22 100 Z"
-        fill="url(#body)"/>
+  <!-- squircle backdrop, Void green -->
+  <rect x="6" y="6" width="116" height="116" rx="30" fill="url(#bg)"/>
+  <!-- soft top highlight for depth -->
+  <ellipse cx="64" cy="30" rx="46" ry="20" fill="#ffffff" opacity="0.08"/>
 
-  <!-- box lid / top face -->
-  <path d="M64 8 L108 26 Q112 27.5 108 30 L66 47 Q64 48 62 47 L20 30 Q16 28 20 26 Z"
-        fill="url(#lid)"/>
+  <!-- isometric package box, centered -->
+  <g transform="translate(64,68)">
+    <!-- top face -->
+    <path d="M0 -34 L32 -17 L0 0 L-32 -17 Z" fill="url(#boxTop)"/>
+    <!-- left face -->
+    <path d="M-32 -17 L0 0 L0 32 L-32 15 Z" fill="url(#boxLeft)"/>
+    <!-- right face -->
+    <path d="M32 -17 L0 0 L0 32 L32 15 Z" fill="url(#boxRight)"/>
+    <!-- seams -->
+    <path d="M0 0 L0 32 M0 0 L-32 -17 M0 0 L32 -17" stroke="#2f6b4c" stroke-width="1.5"
+          stroke-linejoin="round" opacity="0.35" fill="none"/>
+  </g>
 
-  <!-- left flap shading -->
-  <path d="M20 30 L62 47 L62 47 L62 88 L22 71 Z" fill="#3d8664" opacity="0.55"/>
-  <!-- right flap shading -->
-  <path d="M108 30 L66 47 L66 88 L106 71 Z" fill="#2c6a4d" opacity="0.55"/>
-
-  <!-- centre seam -->
-  <path d="M64 48 L64 121" stroke="#28583f" stroke-width="2.5" opacity="0.6" fill="none"/>
-
-  <!-- checkmark badge -->
-  <circle cx="94" cy="94" r="26" fill="#1d3b2c"/>
-  <circle cx="94" cy="94" r="26" fill="none" stroke="#eafff2" stroke-width="2" opacity="0.15"/>
-  <path d="M83 95 L91 103 L107 85" fill="none" stroke="#eafff2" stroke-width="6"
+  <!-- checkmark badge, bottom-right -->
+  <circle cx="93" cy="93" r="21" fill="#1d3b2c"/>
+  <circle cx="93" cy="93" r="21" fill="none" stroke="#eafff2" stroke-width="1.5" opacity="0.2"/>
+  <path d="M84 94 L90 100 L103 85" fill="none" stroke="#eafff2" stroke-width="5.5"
         stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
