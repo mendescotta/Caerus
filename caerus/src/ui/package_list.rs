@@ -217,7 +217,7 @@ fn build(inner: Rc<Inner>) {
         });
     }
 
-    let column_view = gtk::ColumnView::new(Some(selection));
+    let column_view = gtk::ColumnView::new(Some(selection.clone()));
     column_view.set_show_row_separators(true);
     column_view.set_show_column_separators(true);
     column_view.set_vexpand(true);
@@ -329,12 +329,41 @@ fn build(inner: Rc<Inner>) {
     column_view.append_column(&col_status);
 
     // ── Package name column ──────────────────────────────────────────
+    // Also carries a right-click context menu (Mark for Install/
+    // Upgrade/Removal/Purge/Unmark) — same identity-by-`item.item()`
+    // trick as the checkbox column above, so the menu always acts on
+    // whichever package is currently bound to this row, not whichever
+    // one was there when the row widget was first created.
     let col_name = make_col(
         "Package",
         200,
         true,
         false,
-        label_cell,
+        {
+            let inner = inner.clone();
+            let selection = selection.clone();
+            move |item| {
+                let l = gtk::Label::new(None);
+                l.set_xalign(0.0);
+                l.set_ellipsize(gtk::pango::EllipsizeMode::End);
+                item.set_child(Some(&l));
+
+                let gesture = gtk::GestureClick::new();
+                gesture.set_button(gtk::gdk::BUTTON_SECONDARY);
+                let li = item.clone();
+                let inner = inner.clone();
+                let selection = selection.clone();
+                gesture.connect_pressed(move |g, _n_press, x, y| {
+                    let Some(obj) = li.item().map(|o| pkg_of(&o)) else {
+                        return;
+                    };
+                    selection.set_selected(li.position());
+                    let Some(widget) = g.widget() else { return };
+                    show_context_menu(&widget, x, y, &inner, &obj);
+                });
+                l.add_controller(gesture);
+            }
+        },
         |item| {
             let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
                 return;
@@ -502,6 +531,116 @@ fn build(inner: Rc<Inner>) {
     inner.widget.append(&scroll);
 }
 
+/// Sets `mark` on `pkgname` and fires every registered
+/// `on_marks_changed` listener. Shared by the checkbox column and the
+/// right-click context menu.
+fn set_mark_and_notify(store: &PackageStore, inner: &Rc<Inner>, pkgname: &str, mark: PkgMark) {
+    store.set_mark(pkgname, mark);
+    for f in inner.on_marks_changed.borrow().iter() {
+        f();
+    }
+}
+
+/// Marking a not-yet-installed package for install first checks whether
+/// it drags in further not-yet-installed dependencies and confirms with
+/// the user (see `deps_confirm`). Asynchronous: `on_result` fires with
+/// `true` if the mark was actually applied, `false` if the user
+/// canceled — the caller decides what, if anything, to do with either
+/// outcome (the checkbox column reverts its checkbox; the context menu
+/// has nothing to revert).
+fn request_install_with_confirm(
+    root: Option<gtk::Window>,
+    store: &PackageStore,
+    inner: &Rc<Inner>,
+    pkgname: &str,
+    on_result: impl Fn(bool) + 'static,
+) {
+    let store_for_call = store.clone();
+    let store = store.clone();
+    let inner = inner.clone();
+    let name = pkgname.to_string();
+    deps_confirm::confirm_install_deps(root.as_ref(), &store_for_call, pkgname, move |proceed| {
+        if proceed {
+            set_mark_and_notify(&store, &inner, &name, PkgMark::Install);
+        }
+        on_result(proceed);
+    });
+}
+
+/// (button label, target mark, enabled) for a package's current
+/// mark/state — same precedence `DetailPane::update_action_buttons`
+/// uses: a pending mark shows only Unmark; otherwise the options depend
+/// on install state, with Removal/Purge disabled for essential packages.
+fn context_menu_items(pkg: &Package) -> Vec<(&'static str, PkgMark, bool)> {
+    if pkg.mark != PkgMark::None {
+        return vec![("Unmark", PkgMark::None, true)];
+    }
+    match pkg.state {
+        PkgState::NotInstalled => vec![("Mark for Installation", PkgMark::Install, true)],
+        PkgState::Upgradable => vec![
+            ("Mark for Upgrade", PkgMark::Upgrade, true),
+            ("Mark for Removal", PkgMark::Remove, !pkg.essential),
+            ("Mark for Purge", PkgMark::Purge, !pkg.essential),
+        ],
+        _ => vec![
+            ("Mark for Removal", PkgMark::Remove, !pkg.essential),
+            ("Mark for Purge", PkgMark::Purge, !pkg.essential),
+        ],
+    }
+}
+
+/// Builds and pops up a small right-click menu, anchored at `(x, y)`
+/// within `widget`, offering the contextual mark actions for `obj`. A
+/// fresh `gtk::Popover` per invocation (rather than one reused instance)
+/// keeps this stateless between rows; `connect_closed` unparents it so
+/// it doesn't linger once dismissed.
+fn show_context_menu(widget: &gtk::Widget, x: f64, y: f64, inner: &Rc<Inner>, obj: &PackageObject) {
+    let pkg = obj.pkg().clone();
+    let items = context_menu_items(&pkg);
+
+    let popover = gtk::Popover::new();
+    popover.set_parent(widget);
+    popover.set_has_arrow(true);
+    popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+    popover.connect_closed(|p| p.unparent());
+
+    let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    vbox.set_margin_start(4);
+    vbox.set_margin_end(4);
+    vbox.set_margin_top(4);
+    vbox.set_margin_bottom(4);
+
+    let root = widget.root().and_downcast::<gtk::Window>();
+    for (label, mark, enabled) in items {
+        let btn = gtk::Button::with_label(label);
+        btn.set_has_frame(false);
+        if let Some(l) = btn.child().and_downcast::<gtk::Label>() {
+            l.set_xalign(0.0);
+        }
+        btn.set_sensitive(enabled);
+
+        let store = inner.store.clone();
+        let inner = inner.clone();
+        let name = pkg.name.clone();
+        let root = root.clone();
+        let popover_weak = popover.downgrade();
+        btn.connect_clicked(move |_| {
+            if let Some(p) = popover_weak.upgrade() {
+                p.popdown();
+            }
+            if mark == PkgMark::Install {
+                request_install_with_confirm(root.clone(), &store, &inner, &name, |_| {});
+            } else {
+                set_mark_and_notify(&store, &inner, &name, mark);
+            }
+        });
+        vbox.append(&btn);
+    }
+
+    popover.set_child(Some(&vbox));
+    popover.popup();
+}
+
 fn on_checkbox_toggled(
     cb: &gtk::CheckButton,
     obj: &PackageObject,
@@ -524,29 +663,23 @@ fn on_checkbox_toggled(
             // rebound this exact widget to a different row while the
             // modal dialog was open).
             let root = cb.root().and_downcast::<gtk::Window>();
-            let store_for_call = store.clone();
-            let store = store.clone();
             let obj_weak = glib::object::ObjectExt::downgrade(obj);
             let cb_weak = glib::object::ObjectExt::downgrade(cb);
-            let name_for_dialog = name.clone();
-            let inner = inner.clone();
-            deps_confirm::confirm_install_deps(root.as_ref(), &store_for_call, &name, move |proceed| {
-                if proceed {
-                    store.set_mark(&name_for_dialog, PkgMark::Install);
-                    for f in inner.on_marks_changed.borrow().iter() {
-                        f();
-                    }
-                } else if let (Some(obj), Some(cb)) = (obj_weak.upgrade(), cb_weak.upgrade()) {
-                    if obj.name() == name_for_dialog {
-                        let handler_id =
-                            unsafe { cb.data::<glib::SignalHandlerId>("toggle-handler-id") };
-                        if let Some(id) = handler_id {
-                            let id_ref = unsafe { id.as_ref() };
-                            cb.block_signal(id_ref);
-                            cb.set_active(false);
-                            cb.unblock_signal(id_ref);
-                        } else {
-                            cb.set_active(false);
+            let name_for_revert = name.clone();
+            request_install_with_confirm(root, store, inner, &name, move |proceed| {
+                if !proceed {
+                    if let (Some(obj), Some(cb)) = (obj_weak.upgrade(), cb_weak.upgrade()) {
+                        if obj.name() == name_for_revert {
+                            let handler_id =
+                                unsafe { cb.data::<glib::SignalHandlerId>("toggle-handler-id") };
+                            if let Some(id) = handler_id {
+                                let id_ref = unsafe { id.as_ref() };
+                                cb.block_signal(id_ref);
+                                cb.set_active(false);
+                                cb.unblock_signal(id_ref);
+                            } else {
+                                cb.set_active(false);
+                            }
                         }
                     }
                 }
@@ -558,12 +691,8 @@ fn on_checkbox_toggled(
         } else {
             PkgMark::Remove
         };
-        store.set_mark(&name, mark);
+        set_mark_and_notify(store, inner, &name, mark);
     } else {
-        store.set_mark(&name, PkgMark::None);
-    }
-
-    for f in inner.on_marks_changed.borrow().iter() {
-        f();
+        set_mark_and_notify(store, inner, &name, PkgMark::None);
     }
 }

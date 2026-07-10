@@ -14,6 +14,8 @@
 //!   PURGE   p1 p2    — recursive removal (also drops now-orphaned deps)
 //!   UPGRADE          — full system upgrade (-Su)
 //!   SYNC             — sync repository indexes (-S)
+//!   HOLD    p1 p2    — pin package(s) at their current version
+//!   UNHOLD  p1 p2    — release a previously-set hold
 //!   QUIT             — exit
 //!
 //! Responses:
@@ -203,6 +205,34 @@ fn main() {
             argv.extend(pkgs.iter().map(String::as_str));
             let code = run_xbps(&argv);
             respond_ok_or(code == Some(0), "purge failed");
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("HOLD ") {
+            let pkgs = split_pkgnames(rest);
+            if pkgs.is_empty() {
+                println!("ERROR no packages specified");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            let mut argv: Vec<&str> = vec!["xbps-pkgdb", "-m", "hold"];
+            argv.extend(pkgs.iter().map(String::as_str));
+            let code = run_xbps(&argv);
+            respond_ok_or(code == Some(0), "hold failed");
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("UNHOLD ") {
+            let pkgs = split_pkgnames(rest);
+            if pkgs.is_empty() {
+                println!("ERROR no packages specified");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            let mut argv: Vec<&str> = vec!["xbps-pkgdb", "-m", "unhold"];
+            argv.extend(pkgs.iter().map(String::as_str));
+            let code = run_xbps(&argv);
+            respond_ok_or(code == Some(0), "unhold failed");
             continue;
         }
 

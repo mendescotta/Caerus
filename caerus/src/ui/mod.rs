@@ -1,3 +1,4 @@
+pub mod apply_confirm;
 pub mod apply_dialog;
 pub mod deps_confirm;
 pub mod detail_pane;
