@@ -108,14 +108,18 @@ fn mark_is_valid_for_state(mark: PkgMark, state: PkgState) -> bool {
 
 // ── Public, GTK-side handle ─────────────────────────────────────────
 
+type LoadStartedCbs = RefCell<Vec<Box<dyn Fn()>>>;
+type LoadFinishedCbs = RefCell<Vec<Box<dyn Fn(u32)>>>;
+type LoadErrorCbs = RefCell<Vec<Box<dyn Fn(&str)>>>;
+
 struct Inner {
     list: gio::ListStore,
     loading: Cell<bool>,
     loaded: Cell<bool>,
     cmd_tx: mpsc::Sender<Cmd>,
-    on_load_started: RefCell<Vec<Box<dyn Fn()>>>,
-    on_load_finished: RefCell<Vec<Box<dyn Fn(u32)>>>,
-    on_load_error: RefCell<Vec<Box<dyn Fn(&str)>>>,
+    on_load_started: LoadStartedCbs,
+    on_load_finished: LoadFinishedCbs,
+    on_load_error: LoadErrorCbs,
 }
 
 impl Drop for Inner {
@@ -575,8 +579,9 @@ unsafe extern "C" fn rpool_repo_cb(
         }
         // NOTE: `xbps_dictionary_all_keys` returns keysym objects, not
         // plain strings — see the doc comment above.
-        let pkgname_ptr =
-            xbps_sys::xbps_dictionary_keysym_cstring_nocopy(keyobj as xbps_sys::xbps_dictionary_keysym_t);
+        let pkgname_ptr = xbps_sys::xbps_dictionary_keysym_cstring_nocopy(
+            keyobj as xbps_sys::xbps_dictionary_keysym_t,
+        );
         if pkgname_ptr.is_null() {
             continue;
         }
@@ -753,7 +758,8 @@ fn get_deps(xh: &mut xbps_sys::xbps_handle, inited: bool, pkgname: &str) -> Opti
         if d.is_null() {
             return None;
         }
-        let deps = xbps_sys::xbps_dictionary_get(d, cstr("run_depends").as_ptr()) as xbps_sys::xbps_array_t;
+        let deps = xbps_sys::xbps_dictionary_get(d, cstr("run_depends").as_ptr())
+            as xbps_sys::xbps_array_t;
         if deps.is_null() {
             return None;
         }
@@ -815,7 +821,8 @@ fn get_files(xh: &mut xbps_sys::xbps_handle, inited: bool, pkgname: &str) -> Opt
         }
         let mut out = Vec::new();
 
-        let files = xbps_sys::xbps_dictionary_get(fd, cstr("files").as_ptr()) as xbps_sys::xbps_array_t;
+        let files =
+            xbps_sys::xbps_dictionary_get(fd, cstr("files").as_ptr()) as xbps_sys::xbps_array_t;
         if !files.is_null() {
             let n = xbps_sys::xbps_array_count(files);
             for i in 0..n {
@@ -825,7 +832,8 @@ fn get_files(xh: &mut xbps_sys::xbps_handle, inited: bool, pkgname: &str) -> Opt
                 }
             }
         }
-        let links = xbps_sys::xbps_dictionary_get(fd, cstr("links").as_ptr()) as xbps_sys::xbps_array_t;
+        let links =
+            xbps_sys::xbps_dictionary_get(fd, cstr("links").as_ptr()) as xbps_sys::xbps_array_t;
         if !links.is_null() {
             let n = xbps_sys::xbps_array_count(links);
             for i in 0..n {
@@ -836,7 +844,8 @@ fn get_files(xh: &mut xbps_sys::xbps_handle, inited: bool, pkgname: &str) -> Opt
                 }
             }
         }
-        let dirs = xbps_sys::xbps_dictionary_get(fd, cstr("dirs").as_ptr()) as xbps_sys::xbps_array_t;
+        let dirs =
+            xbps_sys::xbps_dictionary_get(fd, cstr("dirs").as_ptr()) as xbps_sys::xbps_array_t;
         if !dirs.is_null() {
             let n = xbps_sys::xbps_array_count(dirs);
             for i in 0..n {

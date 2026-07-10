@@ -11,7 +11,11 @@ mod ui;
 use gio::prelude::*;
 use gtk::prelude::*;
 
-const APP_ID: &str = "org.voidlinux.caerus";
+/// Also the icon name (matches `caerus/data/icons/hicolor/scalable/apps/
+/// org.voidlinux.caerus.svg` and the installed `.desktop` file's `Icon=`)
+/// — reused by `ui::window`'s About dialog rather than duplicating the
+/// literal.
+pub const APP_ID: &str = "org.voidlinux.caerus";
 
 /// Dev build: `caerus/data/icons/` lives in the source tree, not next
 /// to the compiled binary (unlike `caerus-helper`, it's not a build

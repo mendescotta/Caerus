@@ -138,9 +138,16 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     let btn_reload = gtk::Button::from_icon_name("view-refresh-symbolic");
     btn_reload.set_tooltip_text(Some("Reload local package list without syncing"));
     let btn_mark_upgrades = gtk::Button::with_label("Mark All Upgrades");
+    btn_mark_upgrades.set_tooltip_text(Some(
+        "Queue every upgradable package as a pending mark, reviewed and applied via Apply \
+         — unlike the app menu's Full System Upgrade, this can be combined with other \
+         pending install/remove marks and reviewed before anything runs.",
+    ));
     let btn_unmark_all = gtk::Button::with_label("Unmark All");
     btn_unmark_all.set_sensitive(false);
-    btn_unmark_all.set_tooltip_text(Some("Clear every pending Install/Upgrade/Remove/Purge mark"));
+    btn_unmark_all.set_tooltip_text(Some(
+        "Clear every pending Install/Upgrade/Remove/Purge mark",
+    ));
 
     header.pack_start(&spinner);
     header.pack_start(&btn_update);
@@ -154,9 +161,8 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
 
     let btn_search_name_only = gtk::ToggleButton::new();
     btn_search_name_only.set_icon_name("edit-find-symbolic");
-    btn_search_name_only.set_tooltip_text(Some(
-        "Search by name only (default: name + description)",
-    ));
+    btn_search_name_only
+        .set_tooltip_text(Some("Search by name only (default: name + description)"));
 
     let search_entry = gtk::SearchEntry::new();
     search_entry.set_width_request(220);
@@ -308,7 +314,11 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuB
     maintenance_header.set_xalign(0.0);
     maintenance_header.add_css_class("section-header");
     let full_upgrade = flat_menu_button("Full System Upgrade\u{2026}");
-    full_upgrade.set_tooltip_text(Some("xbps-install -Su — upgrade every installed package"));
+    full_upgrade.set_tooltip_text(Some(
+        "xbps-install -Su — upgrade every installed package immediately, independent of \
+         (and without touching) anything currently marked. For queuing upgrades alongside \
+         other pending changes instead, use Mark All Upgrades + Apply.",
+    ));
     let remove_orphans = flat_menu_button("Remove Orphaned Packages");
     remove_orphans.set_tooltip_text(Some(
         "xbps-remove -o — drop packages nothing else depends on anymore",
@@ -417,28 +427,29 @@ fn show_about_dialog(parent: &gtk::ApplicationWindow) {
         "A Synaptic-inspired package manager for Void Linux, built directly on libxbps.",
     ));
     about.set_website(Some("https://voidlinux.org"));
-    about.set_logo_icon_name(Some("org.voidlinux.caerus"));
+    about.set_logo_icon_name(Some(crate::APP_ID));
+    about.set_license_type(gtk::License::Gpl30);
     about.present();
 }
 
 fn show_shortcuts_dialog(parent: &gtk::ApplicationWindow) {
-    let dlg = gtk::Window::new();
-    dlg.set_title(Some("Keyboard Shortcuts"));
-    dlg.set_transient_for(Some(parent));
-    dlg.set_modal(true);
-    dlg.set_resizable(false);
-
-    let outer = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    outer.set_margin_start(20);
-    outer.set_margin_end(20);
-    outer.set_margin_top(16);
-    outer.set_margin_bottom(16);
+    let (dlg, outer) = crate::ui::dialog_util::modal_window(
+        "Keyboard Shortcuts",
+        Some(parent.upcast_ref::<gtk::Window>()),
+        false,
+        (-1, -1),
+        6,
+    );
 
     let shortcuts: &[(&str, &str)] = &[
         ("Ctrl+F", "Focus search"),
-        ("Escape", "Clear search"),
+        ("Escape", "Clear search, or close the current dialog"),
         ("F5", "Reload package list"),
         ("Delete", "Mark selected package for removal"),
+        (
+            "Ctrl+A",
+            "Select all visible packages (for right-click bulk actions)",
+        ),
         ("Ctrl+Q", "Quit"),
     ];
     for (key, desc) in shortcuts {
@@ -464,7 +475,6 @@ fn show_shortcuts_dialog(parent: &gtk::ApplicationWindow) {
     }
     outer.append(&close_btn);
 
-    dlg.set_child(Some(&outer));
     dlg.present();
 }
 
@@ -485,6 +495,13 @@ fn wire_keyboard_shortcuts(state: &Rc<WindowState>) {
             }
             gtk::gdk::Key::q if ctrl => {
                 state.window.close();
+                glib::Propagation::Stop
+            }
+            // Guarded on the search entry not having focus so this
+            // doesn't hijack the ordinary "select all text" behavior
+            // while typing a search query.
+            gtk::gdk::Key::a if ctrl && !state.search_entry.has_focus() => {
+                state.pkg_list.select_all();
                 glib::Propagation::Stop
             }
             gtk::gdk::Key::Escape if !state.search_entry.text().is_empty() => {
@@ -517,7 +534,9 @@ fn wire_up(state: &Rc<WindowState>) {
         let state = state.clone();
         store.connect_load_started(move || {
             set_loading(&state, true);
-            state.status_label.set_text("Loading package database\u{2026}");
+            state
+                .status_label
+                .set_text("Loading package database\u{2026}");
         });
     }
     {
@@ -897,7 +916,11 @@ fn on_hold_requested(state: &Rc<WindowState>, pkgname: &str, want_hold: bool) {
     } else {
         format!("UNHOLD {}", pkgname)
     };
-    let title = if want_hold { "Holding Package" } else { "Releasing Hold" };
+    let title = if want_hold {
+        "Holding Package"
+    } else {
+        "Releasing Hold"
+    };
     run_maintenance_command(state, &cmd, title);
 }
 
@@ -912,7 +935,9 @@ fn on_hold_requested(state: &Rc<WindowState>, pkgname: &str, want_hold: bool) {
 fn on_full_upgrade_clicked(state: &Rc<WindowState>) {
     let upgrades = state.store.upgradable_names();
     if upgrades.is_empty() {
-        state.status_label.set_text("Everything is already up to date.");
+        state
+            .status_label
+            .set_text("Everything is already up to date.");
         return;
     }
     let state2 = state.clone();

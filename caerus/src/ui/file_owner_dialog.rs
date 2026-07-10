@@ -4,6 +4,7 @@
 //! those) it runs directly from the unprivileged GUI process — no
 //! `caerus-helper`/pkexec involved.
 
+use crate::ui::dialog_util::{modal_window, present_focused, text_list_row};
 use gtk::prelude::*;
 use std::process::Command;
 
@@ -31,20 +32,7 @@ fn query_owner(path: &str) -> Result<String, String> {
 }
 
 pub fn show(parent: Option<&gtk::Window>) {
-    let dlg = gtk::Window::new();
-    dlg.set_title(Some("Find Owning Package"));
-    if let Some(p) = parent {
-        dlg.set_transient_for(Some(p));
-    }
-    dlg.set_modal(true);
-    dlg.set_default_size(480, 320);
-    dlg.set_resizable(true);
-
-    let outer = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    outer.set_margin_start(16);
-    outer.set_margin_end(16);
-    outer.set_margin_top(16);
-    outer.set_margin_bottom(16);
+    let (dlg, outer) = modal_window("Find Owning Package", parent, true, (480, 320), 8);
 
     let hint = gtk::Label::new(Some(
         "Enter a file path (or a regex — same matching xbps-query itself uses):",
@@ -83,7 +71,6 @@ pub fn show(parent: Option<&gtk::Window>) {
     close_btn.set_margin_top(4);
     outer.append(&close_btn);
 
-    dlg.set_child(Some(&outer));
     dlg.set_default_widget(Some(&search_btn));
 
     let run_search = {
@@ -100,16 +87,7 @@ pub fn show(parent: Option<&gtk::Window>) {
             match query_owner(&query) {
                 Ok(text) if !text.trim().is_empty() => {
                     for line in text.lines().filter(|l| !l.trim().is_empty()) {
-                        let l = gtk::Label::new(Some(line));
-                        l.set_xalign(0.0);
-                        l.set_selectable(true);
-                        l.set_wrap(true);
-                        l.set_margin_start(8);
-                        l.set_margin_top(4);
-                        l.set_margin_bottom(4);
-                        let row = gtk::ListBoxRow::new();
-                        row.set_child(Some(&l));
-                        results_list.append(&row);
+                        results_list.append(&text_list_row(line, true));
                     }
                 }
                 Ok(_) => {
@@ -149,6 +127,5 @@ pub fn show(parent: Option<&gtk::Window>) {
         close_btn.connect_clicked(move |_| dlg.destroy());
     }
 
-    dlg.present();
-    entry.grab_focus();
+    present_focused(&dlg, &entry);
 }

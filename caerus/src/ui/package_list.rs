@@ -15,6 +15,9 @@ use std::cell::{Cell, RefCell};
 use std::cmp::Ordering as CmpOrdering;
 use std::rc::Rc;
 
+type PackageSelectedCbs = RefCell<Vec<Box<dyn Fn(Option<Package>)>>>;
+type MarksChangedCbs = RefCell<Vec<Box<dyn Fn()>>>;
+
 struct Inner {
     widget: gtk::Box,
     store: PackageStore,
@@ -24,8 +27,13 @@ struct Inner {
     search_name_only: Cell<bool>,
     /// `None` = no repository restriction ("All Repositories").
     current_repo_filter: RefCell<Option<String>>,
-    on_package_selected: RefCell<Vec<Box<dyn Fn(Option<Package>)>>>,
-    on_marks_changed: RefCell<Vec<Box<dyn Fn()>>>,
+    /// Set once by `build()` right after the `MultiSelection` is
+    /// constructed — `None` only during that brief construction window.
+    /// Lets `PackageList::select_all` reach it without `build()` having
+    /// to plumb it back out through a separate return value.
+    selection: RefCell<Option<gtk::MultiSelection>>,
+    on_package_selected: PackageSelectedCbs,
+    on_marks_changed: MarksChangedCbs,
 }
 
 #[derive(Clone)]
@@ -63,7 +71,10 @@ fn pkg_sort_rank(p: &Package) -> i32 {
     }
 }
 
-fn set_column_sorter(col: &gtk::ColumnViewColumn, cmp: impl Fn(&Package, &Package) -> CmpOrdering + 'static) {
+fn set_column_sorter(
+    col: &gtk::ColumnViewColumn,
+    cmp: impl Fn(&Package, &Package) -> CmpOrdering + 'static,
+) {
     let sorter = gtk::CustomSorter::new(move |a, b| {
         let pa = pkg_of(a);
         let pb = pkg_of(b);
@@ -113,6 +124,7 @@ impl PackageList {
             current_search: RefCell::new(String::new()),
             search_name_only: Cell::new(false),
             current_repo_filter: RefCell::new(None),
+            selection: RefCell::new(None),
             on_package_selected: RefCell::new(Vec::new()),
             on_marks_changed: RefCell::new(Vec::new()),
         });
@@ -134,6 +146,17 @@ impl PackageList {
     }
     pub fn connect_marks_changed(&self, f: impl Fn() + 'static) {
         self.inner.on_marks_changed.borrow_mut().push(Box::new(f));
+    }
+
+    /// Selects every currently-*filtered* row (Ctrl+A) — a fast way to
+    /// feed the right-click context menu's bulk mark actions without
+    /// ctrl/shift-clicking each row by hand. Only affects selection, not
+    /// marks directly: like a plain click, it's still the context menu
+    /// (or double-click on a single row) that actually applies a mark.
+    pub fn select_all(&self) {
+        if let Some(selection) = self.inner.selection.borrow().as_ref() {
+            selection.select_all();
+        }
     }
 
     pub fn set_filter(&self, mode: FilterMode) {
@@ -229,6 +252,7 @@ fn build(inner: Rc<Inner>) {
     // click, so the mid-load-swallows-first-click bug the old
     // SingleSelection comment described doesn't apply here.
     let selection = gtk::MultiSelection::new(Some(sort_model.clone()));
+    *inner.selection.borrow_mut() = Some(selection.clone());
 
     {
         let inner_s = inner.clone();
@@ -242,7 +266,9 @@ fn build(inner: Rc<Inner>) {
             // `selected_packages` / the context menu).
             let bitset = model.selection();
             let pkg = if bitset.size() == 1 {
-                model.item(bitset.minimum()).map(|obj| pkg_of(&obj).pkg().clone())
+                model
+                    .item(bitset.minimum())
+                    .map(|obj| pkg_of(&obj).pkg().clone())
             } else {
                 None
             };
@@ -449,35 +475,30 @@ fn build(inner: Rc<Inner>) {
         },
     );
     set_column_sorter(&col_desc, |a, b| {
-        a.short_desc.to_lowercase().cmp(&b.short_desc.to_lowercase())
+        a.short_desc
+            .to_lowercase()
+            .cmp(&b.short_desc.to_lowercase())
     });
     column_view.append_column(&col_desc);
 
     // ── Installed version column ─────────────────────────────────────
-    let col_inst = make_col(
-        "Installed",
-        110,
-        true,
-        false,
-        label_cell,
-        |item| {
-            let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
-                return;
-            };
-            let l = item.child().and_downcast::<gtk::Label>().unwrap();
-            let p = obj.pkg();
-            match &p.version_installed {
-                Some(v) => {
-                    l.set_text(v);
-                    l.add_css_class("pkg-installed");
-                }
-                None => {
-                    l.set_text("\u{2014}");
-                    l.remove_css_class("pkg-installed");
-                }
+    let col_inst = make_col("Installed", 110, true, false, label_cell, |item| {
+        let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
+            return;
+        };
+        let l = item.child().and_downcast::<gtk::Label>().unwrap();
+        let p = obj.pkg();
+        match &p.version_installed {
+            Some(v) => {
+                l.set_text(v);
+                l.add_css_class("pkg-installed");
             }
-        },
-    );
+            None => {
+                l.set_text("\u{2014}");
+                l.remove_css_class("pkg-installed");
+            }
+        }
+    });
     set_column_sorter(&col_inst, |a, b| {
         a.version_installed
             .clone()
@@ -487,26 +508,19 @@ fn build(inner: Rc<Inner>) {
     column_view.append_column(&col_inst);
 
     // ── Available version column ──────────────────────────────────────
-    let col_avail = make_col(
-        "Available",
-        110,
-        true,
-        false,
-        label_cell,
-        |item| {
-            let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
-                return;
-            };
-            let l = item.child().and_downcast::<gtk::Label>().unwrap();
-            let p = obj.pkg();
-            l.set_text(p.version_available.as_deref().unwrap_or("\u{2014}"));
-            if p.state == PkgState::Upgradable {
-                l.add_css_class("pkg-upgradable");
-            } else {
-                l.remove_css_class("pkg-upgradable");
-            }
-        },
-    );
+    let col_avail = make_col("Available", 110, true, false, label_cell, |item| {
+        let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
+            return;
+        };
+        let l = item.child().and_downcast::<gtk::Label>().unwrap();
+        let p = obj.pkg();
+        l.set_text(p.version_available.as_deref().unwrap_or("\u{2014}"));
+        if p.state == PkgState::Upgradable {
+            l.add_css_class("pkg-upgradable");
+        } else {
+            l.remove_css_class("pkg-upgradable");
+        }
+    });
     set_column_sorter(&col_avail, |a, b| {
         a.version_available
             .clone()
@@ -516,47 +530,33 @@ fn build(inner: Rc<Inner>) {
     column_view.append_column(&col_avail);
 
     // ── Sizes ──────────────────────────────────────────────────────────
-    let col_isize = make_col(
-        "Installed Size",
-        110,
-        true,
-        false,
-        label_cell,
-        |item| {
-            let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
-                return;
-            };
-            let l = item.child().and_downcast::<gtk::Label>().unwrap();
-            let p = obj.pkg();
-            l.set_text(&if p.install_size > 0 {
-                pkg_format_size(p.install_size)
-            } else {
-                "\u{2014}".to_string()
-            });
-        },
-    );
+    let col_isize = make_col("Installed Size", 110, true, false, label_cell, |item| {
+        let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
+            return;
+        };
+        let l = item.child().and_downcast::<gtk::Label>().unwrap();
+        let p = obj.pkg();
+        l.set_text(&if p.install_size > 0 {
+            pkg_format_size(p.install_size)
+        } else {
+            "\u{2014}".to_string()
+        });
+    });
     set_column_sorter(&col_isize, |a, b| a.install_size.cmp(&b.install_size));
     column_view.append_column(&col_isize);
 
-    let col_dsize = make_col(
-        "Download Size",
-        110,
-        true,
-        false,
-        label_cell,
-        |item| {
-            let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
-                return;
-            };
-            let l = item.child().and_downcast::<gtk::Label>().unwrap();
-            let p = obj.pkg();
-            l.set_text(&if p.download_size > 0 {
-                pkg_format_size(p.download_size)
-            } else {
-                "\u{2014}".to_string()
-            });
-        },
-    );
+    let col_dsize = make_col("Download Size", 110, true, false, label_cell, |item| {
+        let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
+            return;
+        };
+        let l = item.child().and_downcast::<gtk::Label>().unwrap();
+        let p = obj.pkg();
+        l.set_text(&if p.download_size > 0 {
+            pkg_format_size(p.download_size)
+        } else {
+            "\u{2014}".to_string()
+        });
+    });
     set_column_sorter(&col_dsize, |a, b| a.download_size.cmp(&b.download_size));
     column_view.append_column(&col_dsize);
 
@@ -617,7 +617,12 @@ fn build(inner: Rc<Inner>) {
 /// with the same deps confirmation as everywhere else; Upgrade if one's
 /// available; otherwise Remove, unless the package is essential — same
 /// guard the checkbox column and detail pane apply).
-fn toggle_mark(root: Option<gtk::Window>, store: &PackageStore, inner: &Rc<Inner>, obj: &PackageObject) {
+fn toggle_mark(
+    root: Option<gtk::Window>,
+    store: &PackageStore,
+    inner: &Rc<Inner>,
+    obj: &PackageObject,
+) {
     let (name, state, mark, essential) = {
         let p = obj.pkg();
         (p.name.clone(), p.state, p.mark, p.essential)
@@ -690,12 +695,17 @@ fn request_remove_with_confirm(
     let store = store.clone();
     let inner = inner.clone();
     let name = pkgname.to_string();
-    remove_confirm::confirm_remove_impact(root.as_ref(), &store_for_call, pkgname, move |proceed| {
-        if proceed {
-            set_mark_and_notify(&store, &inner, &name, mark);
-        }
-        on_result(proceed);
-    });
+    remove_confirm::confirm_remove_impact(
+        root.as_ref(),
+        &store_for_call,
+        pkgname,
+        move |proceed| {
+            if proceed {
+                set_mark_and_notify(&store, &inner, &name, mark);
+            }
+            on_result(proceed);
+        },
+    );
 }
 
 /// Whether `mark` is a meaningful action to offer for `pkg` right now —
@@ -789,7 +799,13 @@ fn selected_packages(selection: &gtk::MultiSelection) -> Vec<Package> {
 /// `gtk::Popover` per invocation (rather than one reused instance)
 /// keeps this stateless between rows; `connect_closed` unparents it so
 /// it doesn't linger once dismissed.
-fn show_context_menu(widget: &gtk::Widget, x: f64, y: f64, inner: &Rc<Inner>, selected: Vec<Package>) {
+fn show_context_menu(
+    widget: &gtk::Widget,
+    x: f64,
+    y: f64,
+    inner: &Rc<Inner>,
+    selected: Vec<Package>,
+) {
     if selected.is_empty() {
         return;
     }
