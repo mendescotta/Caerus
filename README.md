@@ -99,7 +99,23 @@ works straight out of the build tree — no install step needed to try it
 out. The application icon needs `caerus/data/icons/` to be reachable
 relative to the binary for this to show correctly uninstalled; it's found
 automatically as long as you run the binary from inside the build tree
-(`target/debug/caerus` or `target/release/caerus`).
+(`target/debug/caerus` or `target/release/caerus`). This covers Caerus's
+own UI — the window icon, headerbar, and About dialog.
+
+The desktop shell (GNOME's top bar, Alt-Tab, the Overview, etc.) is a
+separate matter: it identifies windows through an installed `.desktop`
+entry, not the window's own icon, so an uninstalled build shows up there
+with a generic icon and the raw `WM_CLASS` ("caerus") instead of "Caerus".
+To fix that without a full system install:
+
+```sh
+./dev-install.sh
+```
+
+This registers a `.desktop` entry and icon under `~/.local/share` pointing
+at whichever build (`release` preferred, else `debug`) exists in this
+checkout — no root needed. Re-run it after switching between debug and
+release builds.
 
 ### Uninstalling
 
@@ -128,7 +144,9 @@ caerus/
 │                      repo_manager.rs
 ├── caerus-helper/  the privileged helper (spawned via pkexec), zero
 │                   external dependencies by design
-└── install.sh
+├── install.sh      system-wide install (requires root)
+└── dev-install.sh  per-user desktop/icon registration for an uninstalled
+                     build (no root)
 ```
 
 **Concurrency model.** Exactly one dedicated OS thread ever touches
