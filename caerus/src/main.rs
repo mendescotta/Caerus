@@ -20,6 +20,17 @@ const APP_ID: &str = "org.voidlinux.caerus";
 /// `None` for an installed build (where the icon is already reachable
 /// through the standard `/usr/share/icons/hicolor` search path), so
 /// this is purely an *additional* search path, never a replacement.
+///
+/// `GtkIconTheme::add_search_path` treats its argument as a directory
+/// of *themes* (mirroring `/usr/share/icons`, which contains `hicolor/`,
+/// `Adwaita/`, etc. as siblings) and looks for `<path>/<theme>/<size>/
+/// <context>/<icon>` under it — not as the icon tree itself. So the
+/// source layout mirrors the installed one
+/// (`caerus/data/icons/hicolor/scalable/apps/...`, matching
+/// `$datadir/icons/hicolor/scalable/apps/...`) and this points
+/// `add_search_path` at `caerus/data/icons` — the `hicolor/` directory
+/// it contains is what actually gets matched against the `hicolor`
+/// fallback theme every `GtkIconTheme` already checks.
 fn find_dev_icon_search_dir() -> Option<std::path::PathBuf> {
     let exe = std::fs::read_link("/proc/self/exe").ok()?;
     // exe             = <repo>/target/{debug,release}/caerus
@@ -28,7 +39,7 @@ fn find_dev_icon_search_dir() -> Option<std::path::PathBuf> {
     // .parent()       = <repo>                           <- the one we want
     let candidate = exe.parent()?.parent()?.parent()?.join("caerus/data/icons");
     candidate
-        .join("scalable/apps/org.voidlinux.caerus.svg")
+        .join("hicolor/scalable/apps/org.voidlinux.caerus.svg")
         .is_file()
         .then_some(candidate)
 }

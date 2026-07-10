@@ -31,7 +31,7 @@ install -Dm644 "$SRC_DIR/caerus/data/org.voidlinux.caerus.policy" \
     "$DATADIR/polkit-1/actions/org.voidlinux.caerus.policy"
 install -Dm644 "$SRC_DIR/caerus/data/org.voidlinux.caerus.desktop" \
     "$DATADIR/applications/org.voidlinux.caerus.desktop"
-install -Dm644 "$SRC_DIR/caerus/data/icons/scalable/apps/org.voidlinux.caerus.svg" \
+install -Dm644 "$SRC_DIR/caerus/data/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg" \
     "$DATADIR/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg"
 
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
