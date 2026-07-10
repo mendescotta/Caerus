@@ -16,6 +16,8 @@
 //!   SYNC             — sync repository indexes (-S)
 //!   HOLD    p1 p2    — pin package(s) at their current version
 //!   UNHOLD  p1 p2    — release a previously-set hold
+//!   ORPHANS          — remove packages no longer required by anything
+//!   CLEANCACHE       — remove outdated files from the package cache
 //!   QUIT             — exit
 //!
 //! Responses:
@@ -205,6 +207,23 @@ fn main() {
             argv.extend(pkgs.iter().map(String::as_str));
             let code = run_xbps(&argv);
             respond_ok_or(code == Some(0), "purge failed");
+            continue;
+        }
+
+        if line == "ORPHANS" {
+            // -o computes the orphan set itself; no package names needed.
+            let code = run_xbps(&["xbps-remove", "-y", "-o"]);
+            respond_ok_or(code == Some(0), "orphan removal failed");
+            continue;
+        }
+
+        if line == "CLEANCACHE" {
+            // Single -O: drop only cache files superseded by a newer
+            // version. (Doubling it would also drop cached files for
+            // packages that aren't installed at all — not done here to
+            // keep this action's effect predictable/non-destructive.)
+            let code = run_xbps(&["xbps-remove", "-O"]);
+            respond_ok_or(code == Some(0), "cache cleanup failed");
             continue;
         }
 

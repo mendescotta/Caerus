@@ -13,7 +13,12 @@ use std::rc::Rc;
 
 struct Inner {
     widget: gtk::Box,
+    repo_lb: gtk::ListBox,
+    /// Row `i + 1` of `repo_lb` corresponds to `repo_names[i]`; row 0
+    /// is always the fixed "All Repositories" row.
+    repo_names: RefCell<Vec<String>>,
     on_filter_changed: RefCell<Vec<Box<dyn Fn(FilterMode)>>>,
+    on_repository_changed: RefCell<Vec<Box<dyn Fn(Option<String>)>>>,
 }
 
 #[derive(Clone)]
@@ -35,6 +40,24 @@ fn make_row(icon: &str, label: &str) -> gtk::ListBoxRow {
 
     let row = gtk::ListBoxRow::new();
     row.set_child(Some(&row_box));
+    row
+}
+
+/// Repository rows have no natural icon (repos are arbitrary
+/// user-configured URIs/paths) and can be long, so this variant skips
+/// the icon and ellipsizes instead.
+fn make_text_row(label: &str) -> gtk::ListBoxRow {
+    let l = gtk::Label::new(Some(label));
+    l.set_xalign(0.0);
+    l.set_hexpand(true);
+    l.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+    l.set_margin_start(8);
+    l.set_margin_end(8);
+    l.set_margin_top(5);
+    l.set_margin_bottom(5);
+
+    let row = gtk::ListBoxRow::new();
+    row.set_child(Some(&l));
     row
 }
 
@@ -72,12 +95,33 @@ impl FilterSidebar {
         preset_lb.append(&make_row("emblem-important-symbolic", "Marked"));
 
         inner_box.append(&preset_lb);
+
+        let repo_header = gtk::Label::new(Some("REPOSITORY"));
+        repo_header.set_xalign(0.0);
+        repo_header.set_margin_top(10);
+        repo_header.set_margin_start(6);
+        repo_header.set_margin_bottom(2);
+        repo_header.add_css_class("section-header");
+        inner_box.append(&repo_header);
+
+        // Populated later via `set_available_repositories` once a load
+        // has actually happened — the set of repositories isn't known
+        // until then. Starts with just "All Repositories".
+        let repo_lb = gtk::ListBox::new();
+        repo_lb.set_selection_mode(gtk::SelectionMode::Single);
+        repo_lb.add_css_class("navigation-sidebar");
+        repo_lb.append(&make_text_row("All Repositories"));
+        inner_box.append(&repo_lb);
+
         scroll.set_child(Some(&inner_box));
         widget.append(&scroll);
 
         let inner = Rc::new(Inner {
             widget,
+            repo_lb: repo_lb.clone(),
+            repo_names: RefCell::new(Vec::new()),
             on_filter_changed: RefCell::new(Vec::new()),
+            on_repository_changed: RefCell::new(Vec::new()),
         });
 
         {
@@ -105,6 +149,32 @@ impl FilterSidebar {
             preset_lb.select_row(Some(&row0));
         }
 
+        {
+            let inner_weak = Rc::downgrade(&inner);
+            repo_lb.connect_row_selected(move |_, row| {
+                let Some(row) = row else { return };
+                let Some(inner) = inner_weak.upgrade() else {
+                    return;
+                };
+                let idx = row.index();
+                let repo = if idx <= 0 {
+                    None
+                } else {
+                    inner.repo_names.borrow().get((idx - 1) as usize).cloned()
+                };
+                for cb in inner.on_repository_changed.borrow().iter() {
+                    cb(repo.clone());
+                }
+            });
+        }
+        // Same first-emission caveat as the preset list above: fires
+        // during construction, before the caller can connect — harmless
+        // since `PackageList`'s own default (no repository filter)
+        // already matches "All Repositories".
+        if let Some(row0) = repo_lb.row_at_index(0) {
+            repo_lb.select_row(Some(&row0));
+        }
+
         FilterSidebar { inner }
     }
 
@@ -114,5 +184,54 @@ impl FilterSidebar {
 
     pub fn connect_filter_changed(&self, f: impl Fn(FilterMode) + 'static) {
         self.inner.on_filter_changed.borrow_mut().push(Box::new(f));
+    }
+
+    pub fn connect_repository_changed(&self, f: impl Fn(Option<String>) + 'static) {
+        self.inner
+            .on_repository_changed
+            .borrow_mut()
+            .push(Box::new(f));
+    }
+
+    /// Rebuilds the repository rows from a freshly-loaded package set.
+    /// Mirrors `PackageStore`'s own mark-preservation-across-reload
+    /// approach: if the previously-selected repository is still present
+    /// in the new set, the selection (and therefore `PackageList`'s
+    /// filter) carries over instead of silently resetting to "All" on
+    /// every reload.
+    pub fn set_available_repositories(&self, mut repos: Vec<String>) {
+        repos.sort();
+        repos.dedup();
+
+        let previously_selected = self
+            .inner
+            .repo_lb
+            .selected_row()
+            .map(|r| r.index())
+            .filter(|&i| i > 0)
+            .and_then(|i| self.inner.repo_names.borrow().get((i - 1) as usize).cloned());
+
+        while let Some(child) = self.inner.repo_lb.first_child() {
+            self.inner.repo_lb.remove(&child);
+        }
+        self.inner.repo_lb.append(&make_text_row("All Repositories"));
+        for r in &repos {
+            self.inner.repo_lb.append(&make_text_row(r));
+        }
+        *self.inner.repo_names.borrow_mut() = repos;
+
+        let restore_index = previously_selected
+            .as_ref()
+            .and_then(|name| self.inner.repo_names.borrow().iter().position(|r| r == name))
+            .map(|pos| pos as i32 + 1)
+            .unwrap_or(0);
+
+        if let Some(row) = self.inner.repo_lb.row_at_index(restore_index) {
+            // Every row was just recreated, so nothing is selected yet
+            // at this point — this always fires "row-selected" (via the
+            // handler wired in `new()`), which notifies listeners with
+            // the correct value in every case (restored or reset).
+            self.inner.repo_lb.select_row(Some(&row));
+        }
     }
 }

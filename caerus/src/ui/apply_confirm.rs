@@ -9,29 +9,37 @@
 use gtk::prelude::*;
 use std::rc::Rc;
 
+/// Same look as the Dependencies/Reverse Dependencies lists in the
+/// detail pane (see `detail_pane::populate`): a plain `ListBox` of
+/// selectable-text rows, not a wrapped comma-separated label — easier
+/// to scan and to select one name out of a long list.
 fn section(outer: &gtk::Box, title: &str, names: &[String]) {
     if names.is_empty() {
         return;
     }
-    let header = gtk::Label::new(Some(&format!(
-        "{} ({}):",
-        title,
-        names.len()
-    )));
+    let header = gtk::Label::new(Some(&format!("{} ({})", title, names.len())));
     header.set_xalign(0.0);
-    header.add_css_class("heading");
-    header.set_margin_top(6);
+    header.add_css_class("section-header");
+    header.set_margin_top(8);
     outer.append(&header);
 
     let mut sorted = names.to_vec();
     sorted.sort();
-    let list_label = gtk::Label::new(Some(&sorted.join(", ")));
-    list_label.set_xalign(0.0);
-    list_label.set_wrap(true);
-    list_label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-    list_label.set_selectable(true);
-    list_label.add_css_class("dim-label");
-    outer.append(&list_label);
+
+    let list = gtk::ListBox::new();
+    list.set_selection_mode(gtk::SelectionMode::None);
+    for name in &sorted {
+        let l = gtk::Label::new(Some(name));
+        l.set_xalign(0.0);
+        l.set_selectable(true);
+        l.set_margin_start(8);
+        l.set_margin_top(4);
+        l.set_margin_bottom(4);
+        let row = gtk::ListBoxRow::new();
+        row.set_child(Some(&l));
+        list.append(&row);
+    }
+    outer.append(&list);
 }
 
 /// Shows a summary dialog and calls `cb(true)` if the user confirms,
@@ -93,17 +101,20 @@ pub fn confirm(
     let apply_btn = gtk::Button::with_label("Apply");
     // Removing/purging anything makes this the riskier action of the
     // two possible framings; installs/upgrades alone stay "suggested".
-    if removes.is_empty() && purges.is_empty() {
-        apply_btn.add_css_class("suggested-action");
-    } else {
+    let destructive = !removes.is_empty() || !purges.is_empty();
+    if destructive {
         apply_btn.add_css_class("destructive-action");
+    } else {
+        apply_btn.add_css_class("suggested-action");
     }
     btn_box.append(&cancel_btn);
     btn_box.append(&apply_btn);
     outer.append(&btn_box);
 
     dlg.set_child(Some(&outer));
-    dlg.set_default_widget(Some(&apply_btn));
+    // Same default-widget/focus target: Enter activates Cancel rather
+    // than a destructive Apply when removals/purges are involved.
+    dlg.set_default_widget(Some(if destructive { &cancel_btn } else { &apply_btn }));
 
     let cb = Rc::new(cb);
 
@@ -132,4 +143,14 @@ pub fn confirm(
     }
 
     dlg.present();
+    // Without this, GTK hands initial keyboard focus to the first
+    // focusable widget in the window — one of the selectable-text list
+    // rows above — which shows up as that row's entire text looking
+    // "pre-selected" the instant the dialog opens. Explicitly focusing
+    // a button avoids it.
+    if destructive {
+        cancel_btn.grab_focus();
+    } else {
+        apply_btn.grab_focus();
+    }
 }

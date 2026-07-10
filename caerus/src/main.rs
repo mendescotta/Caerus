@@ -13,17 +13,40 @@ use gtk::prelude::*;
 
 const APP_ID: &str = "org.voidlinux.caerus";
 
+/// Dev build: `caerus/data/icons/` lives in the source tree, not next
+/// to the compiled binary (unlike `caerus-helper`, it's not a build
+/// artifact `cargo` produces) — walk up from `target/{debug,release}/
+/// caerus` to the repo root and into `caerus/data/icons`. Returns
+/// `None` for an installed build (where the icon is already reachable
+/// through the standard `/usr/share/icons/hicolor` search path), so
+/// this is purely an *additional* search path, never a replacement.
+fn find_dev_icon_search_dir() -> Option<std::path::PathBuf> {
+    let exe = std::fs::read_link("/proc/self/exe").ok()?;
+    let candidate = exe.parent()?.parent()?.join("caerus/data/icons");
+    candidate
+        .join("scalable/apps/org.voidlinux.caerus.svg")
+        .is_file()
+        .then_some(candidate)
+}
+
 fn main() -> glib::ExitCode {
     let app = gtk::Application::new(Some(APP_ID), gio::ApplicationFlags::default());
 
     app.connect_startup(|_app| {
-        // The icon is installed into $datadir/icons/hicolor/scalable/apps/
-        // by the packaging (see data/org.voidlinux.caerus.desktop) — that
-        // copy is what the desktop launcher / window manager taskbar look
-        // up via the .desktop file's Icon=. Setting the default window
-        // icon name here additionally covers this process's own windows
-        // even when run straight out of a build directory before
-        // installing, exactly like the original's on_startup().
+        // `set_default_icon_name` alone only picks *which name* to look
+        // up — it still needs the icon theme to actually resolve that
+        // name to a file. When run straight out of the build tree
+        // (before `install.sh` has copied the icon into
+        // $datadir/icons/hicolor/...), no search path contains it, so
+        // every icon-name lookup in the process (this window, and the
+        // About dialog's logo) silently comes up blank. Registering the
+        // source tree's icons/ directory as an extra search path fixes
+        // that for dev builds without affecting an installed one.
+        if let Some(dir) = find_dev_icon_search_dir() {
+            if let Some(display) = gtk::gdk::Display::default() {
+                gtk::IconTheme::for_display(&display).add_search_path(dir);
+            }
+        }
         gtk::Window::set_default_icon_name(APP_ID);
     });
 

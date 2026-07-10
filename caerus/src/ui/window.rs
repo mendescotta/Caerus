@@ -30,6 +30,9 @@ struct WindowState {
     btn_mark_upgrades: gtk::Button,
     btn_unmark_all: gtk::Button,
     btn_apply: gtk::Button,
+    btn_full_upgrade: gtk::Button,
+    btn_remove_orphans: gtk::Button,
+    btn_clean_cache: gtk::Button,
     search_entry: gtk::SearchEntry,
     btn_search_name_only: gtk::ToggleButton,
     status_label: gtk::Label,
@@ -165,7 +168,7 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     header.pack_end(&btn_search_name_only);
     header.pack_end(&btn_apply);
 
-    let menu_button = build_app_menu(&window);
+    let (menu_button, btn_full_upgrade, btn_remove_orphans, btn_clean_cache) = build_app_menu(&window);
     header.pack_end(&menu_button);
 
     window.set_titlebar(Some(&header));
@@ -226,6 +229,9 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         btn_mark_upgrades,
         btn_unmark_all,
         btn_apply,
+        btn_full_upgrade,
+        btn_remove_orphans,
+        btn_clean_cache,
         search_entry,
         btn_search_name_only,
         status_label,
@@ -274,7 +280,15 @@ fn flat_menu_button(label: &str) -> gtk::Button {
     btn
 }
 
-fn build_app_menu(window: &gtk::ApplicationWindow) -> gtk::MenuButton {
+/// Returns the menu button plus the three maintenance-action buttons it
+/// contains (Full System Upgrade / Remove Orphaned Packages / Clean
+/// Package Cache) — those need `WindowState` (session, store) to wire
+/// up, which doesn't exist yet at the point in `build_window` where the
+/// header bar is built, so the caller wires their click handlers later
+/// in `wire_up`.
+fn build_app_menu(
+    window: &gtk::ApplicationWindow,
+) -> (gtk::MenuButton, gtk::Button, gtk::Button, gtk::Button) {
     let menu_button = gtk::MenuButton::new();
     menu_button.set_icon_name("open-menu-symbolic");
     menu_button.set_tooltip_text(Some("Main Menu"));
@@ -285,18 +299,44 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> gtk::MenuButton {
     vbox.set_margin_end(4);
     vbox.set_margin_top(4);
     vbox.set_margin_bottom(4);
-    vbox.set_width_request(190);
+    vbox.set_width_request(230);
+
+    let maintenance_header = gtk::Label::new(Some("MAINTENANCE"));
+    maintenance_header.set_xalign(0.0);
+    maintenance_header.add_css_class("section-header");
+    let btn_full_upgrade = flat_menu_button("Full System Upgrade\u{2026}");
+    btn_full_upgrade.set_tooltip_text(Some("xbps-install -Su — upgrade every installed package"));
+    let btn_remove_orphans = flat_menu_button("Remove Orphaned Packages");
+    btn_remove_orphans.set_tooltip_text(Some(
+        "xbps-remove -o — drop packages nothing else depends on anymore",
+    ));
+    let btn_clean_cache = flat_menu_button("Clean Package Cache");
+    btn_clean_cache.set_tooltip_text(Some(
+        "xbps-remove -O — delete cached package files superseded by a newer version",
+    ));
 
     let btn_shortcuts = flat_menu_button("Keyboard Shortcuts");
     let btn_about = flat_menu_button("About Caerus");
     let btn_quit = flat_menu_button("Quit");
 
+    vbox.append(&maintenance_header);
+    vbox.append(&btn_full_upgrade);
+    vbox.append(&btn_remove_orphans);
+    vbox.append(&btn_clean_cache);
+    vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     vbox.append(&btn_shortcuts);
     vbox.append(&btn_about);
     vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     vbox.append(&btn_quit);
     popover.set_child(Some(&vbox));
     menu_button.set_popover(Some(&popover));
+
+    // Maintenance actions need `WindowState`, wired later; every click
+    // should still close the popover regardless of which button.
+    for btn in [&btn_full_upgrade, &btn_remove_orphans, &btn_clean_cache] {
+        let popover = popover.clone();
+        btn.connect_clicked(move |_| popover.popdown());
+    }
 
     {
         let window = window.clone();
@@ -324,7 +364,7 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> gtk::MenuButton {
         });
     }
 
-    menu_button
+    (menu_button, btn_full_upgrade, btn_remove_orphans, btn_clean_cache)
 }
 
 fn show_about_dialog(parent: &gtk::ApplicationWindow) {
@@ -446,6 +486,9 @@ fn wire_up(state: &Rc<WindowState>) {
         store.connect_load_finished(move |_n| {
             set_loading(&state, false);
             update_status_bar(&state);
+            state
+                .sidebar
+                .set_available_repositories(state.pkg_list.available_repositories());
         });
     }
     {
@@ -465,6 +508,13 @@ fn wire_up(state: &Rc<WindowState>) {
         let state = state.clone();
         sidebar.connect_filter_changed(move |mode| {
             state.pkg_list.set_filter(mode);
+        });
+    }
+    {
+        let sidebar = state.sidebar.clone();
+        let state = state.clone();
+        sidebar.connect_repository_changed(move |repo| {
+            state.pkg_list.set_repository_filter(repo);
         });
     }
     {
@@ -494,6 +544,27 @@ fn wire_up(state: &Rc<WindowState>) {
         let state = state.clone();
         detail_pane.connect_hold_requested(move |pkgname, want_hold| {
             on_hold_requested(&state, &pkgname, want_hold);
+        });
+    }
+    {
+        let btn = state.btn_full_upgrade.clone();
+        let state = state.clone();
+        btn.connect_clicked(move |_| {
+            on_full_upgrade_clicked(&state);
+        });
+    }
+    {
+        let btn = state.btn_remove_orphans.clone();
+        let state = state.clone();
+        btn.connect_clicked(move |_| {
+            run_maintenance_command(&state, "ORPHANS", "Removing Orphaned Packages");
+        });
+    }
+    {
+        let btn = state.btn_clean_cache.clone();
+        let state = state.clone();
+        btn.connect_clicked(move |_| {
+            run_maintenance_command(&state, "CLEANCACHE", "Cleaning Package Cache");
         });
     }
 
@@ -753,11 +824,49 @@ fn on_hold_requested(state: &Rc<WindowState>, pkgname: &str, want_hold: bool) {
         format!("UNHOLD {}", pkgname)
     };
     let title = if want_hold { "Holding Package" } else { "Releasing Hold" };
+    run_maintenance_command(state, &cmd, title);
+}
+
+/// "xbps-install -Su" via the helper's UPGRADE command — a full-system
+/// pass, independent of (and doesn't touch) whatever the user has
+/// separately marked for install/remove. Previews the set the app
+/// itself currently knows to be upgradable through the same summary
+/// dialog Apply uses; the actual command still lets xbps resolve its
+/// own upgrade set, which may differ slightly (e.g. deps pulled in
+/// along the way), but this is the closest local approximation without
+/// literally running a dry-run first.
+fn on_full_upgrade_clicked(state: &Rc<WindowState>) {
+    let upgrades = state.store.upgradable_names();
+    if upgrades.is_empty() {
+        state.status_label.set_text("Everything is already up to date.");
+        return;
+    }
+    let state2 = state.clone();
+    apply_confirm::confirm(
+        Some(state.window.upcast_ref()),
+        &[],
+        &upgrades,
+        &[],
+        &[],
+        move |confirmed| {
+            if confirmed {
+                run_maintenance_command(&state2, "UPGRADE", "Full System Upgrade");
+            }
+        },
+    );
+}
+
+/// Runs a single privileged protocol command outside the normal
+/// mark/Apply batch — used for actions that are self-contained and
+/// don't need dependency resolution or a pending-changes review
+/// (hold/unhold, orphan removal, cache cleanup). Shows the same
+/// progress dialog as a regular Apply, then reloads.
+fn run_maintenance_command(state: &Rc<WindowState>, cmd: &str, title: &str) {
     let state2 = state.clone();
     apply_dialog::run(
         Some(state.window.upcast_ref()),
         &state.session,
-        &[cmd],
+        &[cmd.to_string()],
         title,
         move |success| {
             state2.status_label.set_text(if success {
