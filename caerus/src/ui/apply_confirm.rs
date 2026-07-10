@@ -6,6 +6,7 @@
 //! especially risky for Purge (it can cascade into removing orphaned
 //! dependencies too). Same manual-widget style as `deps_confirm.rs`.
 
+use crate::ui::dialog_util::{modal_window, present_focused, text_list_row};
 use gtk::prelude::*;
 use std::rc::Rc;
 
@@ -29,15 +30,7 @@ fn section(outer: &gtk::Box, title: &str, names: &[String]) {
     let list = gtk::ListBox::new();
     list.set_selection_mode(gtk::SelectionMode::None);
     for name in &sorted {
-        let l = gtk::Label::new(Some(name));
-        l.set_xalign(0.0);
-        l.set_selectable(true);
-        l.set_margin_start(8);
-        l.set_margin_top(4);
-        l.set_margin_bottom(4);
-        let row = gtk::ListBoxRow::new();
-        row.set_child(Some(&l));
-        list.append(&row);
+        list.append(&text_list_row(name, false));
     }
     outer.append(&list);
 }
@@ -54,20 +47,7 @@ pub fn confirm(
     purges: &[String],
     cb: impl Fn(bool) + 'static,
 ) {
-    let dlg = gtk::Window::new();
-    dlg.set_title(Some("Confirm Changes"));
-    if let Some(p) = parent {
-        dlg.set_transient_for(Some(p));
-    }
-    dlg.set_modal(true);
-    dlg.set_resizable(true);
-    dlg.set_default_size(460, -1);
-
-    let outer = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    outer.set_margin_start(16);
-    outer.set_margin_end(16);
-    outer.set_margin_top(16);
-    outer.set_margin_bottom(16);
+    let (dlg, outer) = modal_window("Confirm Changes", parent, true, (460, -1), 4);
 
     let total = installs.len() + upgrades.len() + removes.len() + purges.len();
     let heading = gtk::Label::new(Some(&format!(
@@ -90,7 +70,11 @@ pub fn confirm(
     section(&sections, "Install", installs);
     section(&sections, "Upgrade", upgrades);
     section(&sections, "Remove", removes);
-    section(&sections, "Purge (also removes orphaned dependencies)", purges);
+    section(
+        &sections,
+        "Purge (also removes orphaned dependencies)",
+        purges,
+    );
     scroll.set_child(Some(&sections));
     outer.append(&scroll);
 
@@ -111,7 +95,6 @@ pub fn confirm(
     btn_box.append(&apply_btn);
     outer.append(&btn_box);
 
-    dlg.set_child(Some(&outer));
     // Same default-widget/focus target: Enter activates Cancel rather
     // than a destructive Apply when removals/purges are involved.
     dlg.set_default_widget(Some(if destructive { &cancel_btn } else { &apply_btn }));
@@ -142,15 +125,5 @@ pub fn confirm(
         });
     }
 
-    dlg.present();
-    // Without this, GTK hands initial keyboard focus to the first
-    // focusable widget in the window — one of the selectable-text list
-    // rows above — which shows up as that row's entire text looking
-    // "pre-selected" the instant the dialog opens. Explicitly focusing
-    // a button avoids it.
-    if destructive {
-        cancel_btn.grab_focus();
-    } else {
-        apply_btn.grab_focus();
-    }
+    present_focused(&dlg, if destructive { &cancel_btn } else { &apply_btn });
 }

@@ -11,6 +11,7 @@
 //!   - it has sat idle (no command in flight, none queued) for
 //!     `IDLE_TIMEOUT`, or
 //!   - `shutdown()` is called explicitly (app exit).
+//!
 //! Either way, the *next* call to `run_async()` after that transparently
 //! respawns the helper — a fresh `pkexec` prompt — since this is
 //! indistinguishable from first use.
@@ -43,6 +44,12 @@ enum TxnState {
     Idle,
 }
 
+type LogCb = Rc<dyn Fn(&str)>;
+type FinishedCb = Rc<dyn Fn(bool)>;
+type LogCbs = RefCell<Vec<(u64, LogCb)>>;
+type FinishedCbs = RefCell<Vec<(u64, FinishedCb)>>;
+type DisconnectedCbs = RefCell<Vec<(u64, FinishedCb)>>;
+
 struct Inner {
     stdin: RefCell<Option<ChildStdin>>,
     line_rx: RefCell<Option<mpsc::Receiver<String>>>,
@@ -52,9 +59,9 @@ struct Inner {
     idle_timeout_id: RefCell<Option<glib::SourceId>>,
 
     next_listener_id: Cell<u64>,
-    on_log: RefCell<Vec<(u64, Rc<dyn Fn(&str)>)>>,
-    on_finished: RefCell<Vec<(u64, Rc<dyn Fn(bool)>)>>,
-    on_disconnected: RefCell<Vec<(u64, Rc<dyn Fn(bool)>)>>,
+    on_log: LogCbs,
+    on_finished: FinishedCbs,
+    on_disconnected: DisconnectedCbs,
 }
 
 #[derive(Clone)]
@@ -124,16 +131,25 @@ impl Transaction {
         id
     }
     pub fn disconnect_finished(&self, id: u64) {
-        self.inner.on_finished.borrow_mut().retain(|(i, _)| *i != id);
+        self.inner
+            .on_finished
+            .borrow_mut()
+            .retain(|(i, _)| *i != id);
     }
 
     pub fn connect_disconnected(&self, f: impl Fn(bool) + 'static) -> u64 {
         let id = self.next_id();
-        self.inner.on_disconnected.borrow_mut().push((id, Rc::new(f)));
+        self.inner
+            .on_disconnected
+            .borrow_mut()
+            .push((id, Rc::new(f)));
         id
     }
     pub fn disconnect_disconnected(&self, id: u64) {
-        self.inner.on_disconnected.borrow_mut().retain(|(i, _)| *i != id);
+        self.inner
+            .on_disconnected
+            .borrow_mut()
+            .retain(|(i, _)| *i != id);
     }
 
     // Each `emit_*` clones the current listener `Rc`s into a temporary
@@ -142,21 +158,31 @@ impl Transaction {
     // itself or another id) from within its own callback without
     // hitting a double-borrow panic.
     fn emit_log(&self, line: &str) {
-        let cbs: Vec<Rc<dyn Fn(&str)>> =
-            self.inner.on_log.borrow().iter().map(|(_, f)| f.clone()).collect();
+        let cbs: Vec<LogCb> = self
+            .inner
+            .on_log
+            .borrow()
+            .iter()
+            .map(|(_, f)| f.clone())
+            .collect();
         for cb in cbs {
             cb(line);
         }
     }
     fn emit_finished(&self, success: bool) {
-        let cbs: Vec<Rc<dyn Fn(bool)>> =
-            self.inner.on_finished.borrow().iter().map(|(_, f)| f.clone()).collect();
+        let cbs: Vec<FinishedCb> = self
+            .inner
+            .on_finished
+            .borrow()
+            .iter()
+            .map(|(_, f)| f.clone())
+            .collect();
         for cb in cbs {
             cb(success);
         }
     }
     fn emit_disconnected(&self, expected: bool) {
-        let cbs: Vec<Rc<dyn Fn(bool)>> = self
+        let cbs: Vec<FinishedCb> = self
             .inner
             .on_disconnected
             .borrow()
@@ -170,7 +196,10 @@ impl Transaction {
 
     /// Queue a protocol command line (without trailing newline).
     pub fn add_command(&self, command: &str) {
-        self.inner.pending.borrow_mut().push_back(command.to_string());
+        self.inner
+            .pending
+            .borrow_mut()
+            .push_back(command.to_string());
     }
 
     /// Ensures the helper is running (spawning/authenticating if
@@ -382,9 +411,8 @@ impl Transaction {
         if line.starts_with("ERROR") {
             self.inner.pending.borrow_mut().clear();
             self.end_of_batch(false);
-            return;
         }
-        // "LOG ..." or anything else — already emitted via emit_log above
+        // "LOG ..." or anything else — already emitted via emit_log above.
     }
 
     /// Process exited (expectedly via our own QUIT, or not) — or we're

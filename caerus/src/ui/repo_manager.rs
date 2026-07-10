@@ -7,6 +7,7 @@
 //! read-only, so this can never surprise-edit someone else's setup.
 
 use crate::backend::transaction::Transaction;
+use crate::ui::dialog_util::{modal_window, present_focused};
 use gtk::prelude::*;
 use std::rc::Rc;
 
@@ -107,20 +108,7 @@ fn refresh(inner: &Rc<Inner>) {
 }
 
 pub fn show(parent: Option<&gtk::Window>, session: &Transaction, on_changed: impl Fn() + 'static) {
-    let dlg = gtk::Window::new();
-    dlg.set_title(Some("Repositories"));
-    if let Some(p) = parent {
-        dlg.set_transient_for(Some(p));
-    }
-    dlg.set_modal(true);
-    dlg.set_default_size(500, 380);
-    dlg.set_resizable(true);
-
-    let outer = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    outer.set_margin_start(16);
-    outer.set_margin_end(16);
-    outer.set_margin_top(16);
-    outer.set_margin_bottom(16);
+    let (dlg, outer) = modal_window("Repositories", parent, true, (500, 380), 8);
 
     let repos_scroll = gtk::ScrolledWindow::new();
     repos_scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
@@ -147,7 +135,6 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction, on_changed: imp
     close_btn.set_margin_top(4);
     outer.append(&close_btn);
 
-    dlg.set_child(Some(&outer));
     dlg.set_default_widget(Some(&add_btn));
 
     let inner = Rc::new(Inner {
@@ -162,7 +149,12 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction, on_changed: imp
         let entry = entry.clone();
         add_btn.connect_clicked(move |_| {
             let url = entry.text().trim().to_string();
-            if url.is_empty() {
+            // A URL never legitimately contains whitespace/control
+            // characters — reject rather than forward them, since this
+            // string ends up as a whole line in the newline-delimited
+            // helper protocol (`ADDREPO <url>`) and an embedded newline
+            // would otherwise be read back as extra, unintended commands.
+            if url.is_empty() || url.chars().any(|c| c.is_control() || c.is_whitespace()) {
                 return;
             }
             let inner2 = inner.clone();
@@ -187,6 +179,5 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction, on_changed: imp
 
     refresh(&inner);
 
-    dlg.present();
-    entry.grab_focus();
+    present_focused(&dlg, &entry);
 }

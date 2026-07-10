@@ -8,9 +8,13 @@
 
 use crate::backend::package::FilterMode;
 use crate::backend::repo_names::{display_repo, RepoNames};
+use crate::ui::dialog_util::{modal_window, present_focused};
 use gtk::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
+
+type FilterChangedCbs = RefCell<Vec<Box<dyn Fn(FilterMode)>>>;
+type RepositoryChangedCbs = RefCell<Vec<Box<dyn Fn(Option<String>)>>>;
 
 struct Inner {
     widget: gtk::Box,
@@ -21,8 +25,8 @@ struct Inner {
     /// User-chosen display names, keyed by repository URL — right-click
     /// a repository row to set one.
     display_names: RefCell<RepoNames>,
-    on_filter_changed: RefCell<Vec<Box<dyn Fn(FilterMode)>>>,
-    on_repository_changed: RefCell<Vec<Box<dyn Fn(Option<String>)>>>,
+    on_filter_changed: FilterChangedCbs,
+    on_repository_changed: RepositoryChangedCbs,
 }
 
 fn repo_display_text(inner: &Inner, url: &str) -> String {
@@ -109,21 +113,13 @@ fn build_repo_row(inner: &Rc<Inner>, url: String) -> gtk::ListBoxRow {
 
 /// Lets the user set (or clear) a custom display name for `url`,
 /// updating `label` and persisted storage immediately on Save/Reset.
-fn show_rename_dialog(parent: Option<gtk::Window>, inner: &Rc<Inner>, url: String, label: &gtk::Label) {
-    let dlg = gtk::Window::new();
-    dlg.set_title(Some("Rename Repository"));
-    if let Some(p) = &parent {
-        dlg.set_transient_for(Some(p));
-    }
-    dlg.set_modal(true);
-    dlg.set_resizable(false);
-    dlg.set_default_size(380, -1);
-
-    let outer = gtk::Box::new(gtk::Orientation::Vertical, 10);
-    outer.set_margin_start(16);
-    outer.set_margin_end(16);
-    outer.set_margin_top(16);
-    outer.set_margin_bottom(16);
+fn show_rename_dialog(
+    parent: Option<gtk::Window>,
+    inner: &Rc<Inner>,
+    url: String,
+    label: &gtk::Label,
+) {
+    let (dlg, outer) = modal_window("Rename Repository", parent.as_ref(), false, (380, -1), 10);
 
     let url_label = gtk::Label::new(Some(&url));
     url_label.set_xalign(0.0);
@@ -152,7 +148,6 @@ fn show_rename_dialog(parent: Option<gtk::Window>, inner: &Rc<Inner>, url: Strin
     btn_box.append(&save_btn);
     outer.append(&btn_box);
 
-    dlg.set_child(Some(&outer));
     dlg.set_default_widget(Some(&save_btn));
 
     {
@@ -183,8 +178,7 @@ fn show_rename_dialog(parent: Option<gtk::Window>, inner: &Rc<Inner>, url: Strin
         });
     }
 
-    dlg.present();
-    entry.grab_focus();
+    present_focused(&dlg, &entry);
 }
 
 impl FilterSidebar {
@@ -336,20 +330,36 @@ impl FilterSidebar {
             .selected_row()
             .map(|r| r.index())
             .filter(|&i| i > 0)
-            .and_then(|i| self.inner.repo_names.borrow().get((i - 1) as usize).cloned());
+            .and_then(|i| {
+                self.inner
+                    .repo_names
+                    .borrow()
+                    .get((i - 1) as usize)
+                    .cloned()
+            });
 
         while let Some(child) = self.inner.repo_lb.first_child() {
             self.inner.repo_lb.remove(&child);
         }
-        self.inner.repo_lb.append(&make_text_row("All Repositories"));
+        self.inner
+            .repo_lb
+            .append(&make_text_row("All Repositories"));
         for r in &repos {
-            self.inner.repo_lb.append(&build_repo_row(&self.inner, r.clone()));
+            self.inner
+                .repo_lb
+                .append(&build_repo_row(&self.inner, r.clone()));
         }
         *self.inner.repo_names.borrow_mut() = repos;
 
         let restore_index = previously_selected
             .as_ref()
-            .and_then(|name| self.inner.repo_names.borrow().iter().position(|r| r == name))
+            .and_then(|name| {
+                self.inner
+                    .repo_names
+                    .borrow()
+                    .iter()
+                    .position(|r| r == name)
+            })
             .map(|pos| pos as i32 + 1)
             .unwrap_or(0);
 

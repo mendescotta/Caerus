@@ -37,6 +37,9 @@ struct Labels {
     auto_install: gtk::Label,
 }
 
+type MarkChangedCbs = RefCell<Vec<Box<dyn Fn()>>>;
+type HoldRequestedCbs = RefCell<Vec<Box<dyn Fn(String, bool)>>>;
+
 struct Inner {
     widget: gtk::Box,
     store: PackageStore,
@@ -53,13 +56,13 @@ struct Inner {
     rdeps_list: gtk::ListBox,
     files_expander: gtk::Expander,
     files_list: gtk::ListBox,
-    on_mark_changed: RefCell<Vec<Box<dyn Fn()>>>,
+    on_mark_changed: MarkChangedCbs,
     /// Fired when the user clicks Hold/Release Hold. Unlike
     /// install/upgrade/remove/purge, a hold toggle isn't queued as a
     /// pending mark — it needs its own privileged action right away (the
     /// `Transaction` this pane doesn't own), so the actual work is left
     /// to whoever wires this up (see window.rs). Args: pkgname, want_hold.
-    on_hold_requested: RefCell<Vec<Box<dyn Fn(String, bool)>>>,
+    on_hold_requested: HoldRequestedCbs,
 }
 
 #[derive(Clone)]
@@ -127,7 +130,9 @@ impl DetailPane {
         ));
         let btn_hold = gtk::Button::with_label("Hold");
         btn_hold.set_visible(false);
-        btn_hold.set_tooltip_text(Some("Pin this package's version — exclude it from upgrades"));
+        btn_hold.set_tooltip_text(Some(
+            "Pin this package's version — exclude it from upgrades",
+        ));
         let btn_unhold = gtk::Button::with_label("Release Hold");
         btn_unhold.set_visible(false);
         let btn_unmark = gtk::Button::with_label("Unmark");
@@ -455,7 +460,9 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
     // immediately, not queued), so its visibility only depends on
     // whether the package is installed at all — not on `pkg.mark`.
     let installed = pkg.state != PkgState::NotInstalled;
-    inner.btn_hold.set_visible(installed && pkg.state != PkgState::OnHold);
+    inner
+        .btn_hold
+        .set_visible(installed && pkg.state != PkgState::OnHold);
     inner.btn_unhold.set_visible(pkg.state == PkgState::OnHold);
 
     if pkg.mark != PkgMark::None {
@@ -496,15 +503,7 @@ fn populate(lb: &gtk::ListBox, items: Option<Vec<String>>) {
     }
     let Some(items) = items else { return };
     for item in items {
-        let l = gtk::Label::new(Some(&item));
-        l.set_xalign(0.0);
-        l.set_selectable(true);
-        l.set_margin_start(8);
-        l.set_margin_top(4);
-        l.set_margin_bottom(4);
-        let row = gtk::ListBoxRow::new();
-        row.set_child(Some(&l));
-        lb.append(&row);
+        lb.append(&crate::ui::dialog_util::text_list_row(&item, false));
     }
 }
 
@@ -626,7 +625,11 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
     };
     l.version.set_text(&ver);
 
-    l.tags.set_text(if !pkg.tags.is_empty() { &pkg.tags } else { DASH });
+    l.tags.set_text(if !pkg.tags.is_empty() {
+        &pkg.tags
+    } else {
+        DASH
+    });
 
     let state_text = match pkg.state {
         PkgState::NotInstalled => "Not installed",
@@ -647,7 +650,8 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
     );
 
     // ── Size Statistics ──
-    l.installed_size.set_text(&crate::backend::package::pkg_format_size(pkg.install_size));
+    l.installed_size
+        .set_text(&crate::backend::package::pkg_format_size(pkg.install_size));
 
     let mut dsz = if pkg.download_size > 0 {
         Some(crate::backend::package::pkg_format_size(pkg.download_size))
@@ -660,7 +664,9 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
 
     if let Some(extra) = &extra {
         if extra.download_size > 0 {
-            dsz = Some(crate::backend::package::pkg_format_size(extra.download_size));
+            dsz = Some(crate::backend::package::pkg_format_size(
+                extra.download_size,
+            ));
         }
     }
     l.download_size.set_text(dsz.as_deref().unwrap_or(DASH));

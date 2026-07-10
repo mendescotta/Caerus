@@ -8,6 +8,7 @@
 
 use crate::backend::package::PkgMark;
 use crate::backend::package_store::PackageStore;
+use crate::ui::dialog_util::{modal_window, present_focused, text_list_row};
 use gtk::prelude::*;
 use std::rc::Rc;
 
@@ -26,20 +27,7 @@ pub fn confirm_install_deps(
     let deps: Rc<Vec<String>> = Rc::new(deps);
     let cb: Rc<dyn Fn(bool)> = Rc::new(cb);
 
-    let dlg = gtk::Window::new();
-    dlg.set_title(Some("Additional Packages Required"));
-    if let Some(p) = parent {
-        dlg.set_transient_for(Some(p));
-    }
-    dlg.set_modal(true);
-    dlg.set_resizable(true);
-    dlg.set_default_size(420, -1);
-
-    let outer = gtk::Box::new(gtk::Orientation::Vertical, 10);
-    outer.set_margin_start(16);
-    outer.set_margin_end(16);
-    outer.set_margin_top(16);
-    outer.set_margin_bottom(16);
+    let (dlg, outer) = modal_window("Additional Packages Required", parent, true, (420, -1), 10);
 
     let heading = gtk::Label::new(Some(&format!(
         "Installing {} also requires {} additional package{}:",
@@ -61,18 +49,18 @@ pub fn confirm_install_deps(
     scroll.set_max_content_height(400);
     scroll.set_vexpand(true);
 
-    let list_text = deps
-        .iter()
-        .map(|d| format!("\u{2022} {}", d))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let list_label = gtk::Label::new(Some(&list_text));
-    list_label.set_xalign(0.0);
-    list_label.set_yalign(0.0);
-    list_label.set_selectable(true);
-    list_label.set_margin_start(4);
-    list_label.set_margin_end(4);
-    scroll.set_child(Some(&list_label));
+    // Same list-box style as `remove_confirm`'s affected-package list and
+    // the detail pane's Dependencies list — a plain wrapped label here
+    // used to be the odd one out, selecting as a single opaque block of
+    // text instead of one name at a time.
+    let mut sorted = (*deps).clone();
+    sorted.sort();
+    let list = gtk::ListBox::new();
+    list.set_selection_mode(gtk::SelectionMode::None);
+    for d in &sorted {
+        list.append(&text_list_row(d, false));
+    }
+    scroll.set_child(Some(&list));
     outer.append(&scroll);
 
     let btn_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
@@ -85,7 +73,6 @@ pub fn confirm_install_deps(
     btn_box.append(&install_btn);
     outer.append(&btn_box);
 
-    dlg.set_child(Some(&outer));
     dlg.set_default_widget(Some(&install_btn));
 
     {
@@ -114,8 +101,8 @@ pub fn confirm_install_deps(
         });
     }
     {
-        // Window-manager close (title-bar X) counts as Cancel, same as
-        // the button.
+        // Window-manager close (title-bar X) or Escape counts as Cancel,
+        // same as the button.
         let cb = cb.clone();
         dlg.connect_close_request(move |_| {
             cb(false);
@@ -123,11 +110,5 @@ pub fn confirm_install_deps(
         });
     }
 
-    dlg.present();
-    // Without this, GTK hands initial keyboard focus to the first
-    // focusable widget in the window — the selectable-text deps list
-    // above — which shows up as its entire text looking "pre-selected"
-    // the instant the dialog opens. Explicitly focusing the default
-    // button avoids it.
-    install_btn.grab_focus();
+    present_focused(&dlg, &install_btn);
 }

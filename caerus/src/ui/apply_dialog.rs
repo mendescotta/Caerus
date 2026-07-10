@@ -5,9 +5,29 @@
 //! Rust translation of ui/apply_dialog.{h,c}.
 
 use crate::backend::transaction::Transaction;
+use crate::ui::dialog_util::modal_window;
 use gtk::prelude::*;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+
+/// How many packages this batch actually names, summed across every
+/// command that takes package-name arguments (INSTALL/REMOVE/PURGE/HOLD/
+/// UNHOLD) — used only to show a "package N of M" counter; commands with
+/// no package-name concept (SYNC, UPGRADE, ORPHANS, ...) don't contribute.
+fn count_target_packages(commands: &[String]) -> usize {
+    commands
+        .iter()
+        .filter(|c| {
+            for verb in ["INSTALL ", "REMOVE ", "PURGE ", "HOLD ", "UNHOLD "] {
+                if c.starts_with(verb) {
+                    return true;
+                }
+            }
+            false
+        })
+        .map(|c| c.split_whitespace().skip(1).count())
+        .sum()
+}
 
 /// The helper's own log lines look like:
 ///   LOG [*] Updating repository `https://...` ...
@@ -62,20 +82,9 @@ pub fn run(
     title: &str,
     done_cb: impl Fn(bool) + 'static,
 ) {
-    let dlg = gtk::Window::new();
-    dlg.set_title(Some(title));
-    if let Some(p) = parent {
-        dlg.set_transient_for(Some(p));
-    }
-    dlg.set_modal(true);
-    dlg.set_default_size(520, 200);
-    dlg.set_resizable(true);
+    let (dlg, outer) = modal_window(title, parent, true, (520, 200), 8);
 
-    let outer = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    outer.set_margin_start(14);
-    outer.set_margin_end(14);
-    outer.set_margin_top(14);
-    outer.set_margin_bottom(14);
+    let total_pkgs = count_target_packages(commands);
 
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let spinner = gtk::Spinner::new();
@@ -92,6 +101,16 @@ pub fn run(
     action_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
     action_label.add_css_class("dim-label");
     outer.append(&action_label);
+
+    // Only shown when the batch actually names packages (INSTALL/REMOVE/
+    // PURGE/HOLD/UNHOLD) and there's more than one — for a single
+    // package, or a command with no package-name concept at all (SYNC,
+    // full UPGRADE, ...), the action line above already says enough.
+    let progress_count_label = gtk::Label::new(None);
+    progress_count_label.set_xalign(0.0);
+    progress_count_label.add_css_class("dim-label");
+    progress_count_label.set_visible(total_pkgs > 1);
+    outer.append(&progress_count_label);
 
     let progress_bar = gtk::ProgressBar::new();
     outer.append(&progress_bar);
@@ -116,8 +135,6 @@ pub fn run(
     close_btn.set_sensitive(false);
     outer.append(&close_btn);
 
-    dlg.set_child(Some(&outer));
-
     // Starts as an indeterminate pulse — commands like SYNC/HOLD/ORPHANS
     // report no percentage at all, so there's nothing better to show
     // until (if ever) a real one shows up. The moment `append_log` sees
@@ -137,9 +154,20 @@ pub fn run(
         });
     }
 
+    // Heuristic package counter: xbps prints one non-percentage action
+    // line ("Installing `foo-1.0_1' ...") per package, so counting
+    // *distinct, consecutive* action-line changes approximates "package N
+    // of total" without parsing xbps's exact log format. Capped at
+    // `total_pkgs` since the heuristic can occasionally over-count (e.g.
+    // an intermediate status line for the same package that happens to
+    // differ from the last one shown).
+    let seen_count = Rc::new(Cell::new(0usize));
+    let last_action: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
+
     let append_log: Rc<dyn Fn(&str)> = {
         let text_view = text_view.clone();
         let action_label = action_label.clone();
+        let progress_count_label = progress_count_label.clone();
         let pulsing = pulsing.clone();
         let progress_bar = progress_bar.clone();
         Rc::new(move |line: &str| {
@@ -159,11 +187,17 @@ pub fn run(
             buf.insert(&mut end, &clean);
             buf.insert(&mut end, "\n");
             let mark = buf.get_insert();
-            let mut end = buf.end_iter();
-            buf.move_mark(&mark, &mut end);
+            let end = buf.end_iter();
+            buf.move_mark(&mark, &end);
             text_view.scroll_mark_onscreen(&mark);
 
             if line != "OK" && !clean.is_empty() {
+                if total_pkgs > 1 && *last_action.borrow() != clean {
+                    let n = (seen_count.get() + 1).min(total_pkgs);
+                    seen_count.set(n);
+                    progress_count_label.set_text(&format!("Package {} of {}", n, total_pkgs));
+                }
+                *last_action.borrow_mut() = clean.clone();
                 action_label.set_text(&clean);
             }
         })

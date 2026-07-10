@@ -8,6 +8,7 @@
 //! through the privileged helper's `ALTERNATIVE` command.
 
 use crate::backend::transaction::Transaction;
+use crate::ui::dialog_util::modal_window;
 use gtk::prelude::*;
 use std::cell::RefCell;
 use std::process::Command;
@@ -127,10 +128,14 @@ fn refresh_providers(inner: &Rc<Inner>) {
         inner.providers_list.remove(&child);
     }
     let Some(group) = inner.selected_group.borrow().clone() else {
-        inner.providers_header.set_text("Select a group on the left.");
+        inner
+            .providers_header
+            .set_text("Select a group on the left.");
         return;
     };
-    inner.providers_header.set_text(&format!("Providers for \u{201c}{}\u{201d}:", group));
+    inner
+        .providers_header
+        .set_text(&format!("Providers for \u{201c}{}\u{201d}:", group));
 
     for (provider, is_current) in fetch_candidates(&group) {
         let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
@@ -176,20 +181,7 @@ fn refresh_providers(inner: &Rc<Inner>) {
 }
 
 pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
-    let dlg = gtk::Window::new();
-    dlg.set_title(Some("Alternatives"));
-    if let Some(p) = parent {
-        dlg.set_transient_for(Some(p));
-    }
-    dlg.set_modal(true);
-    dlg.set_default_size(520, 420);
-    dlg.set_resizable(true);
-
-    let outer = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    outer.set_margin_start(16);
-    outer.set_margin_end(16);
-    outer.set_margin_top(16);
-    outer.set_margin_bottom(16);
+    let (dlg, outer) = modal_window("Alternatives", parent, true, (520, 420), 8);
 
     let split = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     split.set_vexpand(true);
@@ -230,8 +222,6 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
     close_btn.set_halign(gtk::Align::End);
     close_btn.set_margin_top(8);
     outer.append(&close_btn);
-
-    dlg.set_child(Some(&outer));
 
     let inner = Rc::new(Inner {
         dlg: dlg.clone(),

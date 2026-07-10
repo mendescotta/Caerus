@@ -9,6 +9,7 @@
 
 use crate::backend::package::{PkgMark, PkgState};
 use crate::backend::package_store::PackageStore;
+use crate::ui::dialog_util::{modal_window, present_focused, text_list_row};
 use gtk::prelude::*;
 use std::rc::Rc;
 
@@ -49,20 +50,7 @@ pub fn confirm_remove_impact(
     let n = affected.len();
     let cb: Rc<dyn Fn(bool)> = Rc::new(cb);
 
-    let dlg = gtk::Window::new();
-    dlg.set_title(Some("Other Packages Depend On This"));
-    if let Some(p) = parent {
-        dlg.set_transient_for(Some(p));
-    }
-    dlg.set_modal(true);
-    dlg.set_resizable(true);
-    dlg.set_default_size(420, -1);
-
-    let outer = gtk::Box::new(gtk::Orientation::Vertical, 10);
-    outer.set_margin_start(16);
-    outer.set_margin_end(16);
-    outer.set_margin_top(16);
-    outer.set_margin_bottom(16);
+    let (dlg, outer) = modal_window("Other Packages Depend On This", parent, true, (420, -1), 10);
 
     let heading = gtk::Label::new(Some(&format!(
         "Removing {} may break {} other installed package{} that depend{} on it:",
@@ -88,15 +76,7 @@ pub fn confirm_remove_impact(
     let list = gtk::ListBox::new();
     list.set_selection_mode(gtk::SelectionMode::None);
     for name in &sorted {
-        let l = gtk::Label::new(Some(name));
-        l.set_xalign(0.0);
-        l.set_selectable(true);
-        l.set_margin_start(8);
-        l.set_margin_top(4);
-        l.set_margin_bottom(4);
-        let row = gtk::ListBoxRow::new();
-        row.set_child(Some(&l));
-        list.append(&row);
+        list.append(&text_list_row(name, false));
     }
     scroll.set_child(Some(&list));
     outer.append(&scroll);
@@ -111,7 +91,6 @@ pub fn confirm_remove_impact(
     btn_box.append(&remove_btn);
     outer.append(&btn_box);
 
-    dlg.set_child(Some(&outer));
     // Cancel is the safer default — both as the Enter target and the
     // initial focus (also sidesteps the selectable-list-row-grabs-
     // focus-on-open issue the other confirm dialogs had).
@@ -141,6 +120,5 @@ pub fn confirm_remove_impact(
         });
     }
 
-    dlg.present();
-    cancel_btn.grab_focus();
+    present_focused(&dlg, &cancel_btn);
 }
