@@ -1,7 +1,8 @@
 //! Detail pane: action buttons + Package Information / Size Statistics
-//! / Maintainer & Source frames + side-by-side Dependencies / Reverse
-//! Dependencies lists. Rust translation of ui/detail_pane.{h,c} (built
-//! directly in code here rather than from a GtkBuilder .ui file).
+//! / Maintainer & Source frames + a Files expander + side-by-side
+//! Dependencies / Reverse Dependencies lists. Rust translation of
+//! ui/detail_pane.{h,c} (built directly in code here rather than from a
+//! GtkBuilder .ui file).
 
 use crate::backend::package::{Package, PkgMark, PkgState};
 use crate::backend::package_store::PackageStore;
@@ -12,6 +13,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 const DASH: &str = "\u{2014}";
+
+/// Files lists can run into the thousands of entries for large
+/// packages; a plain (non-virtualized) `gtk::ListBox` materializes one
+/// widget per row, so this caps how many are actually shown to keep the
+/// expander responsive.
+const MAX_FILES_SHOWN: usize = 300;
 
 struct Labels {
     name: gtk::Label,
@@ -36,11 +43,22 @@ struct Inner {
     btn_install: gtk::Button,
     btn_upgrade: gtk::Button,
     btn_remove: gtk::Button,
+    btn_purge: gtk::Button,
+    btn_hold: gtk::Button,
+    btn_unhold: gtk::Button,
     btn_unmark: gtk::Button,
     labels: Labels,
     deps_list: gtk::ListBox,
     rdeps_list: gtk::ListBox,
+    files_expander: gtk::Expander,
+    files_list: gtk::ListBox,
     on_mark_changed: RefCell<Vec<Box<dyn Fn()>>>,
+    /// Fired when the user clicks Hold/Release Hold. Unlike
+    /// install/upgrade/remove/purge, a hold toggle isn't queued as a
+    /// pending mark — it needs its own privileged action right away (the
+    /// `Transaction` this pane doesn't own), so the actual work is left
+    /// to whoever wires this up (see window.rs). Args: pkgname, want_hold.
+    on_hold_requested: RefCell<Vec<Box<dyn Fn(String, bool)>>>,
 }
 
 #[derive(Clone)]
@@ -100,11 +118,25 @@ impl DetailPane {
         let btn_remove = gtk::Button::with_label("Remove");
         btn_remove.set_visible(false);
         btn_remove.add_css_class("destructive-action");
+        let btn_purge = gtk::Button::with_label("Purge");
+        btn_purge.set_visible(false);
+        btn_purge.add_css_class("destructive-action");
+        btn_purge.set_tooltip_text(Some(
+            "Remove this package and any dependencies left orphaned by doing so",
+        ));
+        let btn_hold = gtk::Button::with_label("Hold");
+        btn_hold.set_visible(false);
+        btn_hold.set_tooltip_text(Some("Pin this package's version — exclude it from upgrades"));
+        let btn_unhold = gtk::Button::with_label("Release Hold");
+        btn_unhold.set_visible(false);
         let btn_unmark = gtk::Button::with_label("Unmark");
         btn_unmark.set_visible(false);
         action_row.append(&btn_install);
         action_row.append(&btn_upgrade);
         action_row.append(&btn_remove);
+        action_row.append(&btn_purge);
+        action_row.append(&btn_hold);
+        action_row.append(&btn_unhold);
         action_row.append(&btn_unmark);
         widget.append(&action_row);
 
@@ -155,6 +187,23 @@ impl DetailPane {
         let install_date = info_row(&box_maint, "Installed on:");
         let auto_install = info_row(&box_maint, "Auto-installed:");
         metadata_col.append(&frame_maint);
+
+        let files_expander = gtk::Expander::new(Some("Files"));
+        files_expander.set_margin_bottom(6);
+        let files_list = gtk::ListBox::new();
+        files_list.set_selection_mode(gtk::SelectionMode::None);
+        let files_ph = gtk::Label::new(Some("Not installed"));
+        files_ph.add_css_class("dim-label");
+        files_ph.set_margin_top(8);
+        files_ph.set_margin_bottom(8);
+        files_list.set_placeholder(Some(&files_ph));
+        let files_scroll = gtk::ScrolledWindow::new();
+        files_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+        files_scroll.set_max_content_height(260);
+        files_scroll.set_propagate_natural_height(true);
+        files_scroll.set_child(Some(&files_list));
+        files_expander.set_child(Some(&files_scroll));
+        metadata_col.append(&files_expander);
 
         metadata_scroll.set_child(Some(&metadata_col));
         split.append(&metadata_scroll);
@@ -211,6 +260,9 @@ impl DetailPane {
             btn_install,
             btn_upgrade,
             btn_remove,
+            btn_purge,
+            btn_hold,
+            btn_unhold,
             btn_unmark,
             labels: Labels {
                 name,
@@ -229,10 +281,14 @@ impl DetailPane {
             },
             deps_list,
             rdeps_list,
+            files_expander,
+            files_list,
             on_mark_changed: RefCell::new(Vec::new()),
+            on_hold_requested: RefCell::new(Vec::new()),
         });
 
         wire_buttons(&inner);
+        wire_files_expander(&inner);
 
         DetailPane { inner }
     }
@@ -243,6 +299,11 @@ impl DetailPane {
 
     pub fn connect_mark_changed(&self, f: impl Fn() + 'static) {
         self.inner.on_mark_changed.borrow_mut().push(Box::new(f));
+    }
+
+    /// pkgname, want_hold — fired when the user clicks Hold/Release Hold.
+    pub fn connect_hold_requested(&self, f: impl Fn(String, bool) + 'static) {
+        self.inner.on_hold_requested.borrow_mut().push(Box::new(f));
     }
 
     pub fn show_package(&self, pkg: Option<&Package>) {
@@ -273,48 +334,56 @@ fn wire_buttons(inner: &Rc<Inner>) {
             });
         });
     }
+    wire_simple_mark_button(inner, &inner.btn_upgrade, PkgMark::Upgrade);
+    wire_simple_mark_button(inner, &inner.btn_remove, PkgMark::Remove);
+    wire_simple_mark_button(inner, &inner.btn_purge, PkgMark::Purge);
+    wire_simple_mark_button(inner, &inner.btn_unmark, PkgMark::None);
+
+    // Hold/unhold isn't a queued mark — it needs a privileged action of
+    // its own, so this pane just reports the request and lets the
+    // caller (which owns the `Transaction`) carry it out.
     {
-        let btn_upgrade = inner.btn_upgrade.clone();
+        let btn_hold = inner.btn_hold.clone();
         let inner = inner.clone();
-        btn_upgrade.connect_clicked(move |_| {
+        btn_hold.connect_clicked(move |_| {
             let Some(name) = inner.current_pkgname.borrow().clone() else {
                 return;
             };
-            inner.store.set_mark(&name, PkgMark::Upgrade);
-            update_action_buttons(&inner, None);
-            for f in inner.on_mark_changed.borrow().iter() {
-                f();
+            for f in inner.on_hold_requested.borrow().iter() {
+                f(name.clone(), true);
             }
         });
     }
     {
-        let btn_remove = inner.btn_remove.clone();
+        let btn_unhold = inner.btn_unhold.clone();
         let inner = inner.clone();
-        btn_remove.connect_clicked(move |_| {
+        btn_unhold.connect_clicked(move |_| {
             let Some(name) = inner.current_pkgname.borrow().clone() else {
                 return;
             };
-            inner.store.set_mark(&name, PkgMark::Remove);
-            update_action_buttons(&inner, None);
-            for f in inner.on_mark_changed.borrow().iter() {
-                f();
+            for f in inner.on_hold_requested.borrow().iter() {
+                f(name.clone(), false);
             }
         });
     }
-    {
-        let btn_unmark = inner.btn_unmark.clone();
-        let inner = inner.clone();
-        btn_unmark.connect_clicked(move |_| {
-            let Some(name) = inner.current_pkgname.borrow().clone() else {
-                return;
-            };
-            inner.store.set_mark(&name, PkgMark::None);
-            update_action_buttons(&inner, None);
-            for f in inner.on_mark_changed.borrow().iter() {
-                f();
-            }
-        });
-    }
+}
+
+/// Shared by Upgrade/Remove/Purge/Unmark: they all just set a mark on
+/// the currently-shown package and notify listeners. (Install is
+/// separate — it needs the deps-confirm dialog first.)
+fn wire_simple_mark_button(inner: &Rc<Inner>, btn: &gtk::Button, mark: PkgMark) {
+    let btn = btn.clone();
+    let inner = inner.clone();
+    btn.connect_clicked(move |_| {
+        let Some(name) = inner.current_pkgname.borrow().clone() else {
+            return;
+        };
+        inner.store.set_mark(&name, mark);
+        update_action_buttons(&inner, None);
+        for f in inner.on_mark_changed.borrow().iter() {
+            f();
+        }
+    });
 }
 
 /// Re-derives button visibility from the store's live copy of the
@@ -347,14 +416,25 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
     let Some(pkg) = pkg else {
         inner.btn_install.set_visible(false);
         inner.btn_remove.set_visible(false);
+        inner.btn_purge.set_visible(false);
         inner.btn_upgrade.set_visible(false);
+        inner.btn_hold.set_visible(false);
+        inner.btn_unhold.set_visible(false);
         inner.btn_unmark.set_visible(false);
         return;
     };
 
+    // Hold/unhold is orthogonal to the pending-mark system (it's applied
+    // immediately, not queued), so its visibility only depends on
+    // whether the package is installed at all — not on `pkg.mark`.
+    let installed = pkg.state != PkgState::NotInstalled;
+    inner.btn_hold.set_visible(installed && pkg.state != PkgState::OnHold);
+    inner.btn_unhold.set_visible(pkg.state == PkgState::OnHold);
+
     if pkg.mark != PkgMark::None {
         inner.btn_install.set_visible(false);
         inner.btn_remove.set_visible(false);
+        inner.btn_purge.set_visible(false);
         inner.btn_upgrade.set_visible(false);
         inner.btn_unmark.set_visible(true);
         return;
@@ -364,6 +444,7 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
     if pkg.state == PkgState::NotInstalled {
         inner.btn_install.set_visible(true);
         inner.btn_remove.set_visible(false);
+        inner.btn_purge.set_visible(false);
         inner.btn_upgrade.set_visible(false);
     } else {
         inner.btn_install.set_visible(false);
@@ -377,6 +458,8 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
         } else {
             None
         });
+        inner.btn_purge.set_visible(true);
+        inner.btn_purge.set_sensitive(!pkg.essential);
     }
 }
 
@@ -394,6 +477,59 @@ fn populate(lb: &gtk::ListBox, items: Option<Vec<String>>) {
         l.set_margin_bottom(4);
         let row = gtk::ListBoxRow::new();
         row.set_child(Some(&l));
+        lb.append(&row);
+    }
+}
+
+/// Files lists are only fetched (a round-trip to the xbps worker
+/// thread) when the user actually expands the section, rather than on
+/// every package selection — most selections are just someone scanning
+/// down the list, and a query nobody looks at is wasted latency.
+fn wire_files_expander(inner: &Rc<Inner>) {
+    let files_expander = inner.files_expander.clone();
+    let inner = inner.clone();
+    files_expander.connect_expanded_notify(move |exp| {
+        if !exp.is_expanded() {
+            return;
+        }
+        let Some(name) = inner.current_pkgname.borrow().clone() else {
+            return;
+        };
+        populate_files(&inner.files_list, inner.store.get_files(&name));
+    });
+}
+
+fn populate_files(lb: &gtk::ListBox, files: Option<Vec<String>>) {
+    while let Some(c) = lb.first_child() {
+        lb.remove(&c);
+    }
+    let Some(mut files) = files else { return };
+    files.sort();
+    let total = files.len();
+    let shown = total.min(MAX_FILES_SHOWN);
+    for f in &files[..shown] {
+        let l = gtk::Label::new(Some(f));
+        l.set_xalign(0.0);
+        l.set_selectable(true);
+        l.add_css_class("monospace");
+        l.set_margin_start(8);
+        l.set_margin_top(2);
+        l.set_margin_bottom(2);
+        let row = gtk::ListBoxRow::new();
+        row.set_child(Some(&l));
+        lb.append(&row);
+    }
+    if total > shown {
+        let l = gtk::Label::new(Some(&format!("\u{2026} and {} more", total - shown)));
+        l.set_xalign(0.0);
+        l.add_css_class("dim-label");
+        l.set_margin_start(8);
+        l.set_margin_top(4);
+        l.set_margin_bottom(4);
+        let row = gtk::ListBoxRow::new();
+        row.set_child(Some(&l));
+        row.set_activatable(false);
+        row.set_selectable(false);
         lb.append(&row);
     }
 }
@@ -422,6 +558,13 @@ fn set_homepage_value(homepage_box: &gtk::Box, url: Option<&str>) {
 
 fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
     *inner.current_pkgname.borrow_mut() = pkg.map(|p| p.name.clone());
+
+    // A new selection invalidates whatever the Files section was
+    // showing; collapse it back so re-expanding fetches fresh data for
+    // the newly-selected package rather than showing the old one's list
+    // (or nothing, if it wasn't installed).
+    inner.files_expander.set_expanded(false);
+    populate_files(&inner.files_list, None);
 
     let l = &inner.labels;
 

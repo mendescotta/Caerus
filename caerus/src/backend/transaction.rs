@@ -18,8 +18,6 @@
 //! Callbacks (all invoked on the main thread, mirroring the original's
 //! GObject signals):
 //!   `connect_log`          (line: &str)              -- every raw line
-//!   `connect_step_done`    (success, command, message) -- after each
-//!                                                          command
 //!   `connect_finished`     (success)                  -- after the
 //!                                                          queued batch
 //!                                                          has run
@@ -49,14 +47,12 @@ struct Inner {
     stdin: RefCell<Option<ChildStdin>>,
     line_rx: RefCell<Option<mpsc::Receiver<String>>>,
     pending: RefCell<VecDeque<String>>,
-    current_command: RefCell<Option<String>>,
     state: Cell<TxnState>,
     intentional_quit: Cell<bool>,
     idle_timeout_id: RefCell<Option<glib::SourceId>>,
 
     next_listener_id: Cell<u64>,
     on_log: RefCell<Vec<(u64, Rc<dyn Fn(&str)>)>>,
-    on_step_done: RefCell<Vec<(u64, Rc<dyn Fn(bool, &str, &str)>)>>,
     on_finished: RefCell<Vec<(u64, Rc<dyn Fn(bool)>)>>,
     on_disconnected: RefCell<Vec<(u64, Rc<dyn Fn(bool)>)>>,
 }
@@ -72,13 +68,11 @@ impl Transaction {
             stdin: RefCell::new(None),
             line_rx: RefCell::new(None),
             pending: RefCell::new(VecDeque::new()),
-            current_command: RefCell::new(None),
             state: Cell::new(TxnState::NotRunning),
             intentional_quit: Cell::new(false),
             idle_timeout_id: RefCell::new(None),
             next_listener_id: Cell::new(0),
             on_log: RefCell::new(Vec::new()),
-            on_step_done: RefCell::new(Vec::new()),
             on_finished: RefCell::new(Vec::new()),
             on_disconnected: RefCell::new(Vec::new()),
         });
@@ -124,15 +118,6 @@ impl Transaction {
         self.inner.on_log.borrow_mut().retain(|(i, _)| *i != id);
     }
 
-    pub fn connect_step_done(&self, f: impl Fn(bool, &str, &str) + 'static) -> u64 {
-        let id = self.next_id();
-        self.inner.on_step_done.borrow_mut().push((id, Rc::new(f)));
-        id
-    }
-    pub fn disconnect_step_done(&self, id: u64) {
-        self.inner.on_step_done.borrow_mut().retain(|(i, _)| *i != id);
-    }
-
     pub fn connect_finished(&self, f: impl Fn(bool) + 'static) -> u64 {
         let id = self.next_id();
         self.inner.on_finished.borrow_mut().push((id, Rc::new(f)));
@@ -163,18 +148,6 @@ impl Transaction {
             cb(line);
         }
     }
-    fn emit_step_done(&self, success: bool, command: &str, message: &str) {
-        let cbs: Vec<Rc<dyn Fn(bool, &str, &str)>> = self
-            .inner
-            .on_step_done
-            .borrow()
-            .iter()
-            .map(|(_, f)| f.clone())
-            .collect();
-        for cb in cbs {
-            cb(success, command, message);
-        }
-    }
     fn emit_finished(&self, success: bool) {
         let cbs: Vec<Rc<dyn Fn(bool)>> =
             self.inner.on_finished.borrow().iter().map(|(_, f)| f.clone()).collect();
@@ -198,10 +171,6 @@ impl Transaction {
     /// Queue a protocol command line (without trailing newline).
     pub fn add_command(&self, command: &str) {
         self.inner.pending.borrow_mut().push_back(command.to_string());
-    }
-
-    pub fn is_alive(&self) -> bool {
-        self.inner.state.get() != TxnState::NotRunning
     }
 
     /// Ensures the helper is running (spawning/authenticating if
@@ -230,19 +199,6 @@ impl Transaction {
                 self.cancel_idle_timer();
                 self.send_next_command();
             }
-        }
-    }
-
-    /// Forces an immediate spawn (and thus authentication prompt) even
-    /// with nothing queued yet — used to preserve "ask for the password
-    /// once, at launch" even though the GUI itself is never privileged.
-    pub fn warm_up(&self) {
-        if self.inner.state.get() != TxnState::NotRunning {
-            return;
-        }
-        self.inner.state.set(TxnState::Spawning);
-        if !self.spawn_helper() {
-            self.inner.state.set(TxnState::NotRunning);
         }
     }
 
@@ -391,7 +347,6 @@ impl Transaction {
 
     fn end_of_batch(&self, success: bool) {
         self.inner.state.set(TxnState::Idle);
-        *self.inner.current_command.borrow_mut() = None;
         self.start_idle_timer();
         self.emit_finished(success);
     }
@@ -402,7 +357,6 @@ impl Transaction {
             None => self.end_of_batch(true),
             Some(cmd) => {
                 self.inner.state.set(TxnState::Busy);
-                *self.inner.current_command.borrow_mut() = Some(cmd.clone());
                 self.write_line(&cmd);
             }
         }
@@ -422,14 +376,10 @@ impl Transaction {
             return;
         }
         if line == "OK" {
-            let cmd = self.inner.current_command.borrow().clone().unwrap_or_default();
-            self.emit_step_done(true, &cmd, "OK");
             self.send_next_command();
             return;
         }
         if line.starts_with("ERROR") {
-            let cmd = self.inner.current_command.borrow().clone().unwrap_or_default();
-            self.emit_step_done(false, &cmd, line);
             self.inner.pending.borrow_mut().clear();
             self.end_of_batch(false);
             return;
@@ -452,7 +402,6 @@ impl Transaction {
         let was_mid_batch = matches!(self.inner.state.get(), TxnState::Busy | TxnState::Spawning);
 
         self.inner.state.set(TxnState::NotRunning);
-        *self.inner.current_command.borrow_mut() = None;
         self.inner.pending.borrow_mut().clear();
         self.inner.intentional_quit.set(false);
 

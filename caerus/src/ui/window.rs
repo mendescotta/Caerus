@@ -1,15 +1,17 @@
 //! Main application window. Rust translation of ui/window.{h,c} (built
 //! directly in code here rather than from a GtkBuilder .ui file).
 
-use crate::backend::package::{PkgMark, PkgState};
+use crate::backend::package::{Package, PkgMark, PkgState};
 use crate::backend::package_store::PackageStore;
 use crate::backend::transaction::Transaction;
+use crate::ui::apply_confirm;
 use crate::ui::apply_dialog;
 use crate::ui::detail_pane::DetailPane;
 use crate::ui::filter_sidebar::FilterSidebar;
 use crate::ui::package_list::PackageList;
 use gio::prelude::*;
 use gtk::prelude::*;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 struct WindowState {
@@ -26,10 +28,16 @@ struct WindowState {
     btn_update: gtk::Button,
     btn_reload: gtk::Button,
     btn_mark_upgrades: gtk::Button,
+    btn_unmark_all: gtk::Button,
     btn_apply: gtk::Button,
     search_entry: gtk::SearchEntry,
     btn_search_name_only: gtk::ToggleButton,
     status_label: gtk::Label,
+
+    /// Mirrors the package list's current selection, kept here purely
+    /// so the Delete-key shortcut has something to act on without
+    /// having to poke a getter through `DetailPane`.
+    selected_pkg: RefCell<Option<Package>>,
 }
 
 /// Window size + paned-divider positions, persisted across launches so
@@ -129,11 +137,15 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     let btn_reload = gtk::Button::from_icon_name("view-refresh-symbolic");
     btn_reload.set_tooltip_text(Some("Reload local package list without syncing"));
     let btn_mark_upgrades = gtk::Button::with_label("Mark All Upgrades");
+    let btn_unmark_all = gtk::Button::with_label("Unmark All");
+    btn_unmark_all.set_sensitive(false);
+    btn_unmark_all.set_tooltip_text(Some("Clear every pending Install/Upgrade/Remove/Purge mark"));
 
     header.pack_start(&spinner);
     header.pack_start(&btn_update);
     header.pack_start(&btn_reload);
     header.pack_start(&btn_mark_upgrades);
+    header.pack_start(&btn_unmark_all);
 
     let btn_apply = gtk::Button::with_label("Apply (0)");
     btn_apply.set_sensitive(false);
@@ -152,6 +164,9 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     header.pack_end(&search_entry);
     header.pack_end(&btn_search_name_only);
     header.pack_end(&btn_apply);
+
+    let menu_button = build_app_menu(&window);
+    header.pack_end(&menu_button);
 
     window.set_titlebar(Some(&header));
 
@@ -209,13 +224,16 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         btn_update,
         btn_reload,
         btn_mark_upgrades,
+        btn_unmark_all,
         btn_apply,
         search_entry,
         btn_search_name_only,
         status_label,
+        selected_pkg: RefCell::new(None),
     });
 
     wire_up(&state);
+    wire_keyboard_shortcuts(&state);
 
     // Sync repos at launch silently (no dialog), then reload. Auth
     // prompt still fires immediately via the session spawn. If sync
@@ -245,6 +263,171 @@ fn install_css(window: &gtk::ApplicationWindow) {
         &css,
         gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
     );
+}
+
+fn flat_menu_button(label: &str) -> gtk::Button {
+    let btn = gtk::Button::with_label(label);
+    btn.set_has_frame(false);
+    if let Some(l) = btn.child().and_downcast::<gtk::Label>() {
+        l.set_xalign(0.0);
+    }
+    btn
+}
+
+fn build_app_menu(window: &gtk::ApplicationWindow) -> gtk::MenuButton {
+    let menu_button = gtk::MenuButton::new();
+    menu_button.set_icon_name("open-menu-symbolic");
+    menu_button.set_tooltip_text(Some("Main Menu"));
+
+    let popover = gtk::Popover::new();
+    let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    vbox.set_margin_start(4);
+    vbox.set_margin_end(4);
+    vbox.set_margin_top(4);
+    vbox.set_margin_bottom(4);
+    vbox.set_width_request(190);
+
+    let btn_shortcuts = flat_menu_button("Keyboard Shortcuts");
+    let btn_about = flat_menu_button("About Caerus");
+    let btn_quit = flat_menu_button("Quit");
+
+    vbox.append(&btn_shortcuts);
+    vbox.append(&btn_about);
+    vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    vbox.append(&btn_quit);
+    popover.set_child(Some(&vbox));
+    menu_button.set_popover(Some(&popover));
+
+    {
+        let window = window.clone();
+        let popover = popover.clone();
+        btn_shortcuts.connect_clicked(move |_| {
+            popover.popdown();
+            show_shortcuts_dialog(&window);
+        });
+    }
+    {
+        let window = window.clone();
+        let popover = popover.clone();
+        btn_about.connect_clicked(move |_| {
+            popover.popdown();
+            show_about_dialog(&window);
+        });
+    }
+    {
+        let window = window.clone();
+        btn_quit.connect_clicked(move |_| {
+            // Goes through the window's own close_request handler, so
+            // the layout gets saved and the helper session shut down
+            // the same as any other way of closing — one code path.
+            window.close();
+        });
+    }
+
+    menu_button
+}
+
+fn show_about_dialog(parent: &gtk::ApplicationWindow) {
+    let about = gtk::AboutDialog::new();
+    about.set_transient_for(Some(parent));
+    about.set_modal(true);
+    about.set_program_name(Some("Caerus"));
+    about.set_version(Some(env!("CARGO_PKG_VERSION")));
+    about.set_comments(Some(
+        "A Synaptic-inspired package manager for Void Linux, built directly on libxbps.",
+    ));
+    about.set_website(Some("https://voidlinux.org"));
+    about.set_logo_icon_name(Some("org.voidlinux.caerus"));
+    about.present();
+}
+
+fn show_shortcuts_dialog(parent: &gtk::ApplicationWindow) {
+    let dlg = gtk::Window::new();
+    dlg.set_title(Some("Keyboard Shortcuts"));
+    dlg.set_transient_for(Some(parent));
+    dlg.set_modal(true);
+    dlg.set_resizable(false);
+
+    let outer = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    outer.set_margin_start(20);
+    outer.set_margin_end(20);
+    outer.set_margin_top(16);
+    outer.set_margin_bottom(16);
+
+    let shortcuts: &[(&str, &str)] = &[
+        ("Ctrl+F", "Focus search"),
+        ("Escape", "Clear search"),
+        ("F5", "Reload package list"),
+        ("Delete", "Mark selected package for removal"),
+        ("Ctrl+Q", "Quit"),
+    ];
+    for (key, desc) in shortcuts {
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
+        let key_label = gtk::Label::new(Some(key));
+        key_label.set_width_chars(10);
+        key_label.set_xalign(0.0);
+        key_label.add_css_class("heading");
+        let desc_label = gtk::Label::new(Some(desc));
+        desc_label.set_xalign(0.0);
+        desc_label.set_hexpand(true);
+        row.append(&key_label);
+        row.append(&desc_label);
+        outer.append(&row);
+    }
+
+    let close_btn = gtk::Button::with_label("Close");
+    close_btn.set_halign(gtk::Align::End);
+    close_btn.set_margin_top(10);
+    {
+        let dlg2 = dlg.clone();
+        close_btn.connect_clicked(move |_| dlg2.destroy());
+    }
+    outer.append(&close_btn);
+
+    dlg.set_child(Some(&outer));
+    dlg.present();
+}
+
+/// Global shortcuts, active anywhere in the window (not just when a
+/// specific widget has focus): Ctrl+F to search, Escape to clear it,
+/// F5 to reload, Delete to mark the selected package for removal,
+/// Ctrl+Q to quit.
+fn wire_keyboard_shortcuts(state: &Rc<WindowState>) {
+    let controller = gtk::EventControllerKey::new();
+    let window = state.window.clone();
+    let state = state.clone();
+    controller.connect_key_pressed(move |_, key, _keycode, modifiers| {
+        let ctrl = modifiers.contains(gtk::gdk::ModifierType::CONTROL_MASK);
+        match key {
+            gtk::gdk::Key::f if ctrl => {
+                state.search_entry.grab_focus();
+                glib::Propagation::Stop
+            }
+            gtk::gdk::Key::q if ctrl => {
+                state.window.close();
+                glib::Propagation::Stop
+            }
+            gtk::gdk::Key::Escape if !state.search_entry.text().is_empty() => {
+                state.search_entry.set_text("");
+                glib::Propagation::Stop
+            }
+            gtk::gdk::Key::F5 => {
+                trigger_update(&state, false, false);
+                glib::Propagation::Stop
+            }
+            gtk::gdk::Key::Delete => {
+                if let Some(pkg) = state.selected_pkg.borrow().clone() {
+                    if pkg.state != PkgState::NotInstalled && !pkg.essential {
+                        state.store.set_mark(&pkg.name, PkgMark::Remove);
+                        update_status_bar(&state);
+                    }
+                }
+                glib::Propagation::Stop
+            }
+            _ => glib::Propagation::Proceed,
+        }
+    });
+    window.add_controller(controller);
 }
 
 fn wire_up(state: &Rc<WindowState>) {
@@ -288,6 +471,7 @@ fn wire_up(state: &Rc<WindowState>) {
         let pkg_list = state.pkg_list.clone();
         let state = state.clone();
         pkg_list.connect_package_selected(move |pkg| {
+            *state.selected_pkg.borrow_mut() = pkg.clone();
             state.detail_pane.show_package(pkg.as_ref());
         });
     }
@@ -303,6 +487,13 @@ fn wire_up(state: &Rc<WindowState>) {
         let state = state.clone();
         detail_pane.connect_mark_changed(move || {
             update_status_bar(&state);
+        });
+    }
+    {
+        let detail_pane = state.detail_pane.clone();
+        let state = state.clone();
+        detail_pane.connect_hold_requested(move |pkgname, want_hold| {
+            on_hold_requested(&state, &pkgname, want_hold);
         });
     }
 
@@ -352,6 +543,14 @@ fn wire_up(state: &Rc<WindowState>) {
                     }
                 }
             }
+            update_status_bar(&state);
+        });
+    }
+    {
+        let btn_unmark_all = state.btn_unmark_all.clone();
+        let state = state.clone();
+        btn_unmark_all.connect_clicked(move |_| {
+            state.store.clear_all_marks();
             update_status_bar(&state);
         });
     }
@@ -513,18 +712,59 @@ fn on_apply_clicked(state: &Rc<WindowState>) {
     }
 
     let state2 = state.clone();
+    apply_confirm::confirm(
+        Some(state.window.upcast_ref()),
+        &installs,
+        &upgrades,
+        &removes,
+        &purges,
+        move |confirmed| {
+            if !confirmed {
+                return;
+            }
+            let state3 = state2.clone();
+            apply_dialog::run(
+                Some(state2.window.upcast_ref()),
+                &state2.session,
+                &commands,
+                "Applying Changes",
+                move |success| {
+                    state3.status_label.set_text(if success {
+                        "Changes applied. Reloading\u{2026}"
+                    } else {
+                        "Some changes failed — see log. Reloading\u{2026}"
+                    });
+                    state3.store.clear_all_marks();
+                    do_reload(&state3);
+                },
+            );
+        },
+    );
+}
+
+/// Hold/unhold is applied right away rather than queued as a pending
+/// mark — unlike install/upgrade/remove, it needs no dependency
+/// resolution or batching, so there's nothing to gain from deferring it
+/// to Apply.
+fn on_hold_requested(state: &Rc<WindowState>, pkgname: &str, want_hold: bool) {
+    let cmd = if want_hold {
+        format!("HOLD {}", pkgname)
+    } else {
+        format!("UNHOLD {}", pkgname)
+    };
+    let title = if want_hold { "Holding Package" } else { "Releasing Hold" };
+    let state2 = state.clone();
     apply_dialog::run(
         Some(state.window.upcast_ref()),
         &state.session,
-        &commands,
-        "Applying Changes",
+        &[cmd],
+        title,
         move |success| {
             state2.status_label.set_text(if success {
-                "Changes applied. Reloading\u{2026}"
+                "Done. Reloading\u{2026}"
             } else {
-                "Some changes failed — see log. Reloading\u{2026}"
+                "Failed — see log. Reloading\u{2026}"
             });
-            state2.store.clear_all_marks();
             do_reload(&state2);
         },
     );
@@ -546,6 +786,7 @@ fn update_status_bar(state: &Rc<WindowState>) {
 fn update_apply_button(state: &Rc<WindowState>, marked: u32) {
     state.btn_apply.set_label(&format!("Apply ({})", marked));
     state.btn_apply.set_sensitive(marked > 0);
+    state.btn_unmark_all.set_sensitive(marked > 0);
 }
 
 fn update_mark_upgrades_button(state: &Rc<WindowState>, upgradable: u32) {

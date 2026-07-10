@@ -90,6 +90,22 @@ enum Cmd {
     Shutdown,
 }
 
+/// Whether a carried-over mark still makes sense once a reload delivers
+/// the package's current real state — e.g. a `Remove` mark set before
+/// the reload is meaningless if the package turns out to no longer be
+/// installed at all.
+fn mark_is_valid_for_state(mark: PkgMark, state: PkgState) -> bool {
+    match mark {
+        PkgMark::None => true,
+        PkgMark::Install => state == PkgState::NotInstalled,
+        PkgMark::Upgrade => state == PkgState::Upgradable,
+        PkgMark::Remove | PkgMark::Purge => matches!(
+            state,
+            PkgState::Installed | PkgState::Upgradable | PkgState::OnHold | PkgState::Broken
+        ),
+    }
+}
+
 // ── Public, GTK-side handle ─────────────────────────────────────────
 
 struct Inner {
@@ -156,9 +172,39 @@ impl PackageStore {
                     match result {
                         LoadResult::Ok(packages) => {
                             let n = packages.len() as u32;
+
+                            // A reload rebuilds the list from scratch, which
+                            // would otherwise silently discard any pending
+                            // marks the user set before triggering it (e.g.
+                            // clicking Reload/Update mid-session). Carry
+                            // each mark over by pkgname, but only where it
+                            // still makes sense for the freshly-loaded
+                            // state — e.g. drop a stale Remove mark if the
+                            // package turns out to already be gone.
+                            let mut old_marks: HashMap<String, PkgMark> = HashMap::new();
+                            let old_n = inner.list.n_items();
+                            for i in 0..old_n {
+                                if let Some(obj) = inner.list.item(i) {
+                                    let obj = obj.downcast_ref::<PackageObject>().unwrap();
+                                    let p = obj.pkg();
+                                    if p.mark != PkgMark::None {
+                                        old_marks.insert(p.name.clone(), p.mark);
+                                    }
+                                }
+                            }
+
                             inner.list.remove_all();
-                            let objects: Vec<PackageObject> =
-                                packages.into_iter().map(PackageObject::new).collect();
+                            let objects: Vec<PackageObject> = packages
+                                .into_iter()
+                                .map(|mut pkg| {
+                                    if let Some(&mark) = old_marks.get(&pkg.name) {
+                                        if mark_is_valid_for_state(mark, pkg.state) {
+                                            pkg.mark = mark;
+                                        }
+                                    }
+                                    PackageObject::new(pkg)
+                                })
+                                .collect();
                             inner.list.splice(0, 0, &objects);
                             inner.loaded.set(true);
                             for cb in inner.on_load_finished.borrow().iter() {
