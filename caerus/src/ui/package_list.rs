@@ -590,6 +590,26 @@ fn build(inner: Rc<Inner>) {
     scroll.set_vexpand(true);
     scroll.set_child(Some(&column_view));
     inner.widget.append(&scroll);
+
+    // GTK's ColumnView auto-scrolls to keep the selected/focused row in
+    // view whenever the model's item order changes — including a plain
+    // resort from clicking a column header, where nothing the user
+    // would call "scrolling" actually happened; the row just moved
+    // underneath them. Work around it by snapshotting the scroll
+    // position the moment the sort criteria changes (before the
+    // reorder or any auto-scroll happens) and reasserting it on the
+    // next main-loop iteration, once GTK has finished whatever layout
+    // pass it wanted to do for this cycle.
+    if let Some(sorter) = column_view.sorter() {
+        let vadj = scroll.vadjustment();
+        sorter.connect_changed(move |_, _| {
+            let saved = vadj.value();
+            let vadj = vadj.clone();
+            glib::source::idle_add_local_once(move || {
+                vadj.set_value(saved);
+            });
+        });
+    }
 }
 
 /// Double-click (or Enter) shortcut: clears an existing mark, or

@@ -1,135 +1,147 @@
-# Caerus (Rust rewrite)
+# Caerus
 
-A Synaptic-inspired package manager for Void Linux, built directly on
-`libxbps`. This is a from-scratch Rust translation of the original C/
-GTK4 project, keeping the same functionality and UI layout while
-rewriting the implementation.
+A [Synaptic](https://en.wikipedia.org/wiki/Synaptic_(software))-inspired
+graphical package manager for [Void Linux](https://voidlinux.org/), built
+directly on `libxbps`. GTK4, no root required to run — only the small
+privileged helper that actually installs/removes packages is ever elevated,
+via `pkexec`.
 
-## Why GTK4 (not Iced)
+## Features
 
-You asked for Rust + Iced, "or a more suitable toolkit" — I went with
-**`gtk4-rs`** instead, for two concrete reasons specific to this app:
+- Sortable, filterable, searchable package table (name, description,
+  installed/available version, installed/download size) with per-row
+  checkboxes for marking several packages at once
+- Filter by state (All / Installed / Not Installed / Upgradable / On Hold /
+  Marked) and by repository, side by side in the sidebar
+- Search by name, or name + description
+- Detail pane: description, tags, size, maintainer, homepage, license,
+  install date, dependencies, reverse dependencies, and an on-demand file
+  list for installed packages
+- Install / Upgrade / Remove / Purge / Hold / Unhold, from the detail pane,
+  a right-click context menu, or double-click
+- Multi-select (ctrl/shift-click) with bulk mark/unmark from the context menu
+- Confirms before pulling in missing dependencies on install, and before
+  removing a package other installed packages still depend on
+- A summary confirmation before anything is actually applied
+- Full system upgrade, orphaned-package removal, package cache cleanup, and
+  package database verification, from the app menu
+- Find which package owns a given file (`xbps-query -o`)
+- Switch between packages providing the same files (`xbps-alternatives`)
+- Add/remove repositories, with an optional custom display name per
+  repository
+- Keyboard shortcuts (Ctrl+F search, F5 reload, Delete to mark for removal,
+  Escape to clear search, Ctrl+Q to quit)
 
-1. **The package table.** The list view is a sortable, multi-column,
-   virtualized table with a checkbox column, per-column click-to-sort,
-   live filtering, and live search — exactly what `gtk::ColumnView` +
-   `GtkFilterListModel`/`GtkSortListModel`/`GtkSingleSelection` are
-   built for. Iced has no equivalent widget; building one (virtualized
-   rendering, resizable/sortable headers, per-cell factories) would
-   mean re-implementing a large chunk of what GTK already provides,
-   for a worse result.
-2. **This is a system utility, not a branded app.** It should look and
-   feel like a native part of the Void Linux desktop — respecting the
-   user's GTK theme, using `libadwaita`-style CSS classes
-   (`suggested-action`, `destructive-action`, `dim-label`), and
-   integrating with `pkexec`'s GTK-aware polkit agent the same way the
-   original did. `gtk4-rs` gets all of that for free.
+## Installing
 
-The `xbps-sys` FFI layer, the actor-based worker thread, and the
-`Transaction`/protocol code are all toolkit-agnostic — if you'd still
-rather have an Iced (or egui, or Slint) front end, everything in
-`caerus/src/backend/` is reusable as-is; only `caerus/src/ui/` and
-`main.rs` would need to change.
+### Dependencies
 
-## What actually changed vs. the original
+Build-time:
 
-Functionality and UI layout are unchanged: same package list, same
-filters (All / Installed / Not Installed / Upgradable / On Hold /
-Marked), same search modes, same detail pane sections, same
-Install/Upgrade/Remove/Unmark actions with the missing-dependencies
-confirmation dialog, same Apply progress dialog, same privileged-helper
-protocol (`caerus-helper`, spawned via `pkexec`, kept alive with a
-5-minute idle timeout).
+- A Rust toolchain (`rustc`/`cargo`) — 2021 edition or newer
+- `gtk4-devel`, `libxbps-devel`, `glib-devel`
+- `clang` and `pkg-config` (used by `xbps-sys`'s build script to locate
+  `libxbps` and generate its FFI bindings via `bindgen`)
 
-What's different is entirely under the hood:
+Runtime:
 
-- **The crash.** Per the project notes, the C version had a `SIGSEGV`
-  after rapid repeated reloads. A first fix (a `GMutex` around a
-  shared, in-place-rebuilt `struct xbps_handle`) didn't fully resolve
-  it — a follow-up crash log showed *three automatic sequential
-  reloads with no user selection at all*, which pointed past "the
-  detail pane raced the reload" and at something structural: repeated
-  `xbps_end`/`xbps_init` cycles (which `libxbps` was never designed to
-  tolerate back-to-back or re-entrantly) firing from overlapping
-  reload attempts.
+- `gtk4`, `libxbps`, `glib`
+- `polkit`, with a polkit authentication agent running (any desktop
+  environment's default one is fine — GNOME, KDE, xfce4-polkit, lxqt-policykit,
+  etc.)
 
-  This rewrite doesn't add another lock around the same shared,
-  mutable handle — it removes the shared state. See the long comment
-  at the top of `caerus/src/backend/package_store.rs`: exactly one
-  dedicated OS thread ever touches `libxbps`, for the whole process
-  lifetime, and every other part of the program (reload, and every
-  detail-pane lookup) is just a message sent down a channel to that
-  thread, processed one at a time by a plain `recv()` loop. Concurrent
-  or re-entrant access to the handle isn't prevented by runtime
-  arbitration anymore — there's no code path that could even attempt
-  it, because there's only ever one caller.
+On Void Linux:
 
-- **`caerus-helper`** is now a small, dependency-free Rust binary
-  instead of C — the original's own roadmap flagged this as worth
-  doing "given the tiny line-protocol surface and zero `libxbps` FFI
-  needed." Same protocol, same behavior (`xbps-install`/`xbps-remove`,
-  spawned via `pkexec`, combined stdout+stderr streamed back as `LOG`
-  lines), just memory-safe by construction and with the same
-  everything-gets-relayed-through-one-channel shape as the main app's
-  worker thread.
+```sh
+xbps-install -S gtk4-devel libxbps-devel glib-devel polkit clang pkg-config
+```
 
-- **No GtkBuilder `.ui` templates / GResource compilation.** The
-  original's composite templates (`data/ui/*.ui`, edited in Cambalache)
-  are recreated directly in Rust code in `caerus/src/ui/`. This drops
-  the `glib-compile-resources`/`gnome.compile_resources()` build step
-  entirely — Cargo needs nothing beyond `libxbps-devel` and GTK4's own
-  dev headers. If you want the templates back for visual editing,
-  they're straightforward to reintroduce with `gtk::CompositeTemplate`
-  and the `#[template(...)]` derive; I skipped it to keep the build
-  self-contained.
+If you don't already have Rust:
 
-## Layout
+```sh
+curl https://sh.rustup.rs -sSf | sh
+```
+
+### Build and install
+
+```sh
+cargo build --release
+sudo ./install.sh
+```
+
+`install.sh` installs `caerus` to `/usr/bin`, `caerus-helper` to
+`/usr/libexec`, and registers the `.desktop` launcher, polkit policy, and
+icon (set `PREFIX=/usr/local` or similar before running it to install
+somewhere else). Launch it from your application menu, or just run `caerus`.
+
+### Running without installing
+
+```sh
+cargo build --release
+./target/release/caerus
+```
+
+Caerus looks for `caerus-helper` next to its own binary first, so this
+works straight out of the build tree — no install step needed to try it
+out. The application icon needs `caerus/data/icons/` to be reachable
+relative to the binary for this to show correctly uninstalled; it's found
+automatically as long as you run the binary from inside the build tree
+(`target/debug/caerus` or `target/release/caerus`).
+
+### Uninstalling
+
+```sh
+sudo rm /usr/bin/caerus /usr/libexec/caerus-helper \
+        /usr/share/applications/org.voidlinux.caerus.desktop \
+        /usr/share/polkit-1/actions/org.voidlinux.caerus.policy \
+        /usr/share/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg
+```
+
+(adjust the prefix if you installed with a custom `PREFIX`).
+
+## How it's built
 
 ```
-caerus-rs/
+caerus/
 ├── xbps-sys/       raw FFI bindings to libxbps, generated by bindgen
 │                   at build time from your system's <xbps.h>
 ├── caerus/         the GTK4 app (unprivileged)
-│   ├── src/backend/  package.rs, package_store.rs, transaction.rs
+│   ├── src/backend/  package.rs, package_store.rs, transaction.rs,
+│   │                  repo_names.rs
 │   └── src/ui/       window.rs, filter_sidebar.rs, package_list.rs,
-│                      detail_pane.rs, apply_dialog.rs, deps_confirm.rs
+│                      detail_pane.rs, apply_dialog.rs, apply_confirm.rs,
+│                      deps_confirm.rs, remove_confirm.rs,
+│                      alternatives_dialog.rs, file_owner_dialog.rs,
+│                      repo_manager.rs
 ├── caerus-helper/  the privileged helper (spawned via pkexec), zero
 │                   external dependencies by design
 └── install.sh
 ```
 
-## Building
+**Concurrency model.** Exactly one dedicated OS thread ever touches
+`libxbps`, for the whole process lifetime (see the comment at the top of
+`caerus/src/backend/package_store.rs`). Every other part of the program —
+reload, and every detail-pane lookup — is a message sent down a channel to
+that thread and processed one at a time. Concurrent or re-entrant access to
+the `xbps_handle` isn't prevented by runtime locking; it's a type-level
+impossibility, because there's only ever one caller.
 
-You'll need the same system packages the original meson build needed,
-plus a Rust toolchain:
+**Privilege separation.** The GTK application never runs as root. When a
+change needs to actually happen, it's queued as a line-oriented command
+(`INSTALL pkg1 pkg2`, `REMOVE ...`, `SYNC`, ...) and sent to
+`caerus-helper`, a small dependency-free binary spawned once via `pkexec`
+and kept alive (with a 5-minute idle timeout) so repeated actions in one
+session don't re-prompt for authentication. `caerus-helper` does nothing but
+parse that line protocol and shell out to `xbps-install`/`xbps-remove`/
+`xbps-pkgdb`/`xbps-alternatives`, streaming their output back — it's the one
+privileged component in the project, kept intentionally small and
+dependency-free to minimize its attack surface.
 
-```sh
-xbps-install -S gtk4-devel libxbps-devel glib-devel polkit clang pkg-config
-# (clang/pkg-config are needed by xbps-sys's build.rs, for bindgen)
-curl https://sh.rustup.rs -sSf | sh    # if you don't already have cargo
+**No GtkBuilder `.ui` templates.** The UI is built directly in Rust code
+under `caerus/src/ui/` rather than from `.ui` XML — no
+`glib-compile-resources`/GResource build step, no separate template-editing
+tool. Cargo needs nothing beyond `libxbps-devel` and GTK4's own dev headers.
 
-cargo build --release
-sudo ./install.sh
-```
+## License
 
-This produces `target/release/caerus` and `target/release/caerus-helper`.
-For running straight out of the build tree without installing,
-`Transaction::find_helper_path()` looks for `caerus-helper` next to the
-running `caerus` binary first (same as the original), so
-`cargo build --release && ./target/release/caerus` works directly.
-
-### A note on this being an unverified rewrite
-
-I don't have a Void Linux machine, `libxbps-devel`, or a Rust
-toolchain available in the environment I wrote this in, so none of
-this has been compiled. The FFI layer in particular
-(`package_store.rs`'s callbacks into `xbps_rpool_foreach`/
-`xbps_pkgdb_foreach_cb_multi`, and the exact bindgen-generated names
-for types like `xbps_dictionary_keysym_t`) is translated faithfully
-from the original C's own call patterns, but bindgen's exact output
-depends on your installed `xbps.h` — if `cargo build` reports a type
-mismatch in `package_store.rs`, check
-`target/*/build/xbps-sys-*/out/bindings.rs` for the real generated
-signature and adjust the call site accordingly. Everything else (the
-GTK widget code, the actor/channel architecture, the helper protocol)
-is ordinary, checkable Rust with no such external-header dependency.
+GNU General Public License v3.0 or later — see [LICENSE](LICENSE).

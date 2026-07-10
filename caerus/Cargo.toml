@@ -3,6 +3,8 @@ name = "caerus"
 version = "0.1.0"
 edition = "2021"
 description = "A Synaptic-inspired GTK4 package manager for Void Linux, built directly on libxbps"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/mendescotta/caerus"
 
 [dependencies]
 gtk = { package = "gtk4", version = "0.9", features = ["v4_12"] }
