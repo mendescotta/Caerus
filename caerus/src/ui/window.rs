@@ -513,7 +513,7 @@ fn show_about_dialog(parent: &gtk::ApplicationWindow) {
     about.set_comments(Some(
         "A Synaptic-inspired package manager for Void Linux, built directly on libxbps.",
     ));
-    about.set_website(Some("https://voidlinux.org"));
+    about.set_website(Some("https://github.com/mendescotta/Caerus"));
     about.set_logo_icon_name(Some(crate::APP_ID));
     about.set_license_type(gtk::License::Gpl30);
     about.present();
