@@ -67,7 +67,15 @@ fn sync_color_scheme_from_portal() {
     // (confirmed by printing a real reply: `(<<uint32 1>>,)` — two levels
     // of `<>` boxing, not one). Keep unwrapping until nothing's left.
     fn unwrap_variant(mut value: glib::Variant) -> glib::Variant {
-        while let Some(inner) = value.as_variant() {
+        // `Variant::as_variant()` calls `g_variant_get_variant()`
+        // unconditionally and only turns its NULL-on-type-mismatch
+        // return into `None` — it doesn't check the type first. Doing
+        // that ourselves avoids a `GLib-CRITICAL` on the final,
+        // already-fully-unwrapped call.
+        while value.type_() == glib::VariantTy::VARIANT {
+            let Some(inner) = value.as_variant() else {
+                break;
+            };
             value = inner;
         }
         value

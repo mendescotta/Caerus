@@ -348,8 +348,24 @@ impl PackageStore {
             if let Some(obj) = self.inner.list.item(i) {
                 let obj = obj.downcast_ref::<PackageObject>().unwrap();
                 if obj.name() == pkgname {
-                    obj.set_mark(mark);
-                    self.inner.list.items_changed(i, 1, 1);
+                    // Mutating `obj` in place and manually firing
+                    // `items_changed(i, 1, 1)` is *not* enough to get a
+                    // visible refresh here: `GtkColumnView` (through the
+                    // `FilterListModel`/`SortListModel`/`MultiSelection`
+                    // chain in front of it) compares the `item(i)`
+                    // GObject pointer before deciding whether to rebind a
+                    // row, and skips the rebind when it's the same
+                    // pointer — which it always is when we just mutate
+                    // the existing object. Splicing in a genuinely new
+                    // `PackageObject` forces that identity check to see a
+                    // change, so the checkbox/status-icon/bold-name
+                    // bindings (all read `pkg.mark` at bind time) actually
+                    // update. Confirmed via temporary instrumentation:
+                    // the in-place-mutate + items_changed approach never
+                    // re-fired the checkbox column's `bind` callback.
+                    let mut pkg = obj.pkg().clone();
+                    pkg.mark = mark;
+                    self.inner.list.splice(i, 1, &[PackageObject::new(pkg)]);
                     return;
                 }
             }
@@ -376,8 +392,12 @@ impl PackageStore {
             if let Some(obj) = self.inner.list.item(i) {
                 let obj = obj.downcast_ref::<PackageObject>().unwrap();
                 if obj.pkg().mark != PkgMark::None {
-                    obj.set_mark(PkgMark::None);
-                    self.inner.list.items_changed(i, 1, 1);
+                    // See the comment in `set_mark` — splice in a new
+                    // object rather than mutate in place, so the row
+                    // actually gets rebound.
+                    let mut pkg = obj.pkg().clone();
+                    pkg.mark = PkgMark::None;
+                    self.inner.list.splice(i, 1, &[PackageObject::new(pkg)]);
                 }
             }
         }
