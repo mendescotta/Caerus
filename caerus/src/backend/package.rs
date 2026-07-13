@@ -89,6 +89,10 @@ pub struct Package {
     /// Computed once per reload via `xbps_find_pkg_orphans` — true if
     /// this package is installed but nothing else depends on it anymore.
     pub is_orphan: bool,
+    /// xbps "repolock" property (installed packages only) — true if this
+    /// package is pinned to only ever upgrade from the repository it was
+    /// originally installed from. Set via `xbps-pkgdb -m repolock`.
+    pub is_repolocked: bool,
 }
 
 /// On-demand metadata not loaded during the bulk scan. Mirrors
@@ -103,6 +107,16 @@ pub struct PackageExtraInfo {
     pub automatic_install: bool,
     pub has_automatic_install: bool,
     pub download_size: u64,
+    /// Virtual packages/symlinked commands this package provides.
+    pub provides: Vec<String>,
+    /// Other packages this package can't be installed alongside.
+    pub conflicts: Vec<String>,
+    /// Other packages this package supersedes/replaces.
+    pub replaces: Vec<String>,
+    /// Shared library sonames this package needs at runtime.
+    pub shlib_requires: Vec<String>,
+    /// Shared library sonames this package makes available to others.
+    pub shlib_provides: Vec<String>,
 }
 
 pub fn pkg_state_icon(state: PkgState, mark: PkgMark) -> Option<&'static str> {
