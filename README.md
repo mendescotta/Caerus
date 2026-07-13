@@ -19,29 +19,29 @@ via `pkexec`.
 
 ## Features
 
-- Sortable, filterable, searchable package table (name, description,
-  installed/available version, installed/download size) with per-row
-  checkboxes for marking several packages at once
+- Sortable, filterable, searchable package table with per-row checkboxes
+  for marking several packages at once
 - Filter by state (All / Installed / Not Installed / Upgradable / On Hold /
-  Marked) and by repository, side by side in the sidebar
-- Search by name, or name + description
-- Detail pane: description, tags, size, maintainer, homepage, license,
-  install date, dependencies, reverse dependencies, and an on-demand file
-  list for installed packages
-- Install / Upgrade / Remove / Purge / Hold / Unhold, from the detail pane,
-  a right-click context menu, or double-click
-- Multi-select (ctrl/shift-click) with bulk mark/unmark from the context menu
-- Confirms before pulling in missing dependencies on install, and before
-  removing a package other installed packages still depend on
-- A summary confirmation before anything is actually applied
-- Full system upgrade, orphaned-package removal, package cache cleanup, and
-  package database verification, from the app menu
-- Find which package owns a given file (`xbps-query -o`)
-- Switch between packages providing the same files (`xbps-alternatives`)
+  Marked / Orphaned), by architecture, and by repository
+- Detail pane: description, tags, size, maintainer, dependencies, reverse
+  dependencies, and an on-demand file list
+- Install / Upgrade / Remove / Purge / Hold / Unhold, with multi-select and
+  bulk actions
+- Real transaction preview before applying anything — actual sizes,
+  ordering, and conflicts from `libxbps` itself, not an approximation, with
+  a "Copy Dry-Run Output" button
+- Warns before a removal that would cascade to dependent packages, showing
+  the full chain down to indirectly-affected ones
+- Transaction history log of every applied batch and maintenance action,
+  viewable from the app menu
+- Full system upgrade, orphaned-package removal, cache cleanup, and package
+  database verification, from the app menu
+- Find which package owns a file (`xbps-query -o`), and switch between
+  packages providing the same files (`xbps-alternatives`)
 - Add/remove repositories, with an optional custom display name per
   repository
 - Keyboard shortcuts (Ctrl+F search, F5 reload, Delete to mark for removal,
-  Escape to clear search, Ctrl+Q to quit)
+  Ctrl+A select all, Escape to clear search, Ctrl+Q to quit)
 
 ## Installing
 
