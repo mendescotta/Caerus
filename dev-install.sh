@@ -32,6 +32,14 @@ sed "s|^Exec=caerus\$|Exec=$BIN|" "$SRC_DIR/caerus/data/org.voidlinux.caerus.des
 ln -sf "$SRC_DIR/caerus/data/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg" \
     "$DATADIR/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg"
 
+# Same bundled symbolic-icon fallback as install.sh — see
+# `ensure_icon_theme_fallback` in caerus/src/ui/window.rs.
+find "$SRC_DIR/caerus/data/icons/hicolor/symbolic" -name '*.svg' | while read -r svg; do
+    rel="${svg#"$SRC_DIR/caerus/data/icons/"}"
+    mkdir -p "$DATADIR/icons/$(dirname "$rel")"
+    ln -sf "$svg" "$DATADIR/icons/$rel"
+done
+
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
     gtk-update-icon-cache -f -t "$DATADIR/icons/hicolor" >/dev/null 2>&1 || true
 fi

@@ -44,6 +44,7 @@ pub enum FilterMode {
     Upgradable = 3,
     OnHold = 4,
     Marked = 5,
+    Orphaned = 6,
 }
 
 impl FilterMode {
@@ -54,6 +55,7 @@ impl FilterMode {
             3 => FilterMode::Upgradable,
             4 => FilterMode::OnHold,
             5 => FilterMode::Marked,
+            6 => FilterMode::Orphaned,
             _ => FilterMode::All,
         }
     }
@@ -82,6 +84,11 @@ pub struct Package {
     pub state: PkgState,
     pub mark: PkgMark,
     pub essential: bool,
+    /// xbps "architecture" property (e.g. "x86_64", "noarch").
+    pub arch: Option<String>,
+    /// Computed once per reload via `xbps_find_pkg_orphans` — true if
+    /// this package is installed but nothing else depends on it anymore.
+    pub is_orphan: bool,
 }
 
 /// On-demand metadata not loaded during the bulk scan. Mirrors

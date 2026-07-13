@@ -34,6 +34,15 @@ install -Dm644 "$SRC_DIR/caerus/data/org.voidlinux.caerus.desktop" \
 install -Dm644 "$SRC_DIR/caerus/data/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg" \
     "$DATADIR/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg"
 
+# Bundled fallback copies of the handful of symbolic icons the UI uses
+# that aren't guaranteed to be in every desktop's active icon theme (see
+# `ensure_icon_theme_fallback` in caerus/src/ui/window.rs) — installed
+# under hicolor, which every icon theme falls back to automatically.
+find "$SRC_DIR/caerus/data/icons/hicolor/symbolic" -name '*.svg' | while read -r svg; do
+    rel="${svg#"$SRC_DIR/caerus/data/icons/"}"
+    install -Dm644 "$svg" "$DATADIR/icons/$rel"
+done
+
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
     gtk-update-icon-cache -f -t "$DATADIR/icons/hicolor" || true
 fi

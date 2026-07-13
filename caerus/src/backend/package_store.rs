@@ -59,6 +59,9 @@
 //!     same cost the original paid while holding its mutex.
 
 use crate::backend::package::{Package, PackageExtraInfo, PackageObject, PkgMark, PkgState};
+use crate::backend::transaction_preview::{
+    PreviewOp, TransAction, TransactionError, TransactionPreview, TransactionPreviewItem,
+};
 use gio::prelude::*;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -86,6 +89,11 @@ enum Cmd {
         String,
         HashMap<String, PkgState>,
         mpsc::Sender<Option<Vec<String>>>,
+    ),
+    GetRdepsTransitive(String, mpsc::Sender<Option<Vec<(String, String)>>>),
+    PreviewTransaction(
+        Vec<PreviewOp>,
+        mpsc::Sender<Result<TransactionPreview, TransactionError>>,
     ),
     Shutdown,
 }
@@ -323,6 +331,17 @@ impl PackageStore {
         c
     }
 
+    /// No-ops (silently, previously) if `pkgname` doesn't match any
+    /// entry currently in the store — which can genuinely happen for a
+    /// dependency name resolved from a *virtual*/`provides`-based
+    /// `run_depends` pattern (e.g. depending on "awk", satisfied by
+    /// whichever package's `provides` lists it — "awk" itself is never a
+    /// real, independently listed package). `deps_confirm` has no way to
+    /// tell such a name apart from a normal one before calling this, so
+    /// rather than leaving that case as an invisible no-op (which looks
+    /// exactly like "accepted the dialog but nothing got marked"), log
+    /// it — actionable enough to explain the gap without needing another
+    /// libxbps round trip just to pre-filter virtual names out.
     pub fn set_mark(&self, pkgname: &str, mark: PkgMark) {
         let n = self.inner.list.n_items();
         for i in 0..n {
@@ -331,10 +350,14 @@ impl PackageStore {
                 if obj.name() == pkgname {
                     obj.set_mark(mark);
                     self.inner.list.items_changed(i, 1, 1);
-                    break;
+                    return;
                 }
             }
         }
+        eprintln!(
+            "caerus: set_mark({pkgname:?}, {mark:?}) found no matching package — likely a \
+             virtual/provides-based dependency name rather than a real package"
+        );
     }
 
     pub fn marked_names(&self, mark: PkgMark) -> Vec<String> {
@@ -416,6 +439,39 @@ impl PackageStore {
             .ok()?;
         rx.recv().unwrap_or(None)
     }
+
+    /// Full transitive closure of `pkgname`'s reverse dependencies —
+    /// every currently-installed package that would break if `pkgname`
+    /// were removed, directly or through a chain of other removals.
+    /// Each entry is `(affected_pkgname, direct_parent_that_pulled_it_in)`
+    /// so the UI can show *why* a transitively-reached package is
+    /// affected, not just that it is.
+    pub fn get_rdeps_transitive(&self, pkgname: &str) -> Option<Vec<(String, String)>> {
+        let (tx, rx) = mpsc::channel();
+        self.inner
+            .cmd_tx
+            .send(Cmd::GetRdepsTransitive(pkgname.to_string(), tx))
+            .ok()?;
+        rx.recv().unwrap_or(None)
+    }
+
+    /// Runs a real `libxbps` dry-run: `xbps_transaction_*` calls for each
+    /// `op` followed by `xbps_transaction_prepare()`, reading back real
+    /// sizes/ordering/conflicts from `xh.transd` — but never calling
+    /// `xbps_transaction_commit()`, so nothing on disk changes. Blocks
+    /// the calling thread briefly, same cost class as the other
+    /// synchronous detail queries above.
+    pub fn preview_transaction(
+        &self,
+        ops: Vec<PreviewOp>,
+    ) -> Option<Result<TransactionPreview, TransactionError>> {
+        let (tx, rx) = mpsc::channel();
+        self.inner
+            .cmd_tx
+            .send(Cmd::PreviewTransaction(ops, tx))
+            .ok()?;
+        rx.recv().ok()
+    }
 }
 
 // ── Worker thread ────────────────────────────────────────────────────
@@ -453,6 +509,12 @@ fn worker_main(cmd_rx: mpsc::Receiver<Cmd>, result_tx: mpsc::Sender<LoadResult>)
             }
             Cmd::GetMissingDeps(name, snapshot, reply) => {
                 let _ = reply.send(get_missing_deps(&mut xh, inited, &name, &snapshot));
+            }
+            Cmd::GetRdepsTransitive(name, reply) => {
+                let _ = reply.send(get_rdeps_transitive(&mut xh, inited, &name));
+            }
+            Cmd::PreviewTransaction(ops, reply) => {
+                let _ = reply.send(preview_transaction(&ops));
             }
             Cmd::Shutdown => break,
         }
@@ -602,6 +664,7 @@ unsafe extern "C" fn rpool_repo_cb(
         // is "tags" (confirmed against xbps's own zsh-completion
         // property list), possibly string-or-array.
         let tags = dict_str_or_array_joined(pkgd, "tags").unwrap_or_default();
+        let arch = dict_str(pkgd, "architecture");
 
         let ver = pkgver
             .as_deref()
@@ -632,6 +695,8 @@ unsafe extern "C" fn rpool_repo_cb(
                 state: PkgState::NotInstalled,
                 mark: PkgMark::None,
                 essential: false,
+                arch,
+                is_orphan: false,
             },
         );
     }
@@ -719,6 +784,13 @@ unsafe extern "C" fn pkgdb_cb(
     xbps_sys::xbps_dictionary_get_bool(dict, cstr("essential").as_ptr(), &mut essential);
     p.essential = essential;
 
+    // Same precedence rule as "repository" above: the pkgdb's own
+    // recorded architecture (what's actually installed) wins over
+    // whatever the currently-configured repo scan happened to set.
+    if let Some(arch) = dict_str(dict, "architecture") {
+        p.arch = Some(arch);
+    }
+
     0
 }
 
@@ -740,6 +812,24 @@ fn do_reload(xh: &mut xbps_sys::xbps_handle, inited: &mut bool) -> LoadResult {
 
         xbps_sys::xbps_rpool_foreach(xh, Some(rpool_repo_cb), ht_ptr);
         xbps_sys::xbps_pkgdb_foreach_cb_multi(xh, Some(pkgdb_cb), ht_ptr);
+
+        // Single cheap pass over the already-loaded pkgdb — same
+        // orphan set `xbps-remove -o` (the helper's own ORPHANS command)
+        // would act on. `orphans` param left null: we only want the
+        // orphans of the system as it stands right now, not "as if these
+        // other packages were already removed too".
+        let orphans = xbps_sys::xbps_find_pkg_orphans(xh, std::ptr::null_mut());
+        if !orphans.is_null() {
+            let n = xbps_sys::xbps_array_count(orphans);
+            for i in 0..n {
+                let d = xbps_sys::xbps_array_get(orphans, i) as xbps_sys::xbps_dictionary_t;
+                if let Some(name) = dict_str(d, "pkgname") {
+                    if let Some(p) = ht.get_mut(&name) {
+                        p.is_orphan = true;
+                    }
+                }
+            }
+        }
 
         LoadResult::Ok(ht.into_values().collect())
     }
@@ -805,6 +895,44 @@ fn get_rdeps(xh: &mut xbps_sys::xbps_handle, inited: bool, pkgname: &str) -> Opt
                 CStr::from_ptr(s).to_string_lossy().into_owned()
             });
         }
+        Some(out)
+    }
+}
+
+/// Walks `pkgname`'s reverse-dependency closure breadth-first, recording
+/// which direct parent pulled each newly-discovered name in. Mirrors the
+/// shape of `process_deps_of`/`get_missing_deps` below, just walking
+/// `get_rdeps` (reverse deps) instead of `get_deps` (forward deps).
+fn get_rdeps_transitive(
+    xh: &mut xbps_sys::xbps_handle,
+    inited: bool,
+    pkgname: &str,
+) -> Option<Vec<(String, String)>> {
+    if !inited || pkgname.is_empty() {
+        return None;
+    }
+    let mut visited: HashSet<String> = HashSet::new();
+    visited.insert(pkgname.to_string()); // never report itself, even via a cycle
+    let mut out: Vec<(String, String)> = Vec::new();
+    let mut frontier = vec![pkgname.to_string()];
+
+    while let Some(current) = frontier.pop() {
+        let Some(rdeps) = get_rdeps(xh, inited, &current) else {
+            continue;
+        };
+        for name in rdeps {
+            if visited.contains(&name) {
+                continue;
+            }
+            visited.insert(name.clone());
+            out.push((name.clone(), current.clone()));
+            frontier.push(name);
+        }
+    }
+
+    if out.is_empty() {
+        None
+    } else {
         Some(out)
     }
 }
@@ -986,4 +1114,202 @@ fn get_missing_deps(
     } else {
         Some(missing)
     }
+}
+
+// ── Real transaction preview (dry-run) ───────────────────────────────
+//
+// Standard Linux errno values (confirmed against /usr/include/errno.h),
+// matching the return codes `xbps_transaction_prepare()` uses to signal
+// *why* it failed — see `exec_transaction()` in Void's own
+// `bin/xbps-install/transaction.c`, which this mirrors. Not pulled from
+// the `libc` crate (not a dependency of this crate) for four constants.
+const ENOEXEC: c_int = 8;
+const EAGAIN: c_int = 11;
+const ENODEV: c_int = 19;
+const ENOSPC: c_int = 28;
+
+unsafe fn read_string_array(dict: xbps_sys::xbps_dictionary_t, key: &str) -> Vec<String> {
+    let arr = xbps_sys::xbps_dictionary_get(dict, cstr(key).as_ptr()) as xbps_sys::xbps_array_t;
+    if arr.is_null() {
+        return Vec::new();
+    }
+    let n = xbps_sys::xbps_array_count(arr);
+    let mut out = Vec::with_capacity(n as usize);
+    for i in 0..n {
+        let mut s: *const c_char = std::ptr::null();
+        xbps_sys::xbps_array_get_cstring_nocopy(arr, i, &mut s);
+        if !s.is_null() {
+            out.push(CStr::from_ptr(s).to_string_lossy().into_owned());
+        }
+    }
+    out
+}
+
+/// Runs every `op` against a fresh, temporary `xbps_handle` — deliberately
+/// *not* the worker's own persistent one, since libxbps has no call to
+/// reset `xh.transd`/undo a prepared-but-uncommitted transaction, and
+/// leaving the long-lived handle in a transaction-dirty state would risk
+/// corrupting the next reload or detail-pane lookup. Still runs entirely
+/// on the single dedicated xbps worker thread, so the "exactly one thread
+/// touches libxbps" invariant documented at the top of this file holds.
+fn preview_transaction(ops: &[PreviewOp]) -> Result<TransactionPreview, TransactionError> {
+    unsafe {
+        let mut xh: xbps_sys::xbps_handle = std::mem::zeroed();
+        let r = xbps_sys::xbps_init(&mut xh);
+        if r != 0 {
+            return Err(TransactionError::Other(format!(
+                "xbps_init failed: {}",
+                std::io::Error::from_raw_os_error(r)
+            )));
+        }
+        let result = run_preview_ops(&mut xh, ops);
+        xbps_sys::xbps_end(&mut xh);
+        result
+    }
+}
+
+unsafe fn run_preview_ops(
+    xh: &mut xbps_sys::xbps_handle,
+    ops: &[PreviewOp],
+) -> Result<TransactionPreview, TransactionError> {
+    let mut op_errors = Vec::new();
+    for op in ops {
+        let (name, code) = match op {
+            PreviewOp::Install(name) => (
+                name,
+                xbps_sys::xbps_transaction_install_pkg(xh, cstr(name).as_ptr(), false),
+            ),
+            PreviewOp::Update(name) => (
+                name,
+                xbps_sys::xbps_transaction_update_pkg(xh, cstr(name).as_ptr(), false),
+            ),
+            PreviewOp::Remove(name) => (
+                name,
+                xbps_sys::xbps_transaction_remove_pkg(xh, cstr(name).as_ptr(), false),
+            ),
+            PreviewOp::Purge(name) => (
+                name,
+                xbps_sys::xbps_transaction_remove_pkg(xh, cstr(name).as_ptr(), true),
+            ),
+        };
+        if code != 0 {
+            op_errors.push(format!(
+                "{}: {}",
+                name,
+                std::io::Error::from_raw_os_error(code)
+            ));
+        }
+    }
+    if !op_errors.is_empty() {
+        return Err(TransactionError::Other(op_errors.join("; ")));
+    }
+
+    let r = xbps_sys::xbps_transaction_prepare(xh);
+    if r != 0 {
+        return Err(match r {
+            ENODEV => TransactionError::MissingDeps(read_string_array(xh.transd, "missing_deps")),
+            ENOEXEC => {
+                TransactionError::MissingShlibs(read_string_array(xh.transd, "missing_shlibs"))
+            }
+            EAGAIN => TransactionError::Conflicts(read_string_array(xh.transd, "conflicts")),
+            ENOSPC => {
+                let mut need: u64 = 0;
+                let mut free: u64 = 0;
+                xbps_sys::xbps_dictionary_get_uint64(
+                    xh.transd,
+                    cstr("total-installed-size").as_ptr(),
+                    &mut need,
+                );
+                xbps_sys::xbps_dictionary_get_uint64(
+                    xh.transd,
+                    cstr("disk-free-size").as_ptr(),
+                    &mut free,
+                );
+                TransactionError::NotEnoughSpace { need, free }
+            }
+            _ => TransactionError::Other(format!("{}", std::io::Error::from_raw_os_error(r))),
+        });
+    }
+
+    let transd = xh.transd;
+    let mut preview = TransactionPreview::default();
+    xbps_sys::xbps_dictionary_get_uint64(
+        transd,
+        cstr("total-download-size").as_ptr(),
+        &mut preview.total_download_size,
+    );
+    xbps_sys::xbps_dictionary_get_uint64(
+        transd,
+        cstr("total-installed-size").as_ptr(),
+        &mut preview.total_installed_size,
+    );
+    xbps_sys::xbps_dictionary_get_uint64(
+        transd,
+        cstr("total-removed-size").as_ptr(),
+        &mut preview.total_removed_size,
+    );
+    xbps_sys::xbps_dictionary_get_uint32(
+        transd,
+        cstr("total-download-pkgs").as_ptr(),
+        &mut preview.download_pkgs,
+    );
+    xbps_sys::xbps_dictionary_get_uint32(
+        transd,
+        cstr("total-install-pkgs").as_ptr(),
+        &mut preview.install_pkgs,
+    );
+    xbps_sys::xbps_dictionary_get_uint32(
+        transd,
+        cstr("total-update-pkgs").as_ptr(),
+        &mut preview.update_pkgs,
+    );
+    xbps_sys::xbps_dictionary_get_uint32(
+        transd,
+        cstr("total-remove-pkgs").as_ptr(),
+        &mut preview.remove_pkgs,
+    );
+    xbps_sys::xbps_dictionary_get_uint32(
+        transd,
+        cstr("total-hold-pkgs").as_ptr(),
+        &mut preview.hold_pkgs,
+    );
+
+    let packages =
+        xbps_sys::xbps_dictionary_get(transd, cstr("packages").as_ptr()) as xbps_sys::xbps_array_t;
+    if !packages.is_null() {
+        let n = xbps_sys::xbps_array_count(packages);
+        for i in 0..n {
+            let pkgd = xbps_sys::xbps_array_get(packages, i) as xbps_sys::xbps_dictionary_t;
+            if pkgd.is_null() {
+                continue;
+            }
+            let pkgname = dict_str(pkgd, "pkgname").unwrap_or_default();
+            let pkgver = dict_str(pkgd, "pkgver").unwrap_or_default();
+            let mut ttype: u8 = 0;
+            xbps_sys::xbps_dictionary_get_uint8(pkgd, cstr("transaction").as_ptr(), &mut ttype);
+            let mut installed_size: u64 = 0;
+            xbps_sys::xbps_dictionary_get_uint64(
+                pkgd,
+                cstr("installed_size").as_ptr(),
+                &mut installed_size,
+            );
+            let mut download_size: u64 = 0;
+            xbps_sys::xbps_dictionary_get_uint64(
+                pkgd,
+                cstr("filename-size").as_ptr(),
+                &mut download_size,
+            );
+            preview.items.push(TransactionPreviewItem {
+                pkgname,
+                pkgver,
+                action: TransAction::from_raw(ttype),
+                arch: dict_str(pkgd, "architecture"),
+                repository: dict_str(pkgd, "repository"),
+                installed_size,
+                download_size,
+            });
+        }
+    }
+
+    Ok(preview)
 }

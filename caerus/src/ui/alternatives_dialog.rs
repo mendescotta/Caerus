@@ -8,7 +8,7 @@
 //! through the privileged helper's `ALTERNATIVE` command.
 
 use crate::backend::transaction::Transaction;
-use crate::ui::dialog_util::modal_window;
+use crate::ui::dialog_util::{modal_window, present_focused};
 use gtk::prelude::*;
 use std::cell::RefCell;
 use std::process::Command;
@@ -249,5 +249,11 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
 
     refresh_groups(&inner);
 
-    dlg.present();
+    // Without an explicit focus target, GTK auto-focuses the first
+    // focusable widget on present — the first row of `groups_list` here
+    // — which also auto-selects that group (firing `refresh_providers`
+    // for a group the user never actually clicked). Same class of
+    // unwanted-auto-focus issue `present_focused` exists to avoid
+    // elsewhere in this project's dialogs.
+    present_focused(&dlg, &close_btn);
 }
