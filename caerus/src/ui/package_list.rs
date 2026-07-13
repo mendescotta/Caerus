@@ -27,6 +27,8 @@ struct Inner {
     search_name_only: Cell<bool>,
     /// `None` = no repository restriction ("All Repositories").
     current_repo_filter: RefCell<Option<String>>,
+    /// `None` = no architecture restriction ("All Architectures").
+    current_arch_filter: RefCell<Option<String>>,
     /// Set once by `build()` right after the `MultiSelection` is
     /// constructed — `None` only during that brief construction window.
     /// Lets `PackageList::select_all` reach it without `build()` having
@@ -124,6 +126,7 @@ impl PackageList {
             current_search: RefCell::new(String::new()),
             search_name_only: Cell::new(false),
             current_repo_filter: RefCell::new(None),
+            current_arch_filter: RefCell::new(None),
             selection: RefCell::new(None),
             on_package_selected: RefCell::new(Vec::new()),
             on_marks_changed: RefCell::new(Vec::new()),
@@ -183,6 +186,42 @@ impl PackageList {
             .custom_filter
             .changed(gtk::FilterChange::Different);
     }
+    pub fn set_arch_filter(&self, arch: Option<String>) {
+        *self.inner.current_arch_filter.borrow_mut() = arch;
+        self.inner
+            .custom_filter
+            .changed(gtk::FilterChange::Different);
+    }
+
+    pub fn has_active_search(&self) -> bool {
+        !self.inner.current_search.borrow().is_empty()
+    }
+
+    /// (total, installed, not-installed) among the currently *visible*
+    /// rows — i.e. after search text and every active filter (preset,
+    /// repository, architecture) have been applied. Walks the same
+    /// final `MultiSelection` the column view itself renders from,
+    /// rather than re-implementing the filter predicate, so this always
+    /// matches exactly what's on screen.
+    pub fn visible_counts(&self) -> (u32, u32, u32) {
+        let mut installed = 0u32;
+        let mut not_installed = 0u32;
+        let mut total = 0u32;
+        if let Some(selection) = self.inner.selection.borrow().as_ref() {
+            let n = selection.n_items();
+            for i in 0..n {
+                let Some(obj) = selection.item(i) else {
+                    continue;
+                };
+                total += 1;
+                match pkg_of(&obj).pkg().state {
+                    PkgState::NotInstalled => not_installed += 1,
+                    _ => installed += 1,
+                }
+            }
+        }
+        (total, installed, not_installed)
+    }
 
     /// Distinct, non-empty `repository` values currently in the store,
     /// sorted — used to populate `FilterSidebar`'s repository rows
@@ -194,6 +233,24 @@ impl PackageList {
             if let Some(obj) = self.inner.store.list().item(i) {
                 if let Some(repo) = &pkg_of(&obj).pkg().repository {
                     set.insert(repo.clone());
+                }
+            }
+        }
+        let mut out: Vec<String> = set.into_iter().collect();
+        out.sort();
+        out
+    }
+
+    /// Distinct, non-empty `arch` values currently in the store, sorted —
+    /// used to populate `FilterSidebar`'s architecture rows after each
+    /// load. Mirrors `available_repositories` above.
+    pub fn available_architectures(&self) -> Vec<String> {
+        let mut set = std::collections::HashSet::new();
+        let n = self.inner.store.list().n_items();
+        for i in 0..n {
+            if let Some(obj) = self.inner.store.list().item(i) {
+                if let Some(arch) = &pkg_of(&obj).pkg().arch {
+                    set.insert(arch.clone());
                 }
             }
         }
@@ -228,6 +285,11 @@ fn build(inner: Rc<Inner>) {
                     return false;
                 }
             }
+            if let Some(arch) = inner_f.current_arch_filter.borrow().as_deref() {
+                if p.arch.as_deref() != Some(arch) {
+                    return false;
+                }
+            }
             match inner_f.current_filter.get() {
                 FilterMode::All => true,
                 FilterMode::Installed => {
@@ -237,6 +299,7 @@ fn build(inner: Rc<Inner>) {
                 FilterMode::Upgradable => p.state == PkgState::Upgradable,
                 FilterMode::OnHold => p.state == PkgState::OnHold,
                 FilterMode::Marked => p.mark != PkgMark::None,
+                FilterMode::Orphaned => p.is_orphan,
             }
         });
     }

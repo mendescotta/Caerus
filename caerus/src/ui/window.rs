@@ -4,6 +4,7 @@
 use crate::backend::package::{Package, PkgMark, PkgState};
 use crate::backend::package_store::PackageStore;
 use crate::backend::transaction::Transaction;
+use crate::backend::transaction_preview::PreviewOp;
 use crate::ui::apply_confirm;
 use crate::ui::apply_dialog;
 use crate::ui::detail_pane::DetailPane;
@@ -125,6 +126,7 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     window.set_default_size(geometry.width, geometry.height);
 
     install_css(&window);
+    ensure_icon_theme_fallback(&window);
 
     // ── Header bar ──
     let header = gtk::HeaderBar::new();
@@ -273,6 +275,81 @@ fn install_css(window: &gtk::ApplicationWindow) {
     );
 }
 
+/// Every symbolic icon name used anywhere in the app — kept in one place
+/// so the startup fallback check below doesn't drift from what's
+/// actually referenced across the UI modules.
+const USED_SYMBOLIC_ICONS: &[&str] = &[
+    "software-update-available-symbolic",
+    "view-refresh-symbolic",
+    "edit-find-symbolic",
+    "open-menu-symbolic",
+    "user-trash-symbolic",
+    "object-select-symbolic",
+    "list-remove-symbolic",
+    "edit-delete-symbolic",
+    "list-add-symbolic",
+    "media-playback-pause-symbolic",
+    "dialog-warning-symbolic",
+    "view-list-symbolic",
+    "starred-symbolic",
+    "edit-clear-symbolic",
+];
+
+/// GTK only resolves an icon name against the *active* icon theme (plus
+/// the "hicolor" fallback theme, which normally ships no real icon files
+/// of its own — it's just the spec-mandated fallback directory
+/// hierarchy). It does not also try Adwaita as a second fallback. Outside
+/// GNOME, the active theme (Breeze, or whatever the desktop sets)
+/// commonly covers most standard symbolic names but not all of them, so
+/// a handful of icons in the header bar and filter sidebar render blank
+/// even when `adwaita-icon-theme` is installed — it's just not the
+/// active theme. Fixed the same way the app's own logo already is: a
+/// bundled copy of the specific icons this app needs lives under
+/// `data/icons/hicolor/symbolic/` (copied from Adwaita, which ships them
+/// under a CC0/LGPL-compatible license same as the rest of GNOME's
+/// icon set), placed in the *hicolor* theme's own directory structure —
+/// hicolor is checked as a fallback for every icon lookup regardless of
+/// which theme is active, by design, so this doesn't depend on guessing
+/// or overriding the desktop's chosen theme at all.
+///
+/// `install.sh`/`dev-install.sh` register this tree at its real system
+/// location for an installed build. For a bare `cargo build`/`cargo run`
+/// with neither script run yet, this also registers the checkout's own
+/// `caerus/data/icons` directory directly — same dev-vs-installed
+/// resolution shape as `Transaction::find_helper_path`.
+fn ensure_icon_theme_fallback(window: &gtk::ApplicationWindow) {
+    let icon_theme = gtk::IconTheme::for_display(&gtk::prelude::WidgetExt::display(window));
+
+    let all_present = USED_SYMBOLIC_ICONS
+        .iter()
+        .all(|name| icon_theme.has_icon(name));
+    if all_present {
+        return;
+    }
+
+    if let Some(dir) = bundled_icons_dir() {
+        icon_theme.add_search_path(dir);
+    }
+}
+
+/// Directory containing a `hicolor/` tree with this app's bundled
+/// fallback icons, or `None` if it can't be found (e.g. a stripped
+/// install where `install.sh` already placed them at the real system
+/// icon path, which GTK searches on its own with no extra help needed).
+fn bundled_icons_dir() -> Option<std::path::PathBuf> {
+    let self_exe = std::fs::read_link("/proc/self/exe").ok()?;
+    // Dev build layout: `<repo>/target/{debug,release}/caerus`, data at
+    // `<repo>/caerus/data/icons`.
+    let candidate = self_exe
+        .parent()?
+        .parent()?
+        .parent()?
+        .join("caerus")
+        .join("data")
+        .join("icons");
+    candidate.join("hicolor").is_dir().then_some(candidate)
+}
+
 fn flat_menu_button(label: &str) -> gtk::Button {
     let btn = gtk::Button::with_label(label);
     btn.set_has_frame(false);
@@ -295,6 +372,7 @@ struct AppMenuButtons {
     find_owner: gtk::Button,
     alternatives: gtk::Button,
     repositories: gtk::Button,
+    history: gtk::Button,
 }
 
 fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuButtons) {
@@ -342,6 +420,10 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuB
     alternatives.set_tooltip_text(Some("Switch between packages providing the same files"));
     let repositories = flat_menu_button("Repositories\u{2026}");
     repositories.set_tooltip_text(Some("Add or remove xbps repositories"));
+    let history = flat_menu_button("Transaction History\u{2026}");
+    history.set_tooltip_text(Some(
+        "Past Apply batches and maintenance actions, newest first",
+    ));
 
     let btn_shortcuts = flat_menu_button("Keyboard Shortcuts");
     let btn_about = flat_menu_button("About Caerus");
@@ -356,6 +438,7 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuB
     vbox.append(&find_owner);
     vbox.append(&alternatives);
     vbox.append(&repositories);
+    vbox.append(&history);
     vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     vbox.append(&btn_shortcuts);
     vbox.append(&btn_about);
@@ -374,6 +457,7 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuB
         find_owner,
         alternatives,
         repositories,
+        history,
     };
     for btn in [
         &buttons.full_upgrade,
@@ -383,6 +467,7 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuB
         &buttons.find_owner,
         &buttons.alternatives,
         &buttons.repositories,
+        &buttons.history,
     ] {
         let popover = popover.clone();
         btn.connect_clicked(move |_| popover.popdown());
@@ -430,6 +515,14 @@ fn show_about_dialog(parent: &gtk::ApplicationWindow) {
     about.set_logo_icon_name(Some(crate::APP_ID));
     about.set_license_type(gtk::License::Gpl30);
     about.present();
+    // GTK hands initial keyboard focus to the first focusable widget on
+    // present — here, a selectable comments/version label — which then
+    // renders as if its entire text were pre-selected/highlighted. Same
+    // root cause `dialog_util::present_focused` works around for this
+    // project's own hand-built dialogs by focusing a specific button
+    // instead; `AboutDialog` exposes no such button to target, so just
+    // clear focus outright.
+    gtk::prelude::GtkWindowExt::set_focus(&about, None::<&gtk::Widget>);
 }
 
 fn show_shortcuts_dialog(parent: &gtk::ApplicationWindow) {
@@ -475,7 +568,7 @@ fn show_shortcuts_dialog(parent: &gtk::ApplicationWindow) {
     }
     outer.append(&close_btn);
 
-    dlg.present();
+    crate::ui::dialog_util::present_focused(&dlg, &close_btn);
 }
 
 /// Global shortcuts, active anywhere in the window (not just when a
@@ -548,6 +641,9 @@ fn wire_up(state: &Rc<WindowState>) {
             state
                 .sidebar
                 .set_available_repositories(state.pkg_list.available_repositories());
+            state
+                .sidebar
+                .set_available_architectures(state.pkg_list.available_architectures());
         });
     }
     {
@@ -567,6 +663,7 @@ fn wire_up(state: &Rc<WindowState>) {
         let state = state.clone();
         sidebar.connect_filter_changed(move |mode| {
             state.pkg_list.set_filter(mode);
+            update_status_bar(&state);
         });
     }
     {
@@ -574,6 +671,15 @@ fn wire_up(state: &Rc<WindowState>) {
         let state = state.clone();
         sidebar.connect_repository_changed(move |repo| {
             state.pkg_list.set_repository_filter(repo);
+            update_status_bar(&state);
+        });
+    }
+    {
+        let sidebar = state.sidebar.clone();
+        let state = state.clone();
+        sidebar.connect_architecture_changed(move |arch| {
+            state.pkg_list.set_arch_filter(arch);
+            update_status_bar(&state);
         });
     }
     {
@@ -660,6 +766,13 @@ fn wire_up(state: &Rc<WindowState>) {
             });
         });
     }
+    {
+        let btn = state.menu_buttons.history.clone();
+        let window = state.window.clone();
+        btn.connect_clicked(move |_| {
+            crate::ui::history_dialog::show(Some(window.upcast_ref()));
+        });
+    }
 
     // ── Session disconnect ──
     {
@@ -730,6 +843,7 @@ fn wire_up(state: &Rc<WindowState>) {
         let state = state.clone();
         search_entry.connect_search_changed(move |e| {
             state.pkg_list.set_search(&e.text());
+            update_status_bar(&state);
         });
     }
     {
@@ -743,6 +857,7 @@ fn wire_up(state: &Rc<WindowState>) {
                 "Searching name + description (click for name only)"
             }));
             state.pkg_list.set_search_mode(name_only);
+            update_status_bar(&state);
         });
     }
 
@@ -875,6 +990,15 @@ fn on_apply_clicked(state: &Rc<WindowState>) {
         return;
     }
 
+    let ops: Vec<PreviewOp> = installs
+        .iter()
+        .map(|n| PreviewOp::Install(n.clone()))
+        .chain(upgrades.iter().map(|n| PreviewOp::Update(n.clone())))
+        .chain(removes.iter().map(|n| PreviewOp::Remove(n.clone())))
+        .chain(purges.iter().map(|n| PreviewOp::Purge(n.clone())))
+        .collect();
+    let preview = state.store.preview_transaction(ops);
+
     let state2 = state.clone();
     apply_confirm::confirm(
         Some(state.window.upcast_ref()),
@@ -882,17 +1006,20 @@ fn on_apply_clicked(state: &Rc<WindowState>) {
         &upgrades,
         &removes,
         &purges,
+        preview,
         move |confirmed| {
             if !confirmed {
                 return;
             }
             let state3 = state2.clone();
+            let commands_for_history = commands.clone();
             apply_dialog::run(
                 Some(state2.window.upcast_ref()),
                 &state2.session,
                 &commands,
                 "Applying Changes",
                 move |success| {
+                    crate::backend::history::record(&commands_for_history, success);
                     state3.status_label.set_text(if success {
                         "Changes applied. Reloading\u{2026}"
                     } else {
@@ -926,12 +1053,13 @@ fn on_hold_requested(state: &Rc<WindowState>, pkgname: &str, want_hold: bool) {
 
 /// "xbps-install -Su" via the helper's UPGRADE command — a full-system
 /// pass, independent of (and doesn't touch) whatever the user has
-/// separately marked for install/remove. Previews the set the app
-/// itself currently knows to be upgradable through the same summary
-/// dialog Apply uses; the actual command still lets xbps resolve its
-/// own upgrade set, which may differ slightly (e.g. deps pulled in
-/// along the way), but this is the closest local approximation without
-/// literally running a dry-run first.
+/// separately marked for install/remove. Previews the set via a real
+/// `xbps_transaction_prepare()` dry-run (see
+/// `PackageStore::preview_transaction`) built from the app's own
+/// currently-known-upgradable names; the actual command still lets xbps
+/// resolve its own upgrade set, which may differ slightly (e.g. deps
+/// pulled in along the way), but the preview itself is real libxbps
+/// output, not a local guess.
 fn on_full_upgrade_clicked(state: &Rc<WindowState>) {
     let upgrades = state.store.upgradable_names();
     if upgrades.is_empty() {
@@ -940,6 +1068,12 @@ fn on_full_upgrade_clicked(state: &Rc<WindowState>) {
             .set_text("Everything is already up to date.");
         return;
     }
+    let ops: Vec<PreviewOp> = upgrades
+        .iter()
+        .map(|n| PreviewOp::Update(n.clone()))
+        .collect();
+    let preview = state.store.preview_transaction(ops);
+
     let state2 = state.clone();
     apply_confirm::confirm(
         Some(state.window.upcast_ref()),
@@ -947,6 +1081,7 @@ fn on_full_upgrade_clicked(state: &Rc<WindowState>) {
         &upgrades,
         &[],
         &[],
+        preview,
         move |confirmed| {
             if confirmed {
                 run_maintenance_command(&state2, "UPGRADE", "Full System Upgrade");
@@ -962,12 +1097,14 @@ fn on_full_upgrade_clicked(state: &Rc<WindowState>) {
 /// progress dialog as a regular Apply, then reloads.
 fn run_maintenance_command(state: &Rc<WindowState>, cmd: &str, title: &str) {
     let state2 = state.clone();
+    let cmd_for_history = cmd.to_string();
     apply_dialog::run(
         Some(state.window.upcast_ref()),
         &state.session,
         &[cmd.to_string()],
         title,
         move |success| {
+            crate::backend::history::record(std::slice::from_ref(&cmd_for_history), success);
             state2.status_label.set_text(if success {
                 "Done. Reloading\u{2026}"
             } else {
@@ -979,14 +1116,30 @@ fn run_maintenance_command(state: &Rc<WindowState>, cmd: &str, title: &str) {
 }
 
 fn update_status_bar(state: &Rc<WindowState>) {
-    let total = state.store.list().n_items();
-    let installed = state.store.count_installed();
     let upgradable = state.store.count_upgradable();
     let marked = state.store.count_marked();
-    state.status_label.set_text(&format!(
-        "{} packages.  {} installed.  {} upgradable.  {} marked.",
-        total, installed, upgradable, marked
-    ));
+
+    if state.pkg_list.has_active_search() {
+        // While searching, the whole-database totals aren't what the
+        // user is looking at — show counts for the results actually on
+        // screen instead (installed vs. not, among matches).
+        let (total, installed, not_installed) = state.pkg_list.visible_counts();
+        state.status_label.set_text(&format!(
+            "{} result{} — {} installed, {} not installed.  {} marked.",
+            total,
+            if total == 1 { "" } else { "s" },
+            installed,
+            not_installed,
+            marked
+        ));
+    } else {
+        let total = state.store.list().n_items();
+        let installed = state.store.count_installed();
+        state.status_label.set_text(&format!(
+            "{} packages.  {} installed.  {} upgradable.  {} marked.",
+            total, installed, upgradable, marked
+        ));
+    }
     update_apply_button(state, marked);
     update_mark_upgrades_button(state, upgradable);
 }

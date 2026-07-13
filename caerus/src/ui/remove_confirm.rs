@@ -35,11 +35,15 @@ pub fn confirm_remove_impact(
     pkgname: &str,
     cb: impl Fn(bool) + 'static,
 ) {
-    let affected: Vec<String> = store
-        .get_rdeps(pkgname)
+    // Transitive: `(affected_pkgname, direct_parent_that_pulled_it_in)`.
+    // A name reached only through an intermediate package (parent !=
+    // `pkgname` itself) gets annotated "(via parent)" below so the
+    // dialog shows *why* it would break, not just that it would.
+    let affected: Vec<(String, String)> = store
+        .get_rdeps_transitive(pkgname)
         .unwrap_or_default()
         .into_iter()
-        .filter(|name| name != pkgname && still_installed_afterward(store, name))
+        .filter(|(name, _)| name != pkgname && still_installed_afterward(store, name))
         .collect();
 
     if affected.is_empty() {
@@ -72,11 +76,16 @@ pub fn confirm_remove_impact(
     scroll.set_vexpand(true);
 
     let mut sorted = affected;
-    sorted.sort();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
     let list = gtk::ListBox::new();
     list.set_selection_mode(gtk::SelectionMode::None);
-    for name in &sorted {
-        list.append(&text_list_row(name, false));
+    for (name, via) in &sorted {
+        let label = if via == pkgname {
+            name.clone()
+        } else {
+            format!("{} (via {})", name, via)
+        };
+        list.append(&text_list_row(&label, false));
     }
     scroll.set_child(Some(&list));
     outer.append(&scroll);

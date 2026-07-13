@@ -6,6 +6,7 @@ pub mod detail_pane;
 pub mod dialog_util;
 pub mod file_owner_dialog;
 pub mod filter_sidebar;
+pub mod history_dialog;
 pub mod package_list;
 pub mod remove_confirm;
 pub mod repo_manager;
