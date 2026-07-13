@@ -1,8 +1,6 @@
-<img src="caerus/data/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg" width="96" height="96" align="left">
+<img src="caerus/data/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg" width="96" height="96" align="center">
 
 # Caerus
-
-<br clear="left">
 
 A package manager for [Void Linux](https://voidlinux.org/) inspired by [Synaptic](https://en.wikipedia.org/wiki/Synaptic_(software)) built
 directly on `libxbps`. GTK4, no root required to run — only the small
