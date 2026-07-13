@@ -19,7 +19,7 @@ via `pkexec`.
   <img src="screenshots/package-details.png" width="49%">
 </p>
 <p float="left">
-  <img src="screenshots/search.png" width="49%">
+  <img src="screenshots/repositories.png" width="49%">
 </p>
 
 ## Features
