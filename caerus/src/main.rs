@@ -48,6 +48,78 @@ fn find_dev_icon_search_dir() -> Option<std::path::PathBuf> {
         .then_some(candidate)
 }
 
+/// Plain GTK4 (unlike libadwaita) never reads the desktop's dark/light
+/// preference on its own outside of a Flatpak sandbox — `GtkSettings`'s
+/// `gtk-application-prefer-dark-theme` only follows XSettings/
+/// `settings.ini`, which most desktops (including GNOME since it moved
+/// dark-mode to the separate `color-scheme` key) don't populate for it.
+/// So, like `libadwaita` itself does internally, ask the
+/// `org.freedesktop.portal.Settings` portal directly and apply its
+/// answer, then keep listening for `SettingChanged` so toggling dark
+/// mode system-wide is picked up live instead of only at next launch.
+/// Silently does nothing if the portal isn't available (e.g. no
+/// `xdg-desktop-portal` running) — the app just falls back to whatever
+/// GTK would otherwise have picked.
+fn sync_color_scheme_from_portal() {
+    // The `Read` reply and `SettingChanged`'s `value` param are declared
+    // as `variant` in the portal spec, but GNOME's implementation nests
+    // the actual value inside an *extra* variant layer on top of that
+    // (confirmed by printing a real reply: `(<<uint32 1>>,)` — two levels
+    // of `<>` boxing, not one). Keep unwrapping until nothing's left.
+    fn unwrap_variant(mut value: glib::Variant) -> glib::Variant {
+        while let Some(inner) = value.as_variant() {
+            value = inner;
+        }
+        value
+    }
+
+    let apply = |value: u32| {
+        if let Some(settings) = gtk::Settings::default() {
+            settings.set_gtk_application_prefer_dark_theme(value == 1);
+        }
+    };
+
+    let Ok(connection) = gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE) else {
+        return;
+    };
+
+    if let Ok(reply) = connection.call_sync(
+        Some("org.freedesktop.portal.Desktop"),
+        "/org/freedesktop/portal/desktop",
+        "org.freedesktop.portal.Settings",
+        "Read",
+        Some(&("org.freedesktop.appearance", "color-scheme").to_variant()),
+        None,
+        gio::DBusCallFlags::NONE,
+        -1,
+        gio::Cancellable::NONE,
+    ) {
+        if let Some(value) = unwrap_variant(reply.child_value(0)).get::<u32>() {
+            apply(value);
+        }
+    }
+
+    connection.signal_subscribe(
+        Some("org.freedesktop.portal.Desktop"),
+        Some("org.freedesktop.portal.Settings"),
+        Some("SettingChanged"),
+        Some("/org/freedesktop/portal/desktop"),
+        None,
+        gio::DBusSignalFlags::NONE,
+        move |_conn, _sender, _path, _iface, _signal, params| {
+            // SettingChanged's params are (namespace, key, value).
+            if params.n_children() == 3
+                && params.child_value(0).str() == Some("org.freedesktop.appearance")
+                && params.child_value(1).str() == Some("color-scheme")
+            {
+                if let Some(value) = unwrap_variant(params.child_value(2)).get::<u32>() {
+                    apply(value);
+                }
+            }
+        },
+    );
+}
+
 fn main() -> glib::ExitCode {
     let app = gtk::Application::new(Some(APP_ID), gio::ApplicationFlags::default());
 
@@ -67,6 +139,7 @@ fn main() -> glib::ExitCode {
             }
         }
         gtk::Window::set_default_icon_name(APP_ID);
+        sync_color_scheme_from_portal();
     });
 
     app.connect_activate(|app| {
