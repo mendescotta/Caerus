@@ -9,7 +9,8 @@ via `pkexec`.
 
 > **Disclaimer:** Caerus was built with the help of AI (Claude). Review the
 > code yourself before trusting it with your system, especially anything
-> touching package installation/removal.
+> touching package installation/removal. See [DISCLAIMER.md](DISCLAIMER.md)
+> for details.
 
 ## Screenshots
 
