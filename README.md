@@ -7,9 +7,7 @@ directly on `libxbps`. GTK4, no root required to run — only the small
 privileged helper that actually installs/removes packages is ever elevated,
 via `pkexec`.
 
-> **Disclaimer:** Caerus was built with the help of AI (Claude). Review the
-> code yourself before trusting it with your system, especially anything
-> touching package installation/removal. See [DISCLAIMER.md](DISCLAIMER.md)
+> **Disclaimer:** Caerus was built with the help of AI (Claude). See [DISCLAIMER.md](DISCLAIMER.md)
 > for details.
 
 ## Screenshots
