@@ -10,7 +10,7 @@
 
 use crate::backend::package::pkg_format_size;
 use crate::backend::transaction_preview::{TransAction, TransactionError, TransactionPreview};
-use crate::ui::dialog_util::{modal_window, present_focused, text_list_row};
+use crate::ui::dialog_util::{cancel_button_row, modal_window, present_focused, text_list_row};
 use gtk::prelude::*;
 use std::rc::Rc;
 
@@ -199,11 +199,7 @@ pub fn confirm(
         totals_footer(&outer, p);
     }
 
-    let btn_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    btn_box.set_halign(gtk::Align::End);
-    btn_box.set_margin_top(10);
-    let cancel_btn = gtk::Button::with_label("Cancel");
-    btn_box.append(&cancel_btn);
+    let (btn_box, cancel_btn) = cancel_button_row(10);
 
     if let Some(Ok(p)) = &preview {
         let copy_btn = gtk::Button::with_label("Copy Dry-Run Output");

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.voidlinux.caerus</id>
+  <launchable type="desktop-id">org.voidlinux.caerus.desktop</launchable>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Caerus</name>
+  <summary>A package manager for Void Linux</summary>
+  <description>
+    <p>
+      Caerus is a GTK4 package manager for Void Linux, inspired by Synaptic and built
+      directly on libxbps. It runs entirely unprivileged — only the small helper that
+      actually installs, removes, or upgrades packages is ever elevated, via polkit.
+    </p>
+    <p>
+      Features a sortable, searchable package table with bulk marking; a real
+      transaction preview computed by libxbps itself before anything is applied;
+      dependency and reverse-dependency impact checks; full system upgrade, orphan
+      removal, and package database verification; and repository management.
+    </p>
+  </description>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/mendescotta/Caerus/main/screenshots/main-window.png</image>
+      <caption>Main window: sortable package table with state and repository filters</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/mendescotta/Caerus/main/screenshots/package-details.png</image>
+      <caption>Package details pane</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/mendescotta/Caerus/main/screenshots/search.png</image>
+      <caption>Searching the package list</caption>
+    </screenshot>
+  </screenshots>
+  <developer id="io.github.mendescotta">
+    <name>mendescotta</name>
+  </developer>
+  <update_contact>mendescotta@gmail.com</update_contact>
+  <url type="homepage">https://github.com/mendescotta/Caerus</url>
+  <url type="bugtracker">https://github.com/mendescotta/Caerus/issues</url>
+  <url type="vcs-browser">https://github.com/mendescotta/Caerus</url>
+  <content_rating type="oars-1.1"/>
+</component>

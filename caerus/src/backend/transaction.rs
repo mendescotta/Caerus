@@ -22,7 +22,7 @@
 //!   `connect_finished`     (success)                  -- after the
 //!                                                          queued batch
 //!                                                          has run
-//!   `connect_disconnected` (expected: bool)            -- helper exited
+//!   `connect_disconnected` (DisconnectReason)          -- helper exited
 
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -48,7 +48,34 @@ type LogCb = Rc<dyn Fn(&str)>;
 type FinishedCb = Rc<dyn Fn(bool)>;
 type LogCbs = RefCell<Vec<(u64, LogCb)>>;
 type FinishedCbs = RefCell<Vec<(u64, FinishedCb)>>;
-type DisconnectedCbs = RefCell<Vec<(u64, FinishedCb)>>;
+type DisconnectedCb = Rc<dyn Fn(DisconnectReason)>;
+type DisconnectedCbs = RefCell<Vec<(u64, DisconnectedCb)>>;
+
+/// Why the helper connection ended, passed to `connect_disconnected`
+/// listeners — distinguishes "nothing to worry about" from "this will
+/// keep failing every time" so the UI can give an actionable message
+/// instead of a generic one, without assuming anything about which
+/// desktop environment (or none at all) the user is running.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DisconnectReason {
+    /// `shutdown()` or the idle timeout's own `QUIT` — expected, no UI
+    /// action needed.
+    Expected,
+    /// The helper died after successfully authenticating and sending
+    /// `READY` at least once (crashed, killed, etc) — unexpected, but
+    /// the *next* attempt will simply re-authenticate and likely work.
+    Unexpected,
+    /// `pkexec` itself never got past authentication — the helper
+    /// never sent `READY`, so this session's `TxnState` never left
+    /// `Spawning`. Most commonly: no polkit authentication agent is
+    /// registered for this session at all (a real possibility on a
+    /// bare window manager setup that never started one — GNOME/KDE/
+    /// XFCE start one automatically, a minimal WM doesn't), the user
+    /// cancelled/failed the prompt, or `pkexec` itself isn't usable.
+    /// Unlike `Unexpected`, simply retrying won't help without fixing
+    /// the underlying cause first.
+    AuthFailed,
+}
 
 struct Inner {
     stdin: RefCell<Option<ChildStdin>>,
@@ -137,7 +164,7 @@ impl Transaction {
             .retain(|(i, _)| *i != id);
     }
 
-    pub fn connect_disconnected(&self, f: impl Fn(bool) + 'static) -> u64 {
+    pub fn connect_disconnected(&self, f: impl Fn(DisconnectReason) + 'static) -> u64 {
         let id = self.next_id();
         self.inner
             .on_disconnected
@@ -181,8 +208,8 @@ impl Transaction {
             cb(success);
         }
     }
-    fn emit_disconnected(&self, expected: bool) {
-        let cbs: Vec<FinishedCb> = self
+    fn emit_disconnected(&self, reason: DisconnectReason) {
+        let cbs: Vec<DisconnectedCb> = self
             .inner
             .on_disconnected
             .borrow()
@@ -190,12 +217,32 @@ impl Transaction {
             .map(|(_, f)| f.clone())
             .collect();
         for cb in cbs {
-            cb(expected);
+            cb(reason);
         }
     }
 
     /// Queue a protocol command line (without trailing newline).
+    ///
+    /// Refuses (and logs, rather than silently dropping) any line
+    /// containing a control character. Every caller builds these lines
+    /// by joining package/repo names that ultimately come from repo
+    /// index data, not literal user input — `write_line` below appends
+    /// exactly one `\n` per queued command, so a name with an embedded
+    /// `\n` (or other control character) would otherwise let a single
+    /// malicious/malformed repo entry smuggle a second, unintended
+    /// command into this already-`pkexec`-authenticated session. This
+    /// is the single choke point every command line passes through
+    /// (via `apply_dialog::run`), so it covers every verb — including
+    /// ones like `INSTALL`/`REMOVE` that don't do their own validation
+    /// the way `repo_manager`'s URL entry does.
     pub fn add_command(&self, command: &str) {
+        if command.chars().any(|c| c.is_control()) {
+            self.emit_log(&format!(
+                "refusing to queue malformed command (contains control characters): {:?}",
+                command
+            ));
+            return;
+        }
         self.inner
             .pending
             .borrow_mut()
@@ -422,6 +469,12 @@ impl Transaction {
             return;
         }
         let expected = self.inner.intentional_quit.get();
+        // Still `Spawning` here means `READY` was never received — the
+        // helper process (if it ever even started) never got as far as
+        // `send_next_command`, which is the only place that moves state
+        // out of `Spawning`. That's the distinguishing signal for
+        // "pkexec never authenticated" versus "the helper died later".
+        let never_authenticated = self.inner.state.get() == TxnState::Spawning;
 
         *self.inner.stdin.borrow_mut() = None;
         *self.inner.line_rx.borrow_mut() = None;
@@ -433,7 +486,14 @@ impl Transaction {
         self.inner.pending.borrow_mut().clear();
         self.inner.intentional_quit.set(false);
 
-        self.emit_disconnected(expected);
+        let reason = if expected {
+            DisconnectReason::Expected
+        } else if never_authenticated {
+            DisconnectReason::AuthFailed
+        } else {
+            DisconnectReason::Unexpected
+        };
+        self.emit_disconnected(reason);
 
         // Unexpected death mid-batch (crash, killed, etc.) — make sure
         // whatever was waiting on "finished" doesn't hang forever.

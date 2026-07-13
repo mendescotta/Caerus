@@ -8,7 +8,7 @@
 //! through the privileged helper's `ALTERNATIVE` command.
 
 use crate::backend::transaction::Transaction;
-use crate::ui::dialog_util::{modal_window, present_focused};
+use crate::ui::dialog_util::{close_button, modal_window, present_focused};
 use gtk::prelude::*;
 use std::cell::RefCell;
 use std::process::Command;
@@ -159,14 +159,18 @@ fn refresh_providers(inner: &Rc<Inner>) {
             let group2 = group.clone();
             let provider2 = provider.clone();
             btn.connect_clicked(move |_| {
-                let cmd = format!("ALTERNATIVE {} {}", group2, provider2);
+                let commands = vec![format!("ALTERNATIVE {} {}", group2, provider2)];
+                let commands_for_history = commands.clone();
                 let inner3 = inner2.clone();
                 crate::ui::apply_dialog::run(
                     Some(&inner2.dlg),
                     &inner2.session,
-                    &[cmd],
+                    &commands,
                     "Switching Alternative",
-                    move |_success| refresh_groups(&inner3),
+                    move |success| {
+                        crate::backend::history::record(&commands_for_history, success);
+                        refresh_groups(&inner3);
+                    },
                 );
             });
             row_box.append(&btn);
@@ -218,10 +222,7 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
 
     outer.append(&split);
 
-    let close_btn = gtk::Button::with_label("Close");
-    close_btn.set_halign(gtk::Align::End);
-    close_btn.set_margin_top(8);
-    outer.append(&close_btn);
+    let close_btn = close_button(&outer, &dlg, 8);
 
     let inner = Rc::new(Inner {
         dlg: dlg.clone(),
@@ -242,11 +243,6 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
             refresh_providers(&inner);
         });
     }
-    {
-        let dlg = dlg.clone();
-        close_btn.connect_clicked(move |_| dlg.destroy());
-    }
-
     refresh_groups(&inner);
 
     // Without an explicit focus target, GTK auto-focuses the first

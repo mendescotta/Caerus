@@ -18,10 +18,10 @@ depends="polkit"
 short_desc="Synaptic-inspired GTK4 package manager for Void Linux, built on libxbps"
 maintainer="gui <mendescotta@gmail.com>"
 license="GPL-3.0-or-later"
-homepage="https://github.com/mendescotta/caerus"
+homepage="https://github.com/mendescotta/Caerus"
 
 do_fetch() {
-	git clone https://github.com/mendescotta/caerus.git "${wrksrc}"
+	git clone https://github.com/mendescotta/Caerus.git "${wrksrc}"
 }
 
 do_install() {
@@ -30,6 +30,7 @@ do_install() {
 
 	vinstall caerus/data/org.voidlinux.caerus.policy 644 usr/share/polkit-1/actions
 	vinstall caerus/data/org.voidlinux.caerus.desktop 644 usr/share/applications
+	vinstall caerus/data/org.voidlinux.caerus.metainfo.xml 644 usr/share/metainfo
 	vinstall caerus/data/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg \
 		644 usr/share/icons/hicolor/scalable/apps
 

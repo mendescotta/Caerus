@@ -27,8 +27,6 @@ struct Inner {
     search_name_only: Cell<bool>,
     /// `None` = no repository restriction ("All Repositories").
     current_repo_filter: RefCell<Option<String>>,
-    /// `None` = no architecture restriction ("All Architectures").
-    current_arch_filter: RefCell<Option<String>>,
     /// Set once by `build()` right after the `MultiSelection` is
     /// constructed — `None` only during that brief construction window.
     /// Lets `PackageList::select_all` reach it without `build()` having
@@ -126,7 +124,6 @@ impl PackageList {
             current_search: RefCell::new(String::new()),
             search_name_only: Cell::new(false),
             current_repo_filter: RefCell::new(None),
-            current_arch_filter: RefCell::new(None),
             selection: RefCell::new(None),
             on_package_selected: RefCell::new(Vec::new()),
             on_marks_changed: RefCell::new(Vec::new()),
@@ -162,6 +159,26 @@ impl PackageList {
         }
     }
 
+    /// Marks `pkgname` for removal, going through the same
+    /// reverse-dependency confirmation dialog and "not already marked"
+    /// guard every other removal path (checkbox, context menu, detail
+    /// pane, double-click) uses — for callers outside this module (the
+    /// window-level Delete key shortcut) that don't have direct access
+    /// to `Inner`. No-ops if `mark_applies_to` says Remove doesn't apply
+    /// (already marked, essential, or not installed).
+    pub fn request_remove(&self, root: Option<gtk::Window>, pkg: &Package) {
+        if mark_applies_to(pkg, PkgMark::Remove) {
+            request_remove_with_confirm(
+                root,
+                &self.inner.store,
+                &self.inner,
+                &pkg.name,
+                PkgMark::Remove,
+                |_| {},
+            );
+        }
+    }
+
     pub fn set_filter(&self, mode: FilterMode) {
         self.inner.current_filter.set(mode);
         self.inner
@@ -186,20 +203,13 @@ impl PackageList {
             .custom_filter
             .changed(gtk::FilterChange::Different);
     }
-    pub fn set_arch_filter(&self, arch: Option<String>) {
-        *self.inner.current_arch_filter.borrow_mut() = arch;
-        self.inner
-            .custom_filter
-            .changed(gtk::FilterChange::Different);
-    }
-
     pub fn has_active_search(&self) -> bool {
         !self.inner.current_search.borrow().is_empty()
     }
 
     /// (total, installed, not-installed) among the currently *visible*
     /// rows — i.e. after search text and every active filter (preset,
-    /// repository, architecture) have been applied. Walks the same
+    /// repository) have been applied. Walks the same
     /// final `MultiSelection` the column view itself renders from,
     /// rather than re-implementing the filter predicate, so this always
     /// matches exactly what's on screen.
@@ -240,24 +250,6 @@ impl PackageList {
         out.sort();
         out
     }
-
-    /// Distinct, non-empty `arch` values currently in the store, sorted —
-    /// used to populate `FilterSidebar`'s architecture rows after each
-    /// load. Mirrors `available_repositories` above.
-    pub fn available_architectures(&self) -> Vec<String> {
-        let mut set = std::collections::HashSet::new();
-        let n = self.inner.store.list().n_items();
-        for i in 0..n {
-            if let Some(obj) = self.inner.store.list().item(i) {
-                if let Some(arch) = &pkg_of(&obj).pkg().arch {
-                    set.insert(arch.clone());
-                }
-            }
-        }
-        let mut out: Vec<String> = set.into_iter().collect();
-        out.sort();
-        out
-    }
 }
 
 fn build(inner: Rc<Inner>) {
@@ -282,11 +274,6 @@ fn build(inner: Rc<Inner>) {
             }
             if let Some(repo) = inner_f.current_repo_filter.borrow().as_deref() {
                 if p.repository.as_deref() != Some(repo) {
-                    return false;
-                }
-            }
-            if let Some(arch) = inner_f.current_arch_filter.borrow().as_deref() {
-                if p.arch.as_deref() != Some(arch) {
                     return false;
                 }
             }
@@ -396,6 +383,18 @@ fn build(inner: Rc<Inner>) {
                 let cb = item.child().and_downcast::<gtk::CheckButton>().unwrap();
                 let p = obj.pkg();
 
+                // Checking this box when unmarked maps to Upgrade (if
+                // upgradable), Install (if not installed), or Remove
+                // otherwise — mirroring `on_checkbox_toggled`'s own
+                // branching exactly. Essential only actually blocks the
+                // Remove case (Upgrade and Install are always fine on
+                // an essential package, same as the context menu/detail
+                // pane), and never blocks *unchecking* an existing mark.
+                let would_remove = p.mark == PkgMark::None
+                    && p.state != PkgState::Upgradable
+                    && p.state != PkgState::NotInstalled;
+                let blocked = p.essential && would_remove;
+
                 // Block while we set the programmatic state so this
                 // rebind doesn't itself fire "toggled" (which would
                 // otherwise re-open the deps-confirm dialog on every
@@ -405,8 +404,8 @@ fn build(inner: Rc<Inner>) {
                     let id_ref = unsafe { id.as_ref() };
                     cb.block_signal(id_ref);
                     cb.set_active(p.mark != PkgMark::None);
-                    cb.set_sensitive(!p.essential);
-                    cb.set_tooltip_text(if p.essential {
+                    cb.set_sensitive(!blocked);
+                    cb.set_tooltip_text(if blocked {
                         Some("Essential package — cannot be marked for removal")
                     } else {
                         None
@@ -775,7 +774,7 @@ fn request_remove_with_confirm(
 /// shared between building menu labels (counting how many selected
 /// packages a mark would apply to) and actually applying a bulk mark,
 /// so the count shown always matches what clicking the button does.
-fn mark_applies_to(pkg: &Package, mark: PkgMark) -> bool {
+pub fn mark_applies_to(pkg: &Package, mark: PkgMark) -> bool {
     match mark {
         PkgMark::Install => pkg.state == PkgState::NotInstalled && pkg.mark == PkgMark::None,
         PkgMark::Upgrade => pkg.state == PkgState::Upgradable && pkg.mark == PkgMark::None,
@@ -832,11 +831,12 @@ fn context_menu_items(pkgs: &[Package]) -> Vec<(String, PkgMark, bool)> {
 /// relying on the pre-Apply summary and xbps's own dependency
 /// resolution to catch anything that actually matters.
 fn apply_bulk_mark(store: &PackageStore, inner: &Rc<Inner>, pkgs: &[Package], mark: PkgMark) {
-    for p in pkgs {
-        if mark_applies_to(p, mark) {
-            store.set_mark(&p.name, mark);
-        }
-    }
+    let names: std::collections::HashSet<String> = pkgs
+        .iter()
+        .filter(|p| mark_applies_to(p, mark))
+        .map(|p| p.name.clone())
+        .collect();
+    store.set_marks(&names, mark);
     for f in inner.on_marks_changed.borrow().iter() {
         f();
     }

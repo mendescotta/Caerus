@@ -27,7 +27,7 @@ via `pkexec`.
 - Package table with search, click-to-sort columns, and per-row
   checkboxes for marking several packages at once
 - Filter by state (All / Installed / Not Installed / Upgradable / On Hold /
-  Marked / Orphaned), by architecture, and by repository
+  Marked / Orphaned) and by repository
 - Detail pane: description, tags, size, maintainer, dependencies, reverse
   dependencies, and an on-demand file list
 - Install / Upgrade / Remove / Purge / Hold / Unhold, with multi-select and
@@ -125,6 +125,7 @@ release builds.
 ```sh
 sudo rm /usr/bin/caerus /usr/libexec/caerus-helper \
         /usr/share/applications/org.voidlinux.caerus.desktop \
+        /usr/share/metainfo/org.voidlinux.caerus.metainfo.xml \
         /usr/share/polkit-1/actions/org.voidlinux.caerus.policy \
         /usr/share/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg
 ```

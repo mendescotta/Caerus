@@ -192,23 +192,12 @@ impl PackageObject {
     }
 
     /// Borrow the underlying `Package`. Cheap (`RefCell::borrow`); do
-    /// not hold across a call that might re-borrow mutably (`set_mark`)
-    /// on the same object.
+    /// not hold across a call that might re-borrow it mutably.
     pub fn pkg(&self) -> std::cell::Ref<'_, Package> {
         self.imp().pkg.borrow()
     }
 
     pub fn name(&self) -> String {
         self.imp().pkg.borrow().name.clone()
-    }
-
-    pub fn set_mark(&self, mark: PkgMark) {
-        self.imp().pkg.borrow_mut().mark = mark;
-    }
-
-    /// Replaces the whole record in place (used when a reload delivers
-    /// fresh data for a package that's still selected/visible).
-    pub fn replace(&self, pkg: Package) {
-        self.imp().pkg.replace(pkg);
     }
 }

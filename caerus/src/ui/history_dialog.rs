@@ -4,7 +4,7 @@
 //! happened, newest first.
 
 use crate::backend::history;
-use crate::ui::dialog_util::{modal_window, present_focused};
+use crate::ui::dialog_util::{close_button, modal_window, present_focused};
 use gtk::prelude::*;
 
 fn history_row(entry: &history::HistoryEntry) -> gtk::ListBoxRow {
@@ -67,17 +67,9 @@ pub fn show(parent: Option<&gtk::Window>) {
     scroll.set_child(Some(&list));
     outer.append(&scroll);
 
-    let close_btn = gtk::Button::with_label("Close");
-    close_btn.set_halign(gtk::Align::End);
-    close_btn.set_margin_top(4);
-    outer.append(&close_btn);
+    let close_btn = close_button(&outer, &dlg, 4);
 
     dlg.set_default_widget(Some(&close_btn));
-
-    {
-        let dlg = dlg.clone();
-        close_btn.connect_clicked(move |_| dlg.destroy());
-    }
 
     present_focused(&dlg, &close_btn);
 }

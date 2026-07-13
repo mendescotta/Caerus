@@ -275,10 +275,17 @@ impl PackageStore {
         }
     }
 
+    /// Counts every *installed* package, in any of its installed states
+    /// (`Installed`/`Upgradable`/`OnHold`/`Broken` — anything but
+    /// `NotInstalled`) — matches `PackageList::visible_counts`'s
+    /// definition exactly, so the status bar's "N installed" figure
+    /// doesn't jump around purely from switching between the
+    /// whole-database (this) and currently-visible (that) rendering
+    /// path depending on whether a search is active.
     pub fn count_installed(&self) -> u32 {
         let mut c = 0;
         self.for_each(|o| {
-            if matches!(o.pkg().state, PkgState::Installed | PkgState::Upgradable) {
+            if o.pkg().state != PkgState::NotInstalled {
                 c += 1;
             }
         });
@@ -374,6 +381,29 @@ impl PackageStore {
             "caerus: set_mark({pkgname:?}, {mark:?}) found no matching package — likely a \
              virtual/provides-based dependency name rather than a real package"
         );
+    }
+
+    /// Same effect as calling `set_mark` once per name in `pkgnames`, but
+    /// a single O(n) pass over the list instead of one O(n) linear scan
+    /// per name — matters for a large multi-select bulk mark against the
+    /// full package list (`apply_bulk_mark` in `ui/package_list.rs`).
+    pub fn set_marks(&self, pkgnames: &std::collections::HashSet<String>, mark: PkgMark) {
+        if pkgnames.is_empty() {
+            return;
+        }
+        let n = self.inner.list.n_items();
+        for i in 0..n {
+            if let Some(obj) = self.inner.list.item(i) {
+                let obj = obj.downcast_ref::<PackageObject>().unwrap();
+                if pkgnames.contains(&obj.name()) {
+                    // See the comment in `set_mark` for why this splices
+                    // in a new object rather than mutating in place.
+                    let mut pkg = obj.pkg().clone();
+                    pkg.mark = mark;
+                    self.inner.list.splice(i, 1, &[PackageObject::new(pkg)]);
+                }
+            }
+        }
     }
 
     pub fn marked_names(&self, mark: PkgMark) -> Vec<String> {
@@ -830,8 +860,29 @@ fn do_reload(xh: &mut xbps_sys::xbps_handle, inited: &mut bool) -> LoadResult {
         let mut ht: HashMap<String, Package> = HashMap::new();
         let ht_ptr = &mut ht as *mut HashMap<String, Package> as *mut c_void;
 
-        xbps_sys::xbps_rpool_foreach(xh, Some(rpool_repo_cb), ht_ptr);
-        xbps_sys::xbps_pkgdb_foreach_cb_multi(xh, Some(pkgdb_cb), ht_ptr);
+        // Both return 0 on success; our own callbacks always return 0
+        // themselves, so a non-zero result here can only mean libxbps
+        // hit an internal problem (e.g. `xbps_rpool_foreach`'s own docs:
+        // it drops repos that failed to open from the pool and reports
+        // that as an error, but keeps going with the rest) — not
+        // necessarily fatal to the whole reload, so `ht` is still used
+        // below rather than discarded, but it's worth knowing about
+        // rather than silently ending up with a shorter list than
+        // expected for no visible reason.
+        let rpool_rc = xbps_sys::xbps_rpool_foreach(xh, Some(rpool_repo_cb), ht_ptr);
+        if rpool_rc != 0 {
+            eprintln!(
+                "caerus: xbps_rpool_foreach returned {rpool_rc} — one or more \
+                 repositories may have failed to load, package list may be incomplete"
+            );
+        }
+        let pkgdb_rc = xbps_sys::xbps_pkgdb_foreach_cb_multi(xh, Some(pkgdb_cb), ht_ptr);
+        if pkgdb_rc != 0 {
+            eprintln!(
+                "caerus: xbps_pkgdb_foreach_cb_multi returned {pkgdb_rc} — installed-package \
+                 data may be incomplete"
+            );
+        }
 
         // Single cheap pass over the already-loaded pkgdb — same
         // orphan set `xbps-remove -o` (the helper's own ORPHANS command)
@@ -1171,7 +1222,17 @@ unsafe fn read_string_array(dict: xbps_sys::xbps_dictionary_t, key: &str) -> Vec
 /// leaving the long-lived handle in a transaction-dirty state would risk
 /// corrupting the next reload or detail-pane lookup. Still runs entirely
 /// on the single dedicated xbps worker thread, so the "exactly one thread
-/// touches libxbps" invariant documented at the top of this file holds.
+/// touches libxbps" invariant documented at the top of this file holds —
+/// the two handles are sequential on that one thread, never touched
+/// concurrently from two different threads.
+///
+/// The two handles briefly coexisting in memory (the persistent one just
+/// sits unused while this one is alive) is also safe against libxbps's
+/// own locking: per `/usr/include/xbps.h`, `xbps_init()` takes no lock at
+/// all — locking is explicit and opt-in via `xbps_pkgdb_lock()` (for a
+/// write transaction) or `xbps_repo_lock()` (local repo write access),
+/// neither of which this function or `xbps_transaction_prepare()` ever
+/// calls, since nothing here writes anything.
 fn preview_transaction(ops: &[PreviewOp]) -> Result<TransactionPreview, TransactionError> {
     unsafe {
         let mut xh: xbps_sys::xbps_handle = std::mem::zeroed();
