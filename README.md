@@ -7,6 +7,10 @@ directly on `libxbps`. GTK4, no root required to run — only the small
 privileged helper that actually installs/removes packages is ever elevated,
 via `pkexec`.
 
+> **Disclaimer:** Caerus was built with the help of AI (Claude). Review the
+> code yourself before trusting it with your system, especially anything
+> touching package installation/removal.
+
 ## Screenshots
 
 <p float="left">
@@ -19,8 +23,8 @@ via `pkexec`.
 
 ## Features
 
-- Sortable, filterable, searchable package table with per-row checkboxes
-  for marking several packages at once
+- Package table with search, click-to-sort columns, and per-row
+  checkboxes for marking several packages at once
 - Filter by state (All / Installed / Not Installed / Upgradable / On Hold /
   Marked / Orphaned), by architecture, and by repository
 - Detail pane: description, tags, size, maintainer, dependencies, reverse
