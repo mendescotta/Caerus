@@ -31,6 +31,8 @@ install -Dm644 "$SRC_DIR/caerus/data/org.voidlinux.caerus.policy" \
     "$DATADIR/polkit-1/actions/org.voidlinux.caerus.policy"
 install -Dm644 "$SRC_DIR/caerus/data/org.voidlinux.caerus.desktop" \
     "$DATADIR/applications/org.voidlinux.caerus.desktop"
+install -Dm644 "$SRC_DIR/caerus/data/org.voidlinux.caerus.metainfo.xml" \
+    "$DATADIR/metainfo/org.voidlinux.caerus.metainfo.xml"
 install -Dm644 "$SRC_DIR/caerus/data/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg" \
     "$DATADIR/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg"
 

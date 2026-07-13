@@ -494,6 +494,11 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
         });
         inner.btn_purge.set_visible(true);
         inner.btn_purge.set_sensitive(!pkg.essential);
+        inner.btn_purge.set_tooltip_text(if pkg.essential {
+            Some("Essential package — purge disabled")
+        } else {
+            None
+        });
     }
 }
 

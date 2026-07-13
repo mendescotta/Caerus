@@ -124,6 +124,14 @@ fn run_xbps(argv: &[&str]) -> Option<i32> {
 
 /// Splits whitespace-separated package names out of `rest` (everything
 /// after the command verb), owned `String`s.
+///
+/// Every `argv` built from this helper's output puts a `--` right
+/// before these names (see the `INSTALL`/`REMOVE`/`PURGE`/`HOLD`/
+/// `UNHOLD` handlers below) — package names ultimately come from repo
+/// index data, not literal user input, and without `--` a name starting
+/// with `-` would be parsed by the underlying xbps tool as one of its
+/// own flags (e.g. something resembling `--rootdir=...`) instead of a
+/// package name.
 fn split_pkgnames(rest: &str) -> Vec<String> {
     rest.split_whitespace().map(str::to_owned).collect()
 }
@@ -211,7 +219,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            let mut argv: Vec<&str> = vec!["xbps-install", "-y"];
+            let mut argv: Vec<&str> = vec!["xbps-install", "-y", "--"];
             argv.extend(pkgs.iter().map(String::as_str));
             let code = run_xbps(&argv);
             respond_ok_or(code == Some(0), "install failed");
@@ -225,7 +233,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            let mut argv: Vec<&str> = vec!["xbps-remove", "-y"];
+            let mut argv: Vec<&str> = vec!["xbps-remove", "-y", "--"];
             argv.extend(pkgs.iter().map(String::as_str));
             let code = run_xbps(&argv);
             respond_ok_or(code == Some(0), "remove failed");
@@ -243,7 +251,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            let mut argv: Vec<&str> = vec!["xbps-remove", "-y", "-R"];
+            let mut argv: Vec<&str> = vec!["xbps-remove", "-y", "-R", "--"];
             argv.extend(pkgs.iter().map(String::as_str));
             let code = run_xbps(&argv);
             respond_ok_or(code == Some(0), "purge failed");
@@ -274,7 +282,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            let mut argv: Vec<&str> = vec!["xbps-pkgdb", "-m", "hold"];
+            let mut argv: Vec<&str> = vec!["xbps-pkgdb", "-m", "hold", "--"];
             argv.extend(pkgs.iter().map(String::as_str));
             let code = run_xbps(&argv);
             respond_ok_or(code == Some(0), "hold failed");
@@ -288,7 +296,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            let mut argv: Vec<&str> = vec!["xbps-pkgdb", "-m", "unhold"];
+            let mut argv: Vec<&str> = vec!["xbps-pkgdb", "-m", "unhold", "--"];
             argv.extend(pkgs.iter().map(String::as_str));
             let code = run_xbps(&argv);
             respond_ok_or(code == Some(0), "unhold failed");

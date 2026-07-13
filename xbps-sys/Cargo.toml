@@ -1,12 +1,15 @@
 [package]
 name = "xbps-sys"
-version = "0.2.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "Raw FFI bindings to libxbps, generated at build time from the system headers"
-license = "GPL-3.0-or-later"
-repository = "https://github.com/mendescotta/caerus"
+license.workspace = true
+repository.workspace = true
 links = "xbps"
 build = "build.rs"
+
+[lints]
+workspace = true
 
 [build-dependencies]
 bindgen = "0.69"

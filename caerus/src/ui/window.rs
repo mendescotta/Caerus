@@ -31,6 +31,7 @@ struct WindowState {
     btn_mark_upgrades: gtk::Button,
     btn_unmark_all: gtk::Button,
     btn_apply: gtk::Button,
+    menu_button: gtk::MenuButton,
     menu_buttons: AppMenuButtons,
     search_entry: gtk::SearchEntry,
     btn_search_name_only: gtk::ToggleButton,
@@ -235,6 +236,7 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         btn_mark_upgrades,
         btn_unmark_all,
         btn_apply,
+        menu_button: menu_button.clone(),
         menu_buttons,
         search_entry,
         btn_search_name_only,
@@ -605,12 +607,19 @@ fn wire_keyboard_shortcuts(state: &Rc<WindowState>) {
                 trigger_update(&state, false, false);
                 glib::Propagation::Stop
             }
-            gtk::gdk::Key::Delete => {
+            // Same guard as Ctrl+A above — otherwise editing the search
+            // query with Delete/Backspace could simultaneously mark
+            // the currently-selected row for removal.
+            gtk::gdk::Key::Delete if !state.search_entry.has_focus() => {
                 if let Some(pkg) = state.selected_pkg.borrow().clone() {
-                    if pkg.state != PkgState::NotInstalled && !pkg.essential {
-                        state.store.set_mark(&pkg.name, PkgMark::Remove);
-                        update_status_bar(&state);
-                    }
+                    // Goes through the same reverse-dependency confirmation
+                    // and "not already marked" guard every other removal
+                    // path uses (checkbox, context menu, detail pane,
+                    // double-click) — status bar/detail pane refresh
+                    // happens via the usual marks-changed callback once
+                    // (or if) the mark is actually applied, not here.
+                    let root = state.window.clone().upcast::<gtk::Window>();
+                    state.pkg_list.request_remove(Some(root), &pkg);
                 }
                 glib::Propagation::Stop
             }
@@ -641,9 +650,6 @@ fn wire_up(state: &Rc<WindowState>) {
             state
                 .sidebar
                 .set_available_repositories(state.pkg_list.available_repositories());
-            state
-                .sidebar
-                .set_available_architectures(state.pkg_list.available_architectures());
         });
     }
     {
@@ -675,14 +681,6 @@ fn wire_up(state: &Rc<WindowState>) {
         });
     }
     {
-        let sidebar = state.sidebar.clone();
-        let state = state.clone();
-        sidebar.connect_architecture_changed(move |arch| {
-            state.pkg_list.set_arch_filter(arch);
-            update_status_bar(&state);
-        });
-    }
-    {
         let pkg_list = state.pkg_list.clone();
         let state = state.clone();
         pkg_list.connect_package_selected(move |pkg| {
@@ -695,6 +693,26 @@ fn wire_up(state: &Rc<WindowState>) {
         let state = state.clone();
         pkg_list.connect_marks_changed(move || {
             update_status_bar(&state);
+
+            // A mark can change via the checkbox column or the
+            // right-click context menu while the very same package is
+            // showing in the detail pane, whose own Install/Upgrade/
+            // Remove/Unmark buttons only ever refresh themselves on
+            // their own click — without this, they'd keep showing the
+            // pre-mark state until the row is re-selected.
+            let refreshed = {
+                let mut selected = state.selected_pkg.borrow_mut();
+                if let Some(pkg) = selected.as_mut() {
+                    if let Some((pkg_state, mark)) = state.store.state_and_mark(&pkg.name) {
+                        pkg.state = pkg_state;
+                        pkg.mark = mark;
+                    }
+                }
+                selected.clone()
+            };
+            if let Some(pkg) = refreshed {
+                state.detail_pane.show_package(Some(&pkg));
+            }
         });
     }
     {
@@ -778,10 +796,19 @@ fn wire_up(state: &Rc<WindowState>) {
     {
         let session = state.session.clone();
         let state = state.clone();
-        session.connect_disconnected(move |expected| {
-            if !expected {
+        session.connect_disconnected(move |reason| match reason {
+            crate::backend::transaction::DisconnectReason::Expected => {}
+            crate::backend::transaction::DisconnectReason::Unexpected => {
                 state.status_label.set_text(
                     "Privileged helper disconnected — the next action will re-authenticate.",
+                );
+            }
+            crate::backend::transaction::DisconnectReason::AuthFailed => {
+                state.status_label.set_text(
+                    "Could not authenticate as root — is a polkit authentication agent \
+                     running for this session? Most desktop environments start one \
+                     automatically; a bare window manager setup may need one added to \
+                     its startup (e.g. polkit-gnome, lxqt-policykit, polkit-mate).",
                 );
             }
         });
@@ -886,15 +913,29 @@ fn set_loading(state: &Rc<WindowState>, loading: bool) {
         state.spinner.start();
         state.btn_update.set_sensitive(false);
         state.btn_reload.set_sensitive(false);
+        // The app menu's maintenance actions (Full System Upgrade, etc.)
+        // and Repositories/Alternatives all queue commands on the same
+        // shared `Transaction` session — disabling the whole menu button
+        // (not just btn_update/btn_reload) closes it off during the
+        // silent at-launch sync too, so nothing can queue a second,
+        // independent batch against a session that's still mid-SYNC.
+        state.menu_button.set_sensitive(false);
     } else {
         state.spinner.stop();
         state.btn_update.set_sensitive(true);
         state.btn_reload.set_sensitive(true);
+        state.menu_button.set_sensitive(true);
     }
 }
 
 fn do_reload(state: &Rc<WindowState>) {
     state.detail_pane.show_package(None);
+    // Otherwise Delete right after a reload (e.g. once an Apply batch
+    // finishes) would still act on a pre-reload Package snapshot —
+    // wrong `essential`/state if this package's status changed in the
+    // transaction that just ran, or a no-op `set_mark` log if it was
+    // removed entirely.
+    *state.selected_pkg.borrow_mut() = None;
     state.store.load_async();
 }
 
@@ -914,8 +955,10 @@ fn trigger_update(state: &Rc<WindowState>, sync_first: bool, silent: bool) {
             let session = state.session.clone();
             let finished_id_cell = Rc::new(std::cell::Cell::new(0u64));
             let finished_id_cell2 = finished_id_cell.clone();
+            let commands_for_history = commands.clone();
             let finished_id = state.session.connect_finished(move |success| {
                 session.disconnect_finished(finished_id_cell2.get());
+                crate::backend::history::record(&commands_for_history, success);
                 if !success {
                     state2
                         .status_label
@@ -931,12 +974,14 @@ fn trigger_update(state: &Rc<WindowState>, sync_first: bool, silent: bool) {
             state.session.run_async();
         } else {
             let state2 = state.clone();
+            let commands_for_history = commands.clone();
             apply_dialog::run(
                 Some(state.window.upcast_ref()),
                 &state.session,
                 &commands,
                 "Syncing Repositories",
                 move |success| {
+                    crate::backend::history::record(&commands_for_history, success);
                     if !success {
                         state2
                             .status_label

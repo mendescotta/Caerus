@@ -4,7 +4,7 @@
 //! those) it runs directly from the unprivileged GUI process — no
 //! `caerus-helper`/pkexec involved.
 
-use crate::ui::dialog_util::{modal_window, present_focused, text_list_row};
+use crate::ui::dialog_util::{close_button, modal_window, present_focused, text_list_row};
 use gtk::prelude::*;
 use std::process::Command;
 
@@ -66,10 +66,7 @@ pub fn show(parent: Option<&gtk::Window>) {
     results_scroll.set_child(Some(&results_list));
     outer.append(&results_scroll);
 
-    let close_btn = gtk::Button::with_label("Close");
-    close_btn.set_halign(gtk::Align::End);
-    close_btn.set_margin_top(4);
-    outer.append(&close_btn);
+    close_button(&outer, &dlg, 4);
 
     dlg.set_default_widget(Some(&search_btn));
 
@@ -122,10 +119,5 @@ pub fn show(parent: Option<&gtk::Window>) {
         let run_search = run_search.clone();
         entry.connect_activate(move |_| run_search());
     }
-    {
-        let dlg = dlg.clone();
-        close_btn.connect_clicked(move |_| dlg.destroy());
-    }
-
     present_focused(&dlg, &entry);
 }

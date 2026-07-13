@@ -15,7 +15,6 @@ use std::rc::Rc;
 
 type FilterChangedCbs = RefCell<Vec<Box<dyn Fn(FilterMode)>>>;
 type RepositoryChangedCbs = RefCell<Vec<Box<dyn Fn(Option<String>)>>>;
-type ArchitectureChangedCbs = RefCell<Vec<Box<dyn Fn(Option<String>)>>>;
 
 struct Inner {
     widget: gtk::Box,
@@ -26,15 +25,8 @@ struct Inner {
     /// User-chosen display names, keyed by repository URL — right-click
     /// a repository row to set one.
     display_names: RefCell<RepoNames>,
-    arch_lb: gtk::ListBox,
-    /// Row `i + 1` of `arch_lb` corresponds to `arch_names[i]`; row 0 is
-    /// always the fixed "All Architectures" row. Same shape as
-    /// `repo_names` above, just no display-name renaming (architecture
-    /// strings are short and self-explanatory already).
-    arch_names: RefCell<Vec<String>>,
     on_filter_changed: FilterChangedCbs,
     on_repository_changed: RepositoryChangedCbs,
-    on_architecture_changed: ArchitectureChangedCbs,
 }
 
 fn repo_display_text(inner: &Inner, url: &str) -> String {
@@ -242,22 +234,6 @@ impl FilterSidebar {
         repo_lb.append(&make_text_row("All Repositories"));
         inner_box.append(&repo_lb);
 
-        let arch_header = gtk::Label::new(Some("ARCHITECTURE"));
-        arch_header.set_xalign(0.0);
-        arch_header.set_margin_top(10);
-        arch_header.set_margin_start(6);
-        arch_header.set_margin_bottom(2);
-        arch_header.add_css_class("section-header");
-        inner_box.append(&arch_header);
-
-        // Populated later via `set_available_architectures`, same as the
-        // repository section above — starts with just "All Architectures".
-        let arch_lb = gtk::ListBox::new();
-        arch_lb.set_selection_mode(gtk::SelectionMode::Single);
-        arch_lb.add_css_class("navigation-sidebar");
-        arch_lb.append(&make_text_row("All Architectures"));
-        inner_box.append(&arch_lb);
-
         scroll.set_child(Some(&inner_box));
         widget.append(&scroll);
 
@@ -266,11 +242,8 @@ impl FilterSidebar {
             repo_lb: repo_lb.clone(),
             repo_names: RefCell::new(Vec::new()),
             display_names: RefCell::new(RepoNames::load()),
-            arch_lb: arch_lb.clone(),
-            arch_names: RefCell::new(Vec::new()),
             on_filter_changed: RefCell::new(Vec::new()),
             on_repository_changed: RefCell::new(Vec::new()),
-            on_architecture_changed: RefCell::new(Vec::new()),
         });
 
         {
@@ -322,29 +295,6 @@ impl FilterSidebar {
         // already matches "All Repositories".
         if let Some(row0) = repo_lb.row_at_index(0) {
             repo_lb.select_row(Some(&row0));
-        }
-
-        {
-            let inner_weak = Rc::downgrade(&inner);
-            arch_lb.connect_row_selected(move |_, row| {
-                let Some(row) = row else { return };
-                let Some(inner) = inner_weak.upgrade() else {
-                    return;
-                };
-                let idx = row.index();
-                let arch = if idx <= 0 {
-                    None
-                } else {
-                    inner.arch_names.borrow().get((idx - 1) as usize).cloned()
-                };
-                for cb in inner.on_architecture_changed.borrow().iter() {
-                    cb(arch.clone());
-                }
-            });
-        }
-        // Same first-emission caveat as the other two lists above.
-        if let Some(row0) = arch_lb.row_at_index(0) {
-            arch_lb.select_row(Some(&row0));
         }
 
         FilterSidebar { inner }
@@ -420,63 +370,6 @@ impl FilterSidebar {
             // handler wired in `new()`), which notifies listeners with
             // the correct value in every case (restored or reset).
             self.inner.repo_lb.select_row(Some(&row));
-        }
-    }
-
-    pub fn connect_architecture_changed(&self, f: impl Fn(Option<String>) + 'static) {
-        self.inner
-            .on_architecture_changed
-            .borrow_mut()
-            .push(Box::new(f));
-    }
-
-    /// Rebuilds the architecture rows from a freshly-loaded package set.
-    /// Same restore-selection-across-reload shape as
-    /// `set_available_repositories` above, just with plain text rows
-    /// (no per-item rename dialog — architecture strings need none).
-    pub fn set_available_architectures(&self, mut archs: Vec<String>) {
-        archs.sort();
-        archs.dedup();
-
-        let previously_selected = self
-            .inner
-            .arch_lb
-            .selected_row()
-            .map(|r| r.index())
-            .filter(|&i| i > 0)
-            .and_then(|i| {
-                self.inner
-                    .arch_names
-                    .borrow()
-                    .get((i - 1) as usize)
-                    .cloned()
-            });
-
-        while let Some(child) = self.inner.arch_lb.first_child() {
-            self.inner.arch_lb.remove(&child);
-        }
-        self.inner
-            .arch_lb
-            .append(&make_text_row("All Architectures"));
-        for a in &archs {
-            self.inner.arch_lb.append(&make_text_row(a));
-        }
-        *self.inner.arch_names.borrow_mut() = archs;
-
-        let restore_index = previously_selected
-            .as_ref()
-            .and_then(|name| {
-                self.inner
-                    .arch_names
-                    .borrow()
-                    .iter()
-                    .position(|a| a == name)
-            })
-            .map(|pos| pos as i32 + 1)
-            .unwrap_or(0);
-
-        if let Some(row) = self.inner.arch_lb.row_at_index(restore_index) {
-            self.inner.arch_lb.select_row(Some(&row));
         }
     }
 }

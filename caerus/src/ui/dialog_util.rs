@@ -81,6 +81,38 @@ pub fn text_list_row(text: &str, wrap: bool) -> gtk::ListBoxRow {
     row
 }
 
+/// Builds a right-aligned "Close" button, appends it to `outer`, and
+/// wires it to destroy `dlg` — the shape every read-only informational
+/// dialog in this project (Repositories, Alternatives, Find File Owner,
+/// Transaction History) uses for its one and only action.
+pub fn close_button(outer: &gtk::Box, dlg: &gtk::Window, margin_top: i32) -> gtk::Button {
+    let close_btn = gtk::Button::with_label("Close");
+    close_btn.set_halign(gtk::Align::End);
+    close_btn.set_margin_top(margin_top);
+    outer.append(&close_btn);
+    let dlg = dlg.clone();
+    close_btn.connect_clicked(move |_| dlg.destroy());
+    close_btn
+}
+
+/// Builds a right-aligned button row starting with a `Cancel` button —
+/// the shape every confirmation dialog in this project (Apply,
+/// dependency/removal-impact confirmations, Add Repository) uses for its
+/// button row. Doesn't append the row to `outer` or wire `Cancel`'s
+/// click itself: callers still need to append their own primary (and
+/// sometimes secondary, e.g. apply_confirm's "Copy Dry-Run Output")
+/// button(s) after `Cancel` before appending the finished row, and each
+/// has its own idea of what "cancel" should do (just `dlg.destroy()`,
+/// or also running a callback with `false`).
+pub fn cancel_button_row(margin_top: i32) -> (gtk::Box, gtk::Button) {
+    let btn_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    btn_box.set_halign(gtk::Align::End);
+    btn_box.set_margin_top(margin_top);
+    let cancel_btn = gtk::Button::with_label("Cancel");
+    btn_box.append(&cancel_btn);
+    (btn_box, cancel_btn)
+}
+
 /// Presents `dlg` and immediately moves keyboard focus to `widget`.
 ///
 /// Without the explicit `grab_focus`, GTK hands initial keyboard focus to

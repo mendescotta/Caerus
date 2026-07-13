@@ -8,7 +8,7 @@
 
 use crate::backend::package::PkgMark;
 use crate::backend::package_store::PackageStore;
-use crate::ui::dialog_util::{modal_window, present_focused, text_list_row};
+use crate::ui::dialog_util::{cancel_button_row, modal_window, present_focused, text_list_row};
 use gtk::prelude::*;
 use std::rc::Rc;
 
@@ -63,13 +63,9 @@ pub fn confirm_install_deps(
     scroll.set_child(Some(&list));
     outer.append(&scroll);
 
-    let btn_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    btn_box.set_halign(gtk::Align::End);
-    btn_box.set_margin_top(4);
-    let cancel_btn = gtk::Button::with_label("Cancel");
+    let (btn_box, cancel_btn) = cancel_button_row(4);
     let install_btn = gtk::Button::with_label("Install All");
     install_btn.add_css_class("suggested-action");
-    btn_box.append(&cancel_btn);
     btn_box.append(&install_btn);
     outer.append(&btn_box);
 

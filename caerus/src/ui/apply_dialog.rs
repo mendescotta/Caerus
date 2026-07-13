@@ -4,7 +4,7 @@
 //! dialog closes, so the next call reuses it without re-authenticating.
 //! Rust translation of ui/apply_dialog.{h,c}.
 
-use crate::backend::transaction::Transaction;
+use crate::backend::transaction::{DisconnectReason, Transaction};
 use crate::ui::dialog_util::modal_window;
 use gtk::prelude::*;
 use std::cell::{Cell, RefCell};
@@ -215,14 +215,21 @@ pub fn run(
         let append_log = append_log.clone();
         session.connect_log(move |line| append_log(line))
     };
+    let auth_failed = Rc::new(Cell::new(false));
     let disconnected_id = {
         let append_log = append_log.clone();
-        session.connect_disconnected(move |expected| {
-            append_log(if expected {
-                "(privileged session ended)"
-            } else {
-                "(privileged session ended unexpectedly)"
-            });
+        let auth_failed = auth_failed.clone();
+        session.connect_disconnected(move |reason| match reason {
+            DisconnectReason::Expected => append_log("(privileged session ended)"),
+            DisconnectReason::Unexpected => append_log("(privileged session ended unexpectedly)"),
+            DisconnectReason::AuthFailed => {
+                auth_failed.set(true);
+                append_log(
+                    "(could not authenticate as root — no polkit authentication agent \
+                     responded; a bare window manager setup may need one added to its \
+                     startup, e.g. polkit-gnome, lxqt-policykit, polkit-mate)",
+                );
+            }
         })
     };
     {
@@ -241,6 +248,8 @@ pub fn run(
             progress_bar.set_fraction(1.0);
             status_label.set_text(if success {
                 "Finished successfully."
+            } else if auth_failed.get() {
+                "Could not authenticate as root — see details below."
             } else {
                 "Finished with errors."
             });

@@ -7,9 +7,76 @@
 //! read-only, so this can never surprise-edit someone else's setup.
 
 use crate::backend::transaction::Transaction;
-use crate::ui::dialog_util::{modal_window, present_focused};
+use crate::ui::dialog_util::{cancel_button_row, close_button, modal_window, present_focused};
 use gtk::prelude::*;
 use std::rc::Rc;
+
+/// Warns before actually adding a custom repository: unlike the official
+/// Void mirrors, an arbitrary repository added here has no guarantee of
+/// being signed, and `caerus-helper` always installs/upgrades with `-y`
+/// (auto-confirming whatever prompt `xbps-install` would otherwise show
+/// for an unsigned repo) — so without this, a user could add a hostile
+/// or accidental local repo and have packages from it installed with no
+/// warning ever shown. `cb(true)` only fires if the user explicitly
+/// confirms; closing/Escape/Cancel all resolve to `cb(false)`.
+fn confirm_add_repo(parent: Option<&gtk::Window>, url: &str, cb: impl Fn(bool) + 'static) {
+    let cb: Rc<dyn Fn(bool)> = Rc::new(cb);
+    let (dlg, outer) = modal_window("Add Repository?", parent, false, (420, -1), 10);
+
+    let heading = gtk::Label::new(Some(
+        "Caerus doesn't verify custom repositories the way the official \
+         Void mirrors are verified. If this repository is unsigned or \
+         untrusted, packages installed from it could compromise your \
+         system — Caerus always installs with automatic confirmation, so \
+         no further warning will be shown at install time.",
+    ));
+    heading.set_xalign(0.0);
+    heading.set_wrap(true);
+    outer.append(&heading);
+
+    let url_label = gtk::Label::new(Some(url));
+    url_label.set_xalign(0.0);
+    url_label.set_wrap(true);
+    url_label.set_selectable(true);
+    url_label.add_css_class("dim-label");
+    outer.append(&url_label);
+
+    let (btn_box, cancel_btn) = cancel_button_row(4);
+    let add_btn = gtk::Button::with_label("Add Repository");
+    add_btn.add_css_class("destructive-action");
+    btn_box.append(&add_btn);
+    outer.append(&btn_box);
+
+    // Cancel is the safer default, both as the Enter target and initial
+    // focus — same reasoning as `remove_confirm`'s "Remove Anyway".
+    dlg.set_default_widget(Some(&cancel_btn));
+
+    {
+        let cb = cb.clone();
+        let dlg = dlg.clone();
+        cancel_btn.connect_clicked(move |_| {
+            cb(false);
+            dlg.destroy();
+        });
+    }
+    {
+        let cb = cb.clone();
+        let dlg = dlg.clone();
+        add_btn.connect_clicked(move |_| {
+            cb(true);
+            dlg.destroy();
+        });
+    }
+    {
+        let cb = cb.clone();
+        dlg.connect_close_request(move |_| {
+            cb(false);
+            glib::Propagation::Proceed
+        });
+    }
+
+    present_focused(&dlg, &cancel_btn);
+}
 
 /// Must match `MANAGED_REPO_CONF` in caerus-helper/src/main.rs — the
 /// one file ADDREPO/REMOVEREPO ever touch.
@@ -80,12 +147,15 @@ fn refresh(inner: &Rc<Inner>) {
             let url = url.clone();
             btn.connect_clicked(move |_| {
                 let inner2 = inner.clone();
+                let commands = vec![format!("REMOVEREPO {}", url), "SYNC".to_string()];
+                let commands_for_history = commands.clone();
                 crate::ui::apply_dialog::run(
                     Some(&inner.dlg),
                     &inner.session,
-                    &[format!("REMOVEREPO {}", url), "SYNC".to_string()],
+                    &commands,
                     "Removing Repository",
-                    move |_success| {
+                    move |success| {
+                        crate::backend::history::record(&commands_for_history, success);
                         refresh(&inner2);
                         (inner2.on_changed)();
                     },
@@ -130,10 +200,7 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction, on_changed: imp
     add_row.append(&add_btn);
     outer.append(&add_row);
 
-    let close_btn = gtk::Button::with_label("Close");
-    close_btn.set_halign(gtk::Align::End);
-    close_btn.set_margin_top(4);
-    outer.append(&close_btn);
+    close_button(&outer, &dlg, 4);
 
     dlg.set_default_widget(Some(&add_btn));
 
@@ -159,22 +226,29 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction, on_changed: imp
             }
             let inner2 = inner.clone();
             let entry2 = entry.clone();
-            crate::ui::apply_dialog::run(
-                Some(&inner.dlg),
-                &inner.session,
-                &[format!("ADDREPO {}", url), "SYNC".to_string()],
-                "Adding Repository",
-                move |_success| {
-                    entry2.set_text("");
-                    refresh(&inner2);
-                    (inner2.on_changed)();
-                },
-            );
+            let url_for_run = url.clone();
+            confirm_add_repo(Some(&inner.dlg), &url, move |confirmed| {
+                if !confirmed {
+                    return;
+                }
+                let inner3 = inner2.clone();
+                let entry3 = entry2.clone();
+                let commands = vec![format!("ADDREPO {}", url_for_run), "SYNC".to_string()];
+                let commands_for_history = commands.clone();
+                crate::ui::apply_dialog::run(
+                    Some(&inner2.dlg),
+                    &inner2.session,
+                    &commands,
+                    "Adding Repository",
+                    move |success| {
+                        crate::backend::history::record(&commands_for_history, success);
+                        entry3.set_text("");
+                        refresh(&inner3);
+                        (inner3.on_changed)();
+                    },
+                );
+            });
         });
-    }
-    {
-        let dlg = dlg.clone();
-        close_btn.connect_clicked(move |_| dlg.destroy());
     }
 
     refresh(&inner);
