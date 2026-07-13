@@ -39,6 +39,7 @@ struct Labels {
 
 type MarkChangedCbs = RefCell<Vec<Box<dyn Fn()>>>;
 type HoldRequestedCbs = RefCell<Vec<Box<dyn Fn(String, bool)>>>;
+type ActionRequestedCbs = RefCell<Vec<Box<dyn Fn(String)>>>;
 
 struct Inner {
     widget: gtk::Box,
@@ -50,12 +51,22 @@ struct Inner {
     btn_purge: gtk::Button,
     btn_hold: gtk::Button,
     btn_unhold: gtk::Button,
+    btn_reinstall: gtk::Button,
+    btn_reconfigure: gtk::Button,
+    btn_download: gtk::Button,
+    btn_repolock: gtk::Button,
+    btn_repounlock: gtk::Button,
+    btn_mark_manual: gtk::Button,
+    btn_mark_auto: gtk::Button,
     btn_unmark: gtk::Button,
+    more_button: gtk::MenuButton,
+    more_popover: gtk::Popover,
     labels: Labels,
     deps_list: gtk::ListBox,
     rdeps_list: gtk::ListBox,
     files_expander: gtk::Expander,
     files_list: gtk::ListBox,
+    provides_list: gtk::ListBox,
     on_mark_changed: MarkChangedCbs,
     /// Fired when the user clicks Hold/Release Hold. Unlike
     /// install/upgrade/remove/purge, a hold toggle isn't queued as a
@@ -63,11 +74,37 @@ struct Inner {
     /// `Transaction` this pane doesn't own), so the actual work is left
     /// to whoever wires this up (see window.rs). Args: pkgname, want_hold.
     on_hold_requested: HoldRequestedCbs,
+    /// Fired when the user clicks Reinstall — same rationale as
+    /// `on_hold_requested` (an immediate privileged action, not a queued
+    /// mark). Arg: pkgname.
+    on_reinstall_requested: ActionRequestedCbs,
+    /// Fired when the user clicks Reconfigure — same rationale as
+    /// `on_hold_requested`. Arg: pkgname.
+    on_reconfigure_requested: ActionRequestedCbs,
+    /// Fired when the user clicks Download Only. Arg: pkgname.
+    on_download_requested: ActionRequestedCbs,
+    /// Fired when the user clicks Repo-Lock/Release Repo-Lock. Args:
+    /// pkgname, want_locked.
+    on_repolock_requested: HoldRequestedCbs,
+    /// Fired when the user clicks Mark as Manually/Automatically
+    /// Installed. Args: pkgname, want_automatic.
+    on_automatic_requested: HoldRequestedCbs,
 }
 
 #[derive(Clone)]
 pub struct DetailPane {
     inner: Rc<Inner>,
+}
+
+/// A flat, left-aligned button for the "More" popover's menu-style list
+/// — same look as `flat_menu_button` in `window.rs`'s app menu.
+fn more_menu_button(label: &str) -> gtk::Button {
+    let btn = gtk::Button::with_label(label);
+    btn.set_has_frame(false);
+    if let Some(l) = btn.child().and_downcast::<gtk::Label>() {
+        l.set_xalign(0.0);
+    }
+    btn
 }
 
 fn info_row(container: &gtk::Box, label: &str) -> gtk::Label {
@@ -128,22 +165,79 @@ impl DetailPane {
         btn_purge.set_tooltip_text(Some(
             "Remove this package and any dependencies left orphaned by doing so",
         ));
-        let btn_hold = gtk::Button::with_label("Hold");
-        btn_hold.set_visible(false);
-        btn_hold.set_tooltip_text(Some(
-            "Pin this package's version — exclude it from upgrades",
-        ));
-        let btn_unhold = gtk::Button::with_label("Release Hold");
-        btn_unhold.set_visible(false);
         let btn_unmark = gtk::Button::with_label("Unmark");
         btn_unmark.set_visible(false);
         action_row.append(&btn_install);
         action_row.append(&btn_upgrade);
         action_row.append(&btn_remove);
         action_row.append(&btn_purge);
-        action_row.append(&btn_hold);
-        action_row.append(&btn_unhold);
         action_row.append(&btn_unmark);
+
+        // ── "More" popover: every other, less-common action. Kept out of
+        // the row above so it doesn't grow one button per feature —
+        // these are all still-immediate (not queued-mark) actions, same
+        // rationale as Hold below.
+        let more_button = gtk::MenuButton::new();
+        more_button.set_label("More");
+        more_button.set_visible(false);
+        let more_popover = gtk::Popover::new();
+        let more_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        more_box.set_margin_start(4);
+        more_box.set_margin_end(4);
+        more_box.set_margin_top(4);
+        more_box.set_margin_bottom(4);
+        more_box.set_width_request(220);
+
+        let btn_hold = more_menu_button("Hold");
+        btn_hold.set_visible(false);
+        btn_hold.set_tooltip_text(Some(
+            "Pin this package's version — exclude it from upgrades",
+        ));
+        let btn_unhold = more_menu_button("Release Hold");
+        btn_unhold.set_visible(false);
+        let btn_reinstall = more_menu_button("Reinstall");
+        btn_reinstall.set_visible(false);
+        btn_reinstall.set_tooltip_text(Some(
+            "Force re-installation, overwriting any locally-modified files",
+        ));
+        let btn_reconfigure = more_menu_button("Reconfigure");
+        btn_reconfigure.set_visible(false);
+        btn_reconfigure.set_tooltip_text(Some("Re-run this package's post-install configuration"));
+        let btn_download = more_menu_button("Download Only");
+        btn_download.set_visible(false);
+        btn_download.set_tooltip_text(Some(
+            "Fetch and verify the package file without installing it",
+        ));
+        let btn_repolock = more_menu_button("Repo-Lock");
+        btn_repolock.set_visible(false);
+        btn_repolock.set_tooltip_text(Some(
+            "Only ever upgrade this package from the repository it's currently installed from",
+        ));
+        let btn_repounlock = more_menu_button("Release Repo-Lock");
+        btn_repounlock.set_visible(false);
+        let btn_mark_manual = more_menu_button("Mark as Manually Installed");
+        btn_mark_manual.set_visible(false);
+        btn_mark_manual.set_tooltip_text(Some(
+            "Treat as explicitly requested — won't be offered for orphan cleanup",
+        ));
+        let btn_mark_auto = more_menu_button("Mark as Automatically Installed");
+        btn_mark_auto.set_visible(false);
+        btn_mark_auto.set_tooltip_text(Some(
+            "Treat as a dependency pulled in for something else — eligible for orphan cleanup \
+             if nothing ends up needing it",
+        ));
+        more_box.append(&btn_hold);
+        more_box.append(&btn_unhold);
+        more_box.append(&btn_reinstall);
+        more_box.append(&btn_reconfigure);
+        more_box.append(&btn_download);
+        more_box.append(&btn_repolock);
+        more_box.append(&btn_repounlock);
+        more_box.append(&btn_mark_manual);
+        more_box.append(&btn_mark_auto);
+        more_popover.set_child(Some(&more_box));
+        more_button.set_popover(Some(&more_popover));
+        action_row.append(&more_button);
         widget.append(&action_row);
 
         // ── Split: metadata column | dependency column ──
@@ -211,6 +305,18 @@ impl DetailPane {
         files_expander.set_child(Some(&files_scroll));
         metadata_col.append(&files_expander);
 
+        let provides_expander = gtk::Expander::new(Some("Provides / Conflicts / Replaces"));
+        provides_expander.set_margin_bottom(6);
+        let provides_list = gtk::ListBox::new();
+        provides_list.set_selection_mode(gtk::SelectionMode::None);
+        let provides_ph = gtk::Label::new(Some("None"));
+        provides_ph.add_css_class("dim-label");
+        provides_ph.set_margin_top(8);
+        provides_ph.set_margin_bottom(8);
+        provides_list.set_placeholder(Some(&provides_ph));
+        provides_expander.set_child(Some(&provides_list));
+        metadata_col.append(&provides_expander);
+
         metadata_scroll.set_child(Some(&metadata_col));
         split.append(&metadata_scroll);
         split.append(&gtk::Separator::new(gtk::Orientation::Vertical));
@@ -269,7 +375,16 @@ impl DetailPane {
             btn_purge,
             btn_hold,
             btn_unhold,
+            btn_reinstall,
+            btn_reconfigure,
+            btn_download,
+            btn_repolock,
+            btn_repounlock,
+            btn_mark_manual,
+            btn_mark_auto,
             btn_unmark,
+            more_button,
+            more_popover,
             labels: Labels {
                 name,
                 version,
@@ -289,8 +404,14 @@ impl DetailPane {
             rdeps_list,
             files_expander,
             files_list,
+            provides_list,
             on_mark_changed: RefCell::new(Vec::new()),
             on_hold_requested: RefCell::new(Vec::new()),
+            on_reinstall_requested: RefCell::new(Vec::new()),
+            on_reconfigure_requested: RefCell::new(Vec::new()),
+            on_download_requested: RefCell::new(Vec::new()),
+            on_repolock_requested: RefCell::new(Vec::new()),
+            on_automatic_requested: RefCell::new(Vec::new()),
         });
 
         wire_buttons(&inner);
@@ -310,6 +431,48 @@ impl DetailPane {
     /// pkgname, want_hold — fired when the user clicks Hold/Release Hold.
     pub fn connect_hold_requested(&self, f: impl Fn(String, bool) + 'static) {
         self.inner.on_hold_requested.borrow_mut().push(Box::new(f));
+    }
+
+    /// pkgname — fired when the user clicks Reinstall.
+    pub fn connect_reinstall_requested(&self, f: impl Fn(String) + 'static) {
+        self.inner
+            .on_reinstall_requested
+            .borrow_mut()
+            .push(Box::new(f));
+    }
+
+    /// pkgname — fired when the user clicks Reconfigure.
+    pub fn connect_reconfigure_requested(&self, f: impl Fn(String) + 'static) {
+        self.inner
+            .on_reconfigure_requested
+            .borrow_mut()
+            .push(Box::new(f));
+    }
+
+    /// pkgname — fired when the user clicks Download Only.
+    pub fn connect_download_requested(&self, f: impl Fn(String) + 'static) {
+        self.inner
+            .on_download_requested
+            .borrow_mut()
+            .push(Box::new(f));
+    }
+
+    /// pkgname, want_locked — fired when the user clicks Repo-Lock/Release
+    /// Repo-Lock.
+    pub fn connect_repolock_requested(&self, f: impl Fn(String, bool) + 'static) {
+        self.inner
+            .on_repolock_requested
+            .borrow_mut()
+            .push(Box::new(f));
+    }
+
+    /// pkgname, want_automatic — fired when the user clicks Mark as
+    /// Manually/Automatically Installed.
+    pub fn connect_automatic_requested(&self, f: impl Fn(String, bool) + 'static) {
+        self.inner
+            .on_automatic_requested
+            .borrow_mut()
+            .push(Box::new(f));
     }
 
     pub fn show_package(&self, pkg: Option<&Package>) {
@@ -345,13 +508,18 @@ fn wire_buttons(inner: &Rc<Inner>) {
     wire_remove_button(inner, &inner.btn_purge, PkgMark::Purge);
     wire_simple_mark_button(inner, &inner.btn_unmark, PkgMark::None);
 
-    // Hold/unhold isn't a queued mark — it needs a privileged action of
-    // its own, so this pane just reports the request and lets the
-    // caller (which owns the `Transaction`) carry it out.
+    // Hold/unhold and everything else in the "More" popover isn't a
+    // queued mark — each needs a privileged action of its own, so this
+    // pane just reports the request and lets the caller (which owns the
+    // `Transaction`) carry it out. Every handler also closes the popover
+    // itself, since a plain `gtk::Button` inside a `gtk::Popover` doesn't
+    // do that automatically the way a real menu item would.
     {
         let btn_hold = inner.btn_hold.clone();
+        let popover = inner.more_popover.clone();
         let inner = inner.clone();
         btn_hold.connect_clicked(move |_| {
+            popover.popdown();
             let Some(name) = inner.current_pkgname.borrow().clone() else {
                 return;
             };
@@ -362,13 +530,113 @@ fn wire_buttons(inner: &Rc<Inner>) {
     }
     {
         let btn_unhold = inner.btn_unhold.clone();
+        let popover = inner.more_popover.clone();
         let inner = inner.clone();
         btn_unhold.connect_clicked(move |_| {
+            popover.popdown();
             let Some(name) = inner.current_pkgname.borrow().clone() else {
                 return;
             };
             for f in inner.on_hold_requested.borrow().iter() {
                 f(name.clone(), false);
+            }
+        });
+    }
+    {
+        let btn_reinstall = inner.btn_reinstall.clone();
+        let popover = inner.more_popover.clone();
+        let inner = inner.clone();
+        btn_reinstall.connect_clicked(move |_| {
+            popover.popdown();
+            let Some(name) = inner.current_pkgname.borrow().clone() else {
+                return;
+            };
+            for f in inner.on_reinstall_requested.borrow().iter() {
+                f(name.clone());
+            }
+        });
+    }
+    {
+        let btn_reconfigure = inner.btn_reconfigure.clone();
+        let popover = inner.more_popover.clone();
+        let inner = inner.clone();
+        btn_reconfigure.connect_clicked(move |_| {
+            popover.popdown();
+            let Some(name) = inner.current_pkgname.borrow().clone() else {
+                return;
+            };
+            for f in inner.on_reconfigure_requested.borrow().iter() {
+                f(name.clone());
+            }
+        });
+    }
+    {
+        let btn_download = inner.btn_download.clone();
+        let popover = inner.more_popover.clone();
+        let inner = inner.clone();
+        btn_download.connect_clicked(move |_| {
+            popover.popdown();
+            let Some(name) = inner.current_pkgname.borrow().clone() else {
+                return;
+            };
+            for f in inner.on_download_requested.borrow().iter() {
+                f(name.clone());
+            }
+        });
+    }
+    {
+        let btn_repolock = inner.btn_repolock.clone();
+        let popover = inner.more_popover.clone();
+        let inner = inner.clone();
+        btn_repolock.connect_clicked(move |_| {
+            popover.popdown();
+            let Some(name) = inner.current_pkgname.borrow().clone() else {
+                return;
+            };
+            for f in inner.on_repolock_requested.borrow().iter() {
+                f(name.clone(), true);
+            }
+        });
+    }
+    {
+        let btn_repounlock = inner.btn_repounlock.clone();
+        let popover = inner.more_popover.clone();
+        let inner = inner.clone();
+        btn_repounlock.connect_clicked(move |_| {
+            popover.popdown();
+            let Some(name) = inner.current_pkgname.borrow().clone() else {
+                return;
+            };
+            for f in inner.on_repolock_requested.borrow().iter() {
+                f(name.clone(), false);
+            }
+        });
+    }
+    {
+        let btn_mark_manual = inner.btn_mark_manual.clone();
+        let popover = inner.more_popover.clone();
+        let inner = inner.clone();
+        btn_mark_manual.connect_clicked(move |_| {
+            popover.popdown();
+            let Some(name) = inner.current_pkgname.borrow().clone() else {
+                return;
+            };
+            for f in inner.on_automatic_requested.borrow().iter() {
+                f(name.clone(), false);
+            }
+        });
+    }
+    {
+        let btn_mark_auto = inner.btn_mark_auto.clone();
+        let popover = inner.more_popover.clone();
+        let inner = inner.clone();
+        btn_mark_auto.connect_clicked(move |_| {
+            popover.popdown();
+            let Some(name) = inner.current_pkgname.borrow().clone() else {
+                return;
+            };
+            for f in inner.on_automatic_requested.borrow().iter() {
+                f(name.clone(), true);
             }
         });
     }
@@ -452,18 +720,39 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
         inner.btn_upgrade.set_visible(false);
         inner.btn_hold.set_visible(false);
         inner.btn_unhold.set_visible(false);
+        inner.btn_reinstall.set_visible(false);
+        inner.btn_reconfigure.set_visible(false);
+        inner.btn_download.set_visible(false);
+        inner.btn_repolock.set_visible(false);
+        inner.btn_repounlock.set_visible(false);
+        inner.btn_mark_manual.set_visible(false);
+        inner.btn_mark_auto.set_visible(false);
+        inner.more_button.set_visible(false);
         inner.btn_unmark.set_visible(false);
         return;
     };
 
-    // Hold/unhold is orthogonal to the pending-mark system (it's applied
-    // immediately, not queued), so its visibility only depends on
-    // whether the package is installed at all — not on `pkg.mark`.
+    // Hold/unhold/reinstall/reconfigure/download/repolock are all
+    // orthogonal to the pending-mark system (applied immediately, not
+    // queued), so their visibility only depends on whether the package
+    // is installed at all — not on `pkg.mark`. (Mark-manual/automatic's
+    // visibility depends on data only `show_package_impl` has fetched —
+    // see there.)
     let installed = pkg.state != PkgState::NotInstalled;
+    inner.more_button.set_visible(true);
     inner
         .btn_hold
         .set_visible(installed && pkg.state != PkgState::OnHold);
     inner.btn_unhold.set_visible(pkg.state == PkgState::OnHold);
+    inner.btn_reinstall.set_visible(installed);
+    inner.btn_reconfigure.set_visible(installed);
+    inner.btn_download.set_visible(!installed);
+    inner
+        .btn_repolock
+        .set_visible(installed && !pkg.is_repolocked);
+    inner
+        .btn_repounlock
+        .set_visible(installed && pkg.is_repolocked);
 
     if pkg.mark != PkgMark::None {
         inner.btn_install.set_visible(false);
@@ -509,6 +798,39 @@ fn populate(lb: &gtk::ListBox, items: Option<Vec<String>>) {
     let Some(items) = items else { return };
     for item in items {
         lb.append(&crate::ui::dialog_util::text_list_row(&item, false));
+    }
+}
+
+/// One row per non-empty category — "Provides"/"Conflicts"/"Replaces"
+/// (plain package/virtual-package names) and "Requires"/"Exports"
+/// (shared-library sonames), each joined onto a single wrapped line
+/// since these lists are usually short and this is already a rarely-
+/// expanded, supplementary section.
+fn populate_provides_conflicts(
+    inner: &Rc<Inner>,
+    extra: Option<&crate::backend::package::PackageExtraInfo>,
+) {
+    while let Some(c) = inner.provides_list.first_child() {
+        inner.provides_list.remove(&c);
+    }
+    let Some(extra) = extra else { return };
+    let sections: [(&str, &[String]); 5] = [
+        ("Provides", &extra.provides),
+        ("Conflicts", &extra.conflicts),
+        ("Replaces", &extra.replaces),
+        ("Requires", &extra.shlib_requires),
+        ("Exports", &extra.shlib_provides),
+    ];
+    for (label, items) in sections {
+        if items.is_empty() {
+            continue;
+        }
+        inner
+            .provides_list
+            .append(&crate::ui::dialog_util::text_list_row(
+                &format!("{}: {}", label, items.join(", ")),
+                true,
+            ));
     }
 }
 
@@ -615,6 +937,7 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
         l.auto_install.set_text(DASH);
         populate(&inner.deps_list, None);
         populate(&inner.rdeps_list, None);
+        populate_provides_conflicts(inner, None);
         update_action_buttons(inner, None);
         return;
     };
@@ -717,6 +1040,19 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
     } else {
         l.auto_install.set_text(DASH);
     }
+
+    // Manual/automatic marking only makes sense for a real installed
+    // pkgdb entry (`has_automatic_install`) — a not-yet-installed
+    // package (or one whose extra info failed to load) gets neither.
+    let auto_flag = extra.as_ref().filter(|e| e.has_automatic_install);
+    inner
+        .btn_mark_manual
+        .set_visible(auto_flag.is_some_and(|e| e.automatic_install));
+    inner
+        .btn_mark_auto
+        .set_visible(auto_flag.is_some_and(|e| !e.automatic_install));
+
+    populate_provides_conflicts(inner, extra.as_ref());
 
     // ── Dependency column ──
     populate(&inner.deps_list, inner.store.get_deps(&pkg.name));

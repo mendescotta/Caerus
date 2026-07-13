@@ -730,6 +730,73 @@ fn wire_up(state: &Rc<WindowState>) {
         });
     }
     {
+        let detail_pane = state.detail_pane.clone();
+        let state = state.clone();
+        detail_pane.connect_reinstall_requested(move |pkgname| {
+            run_maintenance_command(
+                &state,
+                &format!("REINSTALL {}", pkgname),
+                "Reinstalling Package",
+            );
+        });
+    }
+    {
+        let detail_pane = state.detail_pane.clone();
+        let state = state.clone();
+        detail_pane.connect_reconfigure_requested(move |pkgname| {
+            run_maintenance_command(
+                &state,
+                &format!("RECONFIGURE {}", pkgname),
+                "Reconfiguring Package",
+            );
+        });
+    }
+    {
+        let detail_pane = state.detail_pane.clone();
+        let state = state.clone();
+        detail_pane.connect_download_requested(move |pkgname| {
+            run_maintenance_command(
+                &state,
+                &format!("DOWNLOAD {}", pkgname),
+                "Downloading Package",
+            );
+        });
+    }
+    {
+        let detail_pane = state.detail_pane.clone();
+        let state = state.clone();
+        detail_pane.connect_repolock_requested(move |pkgname, want_locked| {
+            let cmd = if want_locked {
+                format!("REPOLOCK {}", pkgname)
+            } else {
+                format!("REPOUNLOCK {}", pkgname)
+            };
+            let title = if want_locked {
+                "Repo-Locking Package"
+            } else {
+                "Releasing Repo-Lock"
+            };
+            run_maintenance_command(&state, &cmd, title);
+        });
+    }
+    {
+        let detail_pane = state.detail_pane.clone();
+        let state = state.clone();
+        detail_pane.connect_automatic_requested(move |pkgname, want_automatic| {
+            let cmd = if want_automatic {
+                format!("MARKAUTO {}", pkgname)
+            } else {
+                format!("MARKMANUAL {}", pkgname)
+            };
+            let title = if want_automatic {
+                "Marking Automatic"
+            } else {
+                "Marking Manual"
+            };
+            run_maintenance_command(&state, &cmd, title);
+        });
+    }
+    {
         let btn = state.menu_buttons.full_upgrade.clone();
         let state = state.clone();
         btn.connect_clicked(move |_| {
@@ -1058,6 +1125,7 @@ fn on_apply_clicked(state: &Rc<WindowState>) {
             }
             let state3 = state2.clone();
             let commands_for_history = commands.clone();
+            let commands_for_retry = commands.clone();
             apply_dialog::run(
                 Some(state2.window.upcast_ref()),
                 &state2.session,
@@ -1065,13 +1133,18 @@ fn on_apply_clicked(state: &Rc<WindowState>) {
                 "Applying Changes",
                 move |success| {
                     crate::backend::history::record(&commands_for_history, success);
-                    state3.status_label.set_text(if success {
-                        "Changes applied. Reloading\u{2026}"
+                    if success {
+                        state3
+                            .status_label
+                            .set_text("Changes applied. Reloading\u{2026}");
+                        state3.store.clear_all_marks();
+                        do_reload(&state3);
                     } else {
-                        "Some changes failed — see log. Reloading\u{2026}"
-                    });
-                    state3.store.clear_all_marks();
-                    do_reload(&state3);
+                        state3
+                            .status_label
+                            .set_text("Some changes failed — see log.");
+                        offer_force_retry(&state3, commands_for_retry.clone());
+                    }
                 },
             );
         },
@@ -1158,6 +1231,106 @@ fn run_maintenance_command(state: &Rc<WindowState>, cmd: &str, title: &str) {
             do_reload(&state2);
         },
     );
+}
+
+/// Maps a queued INSTALL/REMOVE/PURGE line to its force-override verb
+/// (same package names, `_FORCE` suffix on the verb) — see the matching
+/// `INSTALL_FORCE`/`REMOVE_FORCE`/`PURGE_FORCE` handlers in
+/// `caerus-helper`. Commands with no force variant (UPGRADE, HOLD, ...)
+/// pass through unchanged, though in practice only INSTALL/REMOVE/PURGE
+/// ever reach this from `on_apply_clicked`'s batch.
+fn force_variant(cmd: &str) -> String {
+    for verb in ["INSTALL", "REMOVE", "PURGE"] {
+        if let Some(rest) = cmd.strip_prefix(verb) {
+            return format!("{}_FORCE{}", verb, rest);
+        }
+    }
+    cmd.to_string()
+}
+
+/// Shown when an Apply batch fails — file conflicts and unresolved
+/// reverse-dependencies/shared libraries are the two cases a plain
+/// retry can't fix but forcing through can, so offer that explicitly
+/// rather than leaving the user to go find the equivalent `xbps-install`/
+/// `xbps-remove` flags themselves. Declining (Cancel, Escape, or the
+/// window-manager close affordance) falls back to the same
+/// clear-marks-and-reload the non-offered failure path used before.
+fn offer_force_retry(state: &Rc<WindowState>, commands: Vec<String>) {
+    let (dlg, outer) = crate::ui::dialog_util::modal_window(
+        "Retry With Force?",
+        Some(state.window.upcast_ref()),
+        false,
+        (440, -1),
+        10,
+    );
+
+    let heading = gtk::Label::new(Some(
+        "Some changes failed, possibly due to file conflicts or unresolved \
+         dependencies. Forcing through these checks can leave the system in \
+         an inconsistent state — only do this if you understand why the \
+         normal attempt failed.",
+    ));
+    heading.set_xalign(0.0);
+    heading.set_wrap(true);
+    outer.append(&heading);
+
+    let (btn_box, cancel_btn) = crate::ui::dialog_util::cancel_button_row(4);
+    let retry_btn = gtk::Button::with_label("Retry With Force");
+    retry_btn.add_css_class("destructive-action");
+    btn_box.append(&retry_btn);
+    outer.append(&btn_box);
+    dlg.set_default_widget(Some(&cancel_btn));
+
+    let give_up = {
+        let state = state.clone();
+        move || {
+            state.store.clear_all_marks();
+            do_reload(&state);
+        }
+    };
+
+    {
+        let dlg = dlg.clone();
+        let give_up = give_up.clone();
+        cancel_btn.connect_clicked(move |_| {
+            give_up();
+            dlg.destroy();
+        });
+    }
+    {
+        let state = state.clone();
+        let dlg = dlg.clone();
+        retry_btn.connect_clicked(move |_| {
+            dlg.destroy();
+            let forced: Vec<String> = commands.iter().map(|c| force_variant(c)).collect();
+            let state2 = state.clone();
+            let forced_for_history = forced.clone();
+            apply_dialog::run(
+                Some(state.window.upcast_ref()),
+                &state.session,
+                &forced,
+                "Retrying With Force",
+                move |success| {
+                    crate::backend::history::record(&forced_for_history, success);
+                    state2.status_label.set_text(if success {
+                        "Changes applied. Reloading\u{2026}"
+                    } else {
+                        "Force retry also failed — see log. Reloading\u{2026}"
+                    });
+                    state2.store.clear_all_marks();
+                    do_reload(&state2);
+                },
+            );
+        });
+    }
+    {
+        dlg.connect_close_request(move |_| {
+            give_up();
+            glib::Propagation::Proceed
+        });
+    }
+
+    crate::ui::dialog_util::present_focused(&dlg, &cancel_btn);
 }
 
 fn update_status_bar(state: &Rc<WindowState>) {

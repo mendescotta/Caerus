@@ -29,12 +29,17 @@ via `pkexec`.
 - Filter by state (All / Installed / Not Installed / Upgradable / On Hold /
   Marked / Orphaned) and by repository
 - Detail pane: description, tags, size, maintainer, dependencies, reverse
-  dependencies, and an on-demand file list
+  dependencies, provides/conflicts/replaces, shared-library requirements,
+  and an on-demand file list
 - Install / Upgrade / Remove / Purge / Hold / Unhold, with multi-select and
   bulk actions
+- From the detail pane's "More" menu: Reinstall, Reconfigure, Download Only,
+  Repo-Lock/Release Repo-Lock, and Mark as Manually/Automatically Installed
 - Real transaction preview before applying anything — actual sizes,
   ordering, and conflicts from `libxbps` itself, not an approximation, with
   a "Copy Dry-Run Output" button
+- Offers to retry with force (ignoring file conflicts or unresolved
+  dependencies) if an Apply batch fails
 - Warns before a removal that would cascade to dependent packages, showing
   the full chain down to indirectly-affected ones
 - Transaction history log of every applied batch and maintenance action,
@@ -47,6 +52,44 @@ via `pkexec`.
   repository
 - Keyboard shortcuts (Ctrl+F search, F5 reload, Delete to mark for removal,
   Ctrl+A select all, Escape to clear search, Ctrl+Q to quit)
+
+<details>
+<summary>Every Caerus action and its underlying xbps command</summary>
+
+| Caerus Action | Where in UI | Underlying xbps command |
+|---|---|---|
+| Sync repositories | Header sync button / at launch | `xbps-install -S` |
+| Full System Upgrade | App menu | `xbps-install -y -Su` |
+| Install / Upgrade (Apply) | Checkbox, context menu, detail pane, Apply | `xbps-install -y -- pkg...` |
+| Remove | Checkbox, context menu, detail pane, Apply | `xbps-remove -y -- pkg...` |
+| Purge | Checkbox, context menu, detail pane, Apply | `xbps-remove -y -R -- pkg...` |
+| Install (force retry) | "Retry With Force" after a failed Apply | `xbps-install -y -I -- pkg...` |
+| Remove (force retry) | "Retry With Force" after a failed Apply | `xbps-remove -y -F -- pkg...` |
+| Purge (force retry) | "Retry With Force" after a failed Apply | `xbps-remove -y -R -F -- pkg...` |
+| Reinstall | Detail pane → More | `xbps-install -f -y -- pkg...` |
+| Reconfigure | Detail pane → More | `xbps-reconfigure -f -- pkg...` |
+| Download Only | Detail pane → More | `xbps-install -D -y -- pkg...` |
+| Hold | Detail pane → More | `xbps-pkgdb -m hold -- pkg...` |
+| Release Hold | Detail pane → More | `xbps-pkgdb -m unhold -- pkg...` |
+| Repo-Lock | Detail pane → More | `xbps-pkgdb -m repolock -- pkg...` |
+| Release Repo-Lock | Detail pane → More | `xbps-pkgdb -m repounlock -- pkg...` |
+| Mark as Automatically Installed | Detail pane → More | `xbps-pkgdb -m auto -- pkg...` |
+| Mark as Manually Installed | Detail pane → More | `xbps-pkgdb -m manual -- pkg...` |
+| Remove Orphaned Packages | App menu | `xbps-remove -y -o` |
+| Clean Package Cache | App menu | `xbps-remove -O` |
+| Verify Package Database | App menu | `xbps-pkgdb -a --checks files,dependencies,alternatives,pkgdb` |
+| Switch Alternative | Alternatives dialog | `xbps-alternatives -g <group> -s <pkg>` |
+| Add Repository | Repositories dialog | writes `/etc/xbps.d/90-caerus.conf` (no xbps CLI), then queues `xbps-install -S` |
+| Remove Repository | Repositories dialog | edits the same conf file, then `xbps-install -S` |
+| Transaction preview / dry-run | Apply confirmation dialog | `xbps_transaction_prepare()` via libxbps directly — equivalent to `xbps-install -n` |
+| Find Owning Package | App menu → Find Owning Package | `xbps-query -o <path>` (the only literal `xbps-query` subprocess call in the app) |
+| Package details, deps, reverse-deps, files, provides/conflicts/replaces, shlib info | Detail pane | via libxbps directly (`xbps_pkgdb_get_pkg`/`xbps_rpool_get_pkg` + dictionary reads) — equivalent to `xbps-query -S/-x/-X/-f` |
+
+Everything except Find Owning Package and repo add/remove goes through
+`caerus-helper` (spawned via `pkexec`) rather than calling `xbps-*` directly
+from the GUI — that's the privilege boundary the whole app is built around.
+
+</details>
 
 ## Installing
 

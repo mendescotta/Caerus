@@ -16,6 +16,16 @@
 //!   SYNC             — sync repository indexes (-S)
 //!   HOLD    p1 p2    — pin package(s) at their current version
 //!   UNHOLD  p1 p2    — release a previously-set hold
+//!   REINSTALL p1 p2  — force re-installation of already-installed package(s)
+//!   RECONFIGURE p1 p2 — re-run post-install configuration script(s)
+//!   DOWNLOAD p1 p2   — fetch and verify package(s), don't install
+//!   REPOLOCK p1 p2   — only ever upgrade from the currently-installed repo
+//!   REPOUNLOCK p1 p2 — release a previously-set repo-lock
+//!   MARKAUTO p1 p2   — mark package(s) as automatically installed
+//!   MARKMANUAL p1 p2 — mark package(s) as explicitly/manually installed
+//!   INSTALL_FORCE p1 p2 — install, ignoring detected file conflicts
+//!   REMOVE_FORCE p1 p2  — remove despite unresolved revdeps/shared libs
+//!   PURGE_FORCE p1 p2   — recursive removal, same override as REMOVE_FORCE
 //!   ORPHANS          — remove packages no longer required by anything
 //!   CLEANCACHE       — remove outdated files from the package cache
 //!   VERIFY           — run pkgdb consistency checks
@@ -258,6 +268,52 @@ fn main() {
             continue;
         }
 
+        if let Some(rest) = line.strip_prefix("INSTALL_FORCE ") {
+            let pkgs = split_pkgnames(rest);
+            if pkgs.is_empty() {
+                println!("ERROR no packages specified");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            // -I: ignore detected file conflicts — a fallback for when a
+            // plain INSTALL failed because of one, not offered up front.
+            let mut argv: Vec<&str> = vec!["xbps-install", "-y", "-I", "--"];
+            argv.extend(pkgs.iter().map(String::as_str));
+            let code = run_xbps(&argv);
+            respond_ok_or(code == Some(0), "forced install failed");
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("REMOVE_FORCE ") {
+            let pkgs = split_pkgnames(rest);
+            if pkgs.is_empty() {
+                println!("ERROR no packages specified");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            // -F: force removal even with unresolved revdeps/shared
+            // libraries — a fallback for when a plain REMOVE failed.
+            let mut argv: Vec<&str> = vec!["xbps-remove", "-y", "-F", "--"];
+            argv.extend(pkgs.iter().map(String::as_str));
+            let code = run_xbps(&argv);
+            respond_ok_or(code == Some(0), "forced remove failed");
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("PURGE_FORCE ") {
+            let pkgs = split_pkgnames(rest);
+            if pkgs.is_empty() {
+                println!("ERROR no packages specified");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            let mut argv: Vec<&str> = vec!["xbps-remove", "-y", "-R", "-F", "--"];
+            argv.extend(pkgs.iter().map(String::as_str));
+            let code = run_xbps(&argv);
+            respond_ok_or(code == Some(0), "forced purge failed");
+            continue;
+        }
+
         if line == "ORPHANS" {
             // -o computes the orphan set itself; no package names needed.
             let code = run_xbps(&["xbps-remove", "-y", "-o"]);
@@ -300,6 +356,109 @@ fn main() {
             argv.extend(pkgs.iter().map(String::as_str));
             let code = run_xbps(&argv);
             respond_ok_or(code == Some(0), "unhold failed");
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("REINSTALL ") {
+            let pkgs = split_pkgnames(rest);
+            if pkgs.is_empty() {
+                println!("ERROR no packages specified");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            // -f forces re-installation of a package xbps otherwise
+            // considers already up to date and does nothing for.
+            let mut argv: Vec<&str> = vec!["xbps-install", "-f", "-y", "--"];
+            argv.extend(pkgs.iter().map(String::as_str));
+            let code = run_xbps(&argv);
+            respond_ok_or(code == Some(0), "reinstall failed");
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("RECONFIGURE ") {
+            let pkgs = split_pkgnames(rest);
+            if pkgs.is_empty() {
+                println!("ERROR no packages specified");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            // -f forces the reconfigure scripts to actually re-run for a
+            // package xbps otherwise considers already configured.
+            // xbps-reconfigure has no -y/--yes — it never prompts.
+            let mut argv: Vec<&str> = vec!["xbps-reconfigure", "-f", "--"];
+            argv.extend(pkgs.iter().map(String::as_str));
+            let code = run_xbps(&argv);
+            respond_ok_or(code == Some(0), "reconfigure failed");
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("DOWNLOAD ") {
+            let pkgs = split_pkgnames(rest);
+            if pkgs.is_empty() {
+                println!("ERROR no packages specified");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            let mut argv: Vec<&str> = vec!["xbps-install", "-D", "-y", "--"];
+            argv.extend(pkgs.iter().map(String::as_str));
+            let code = run_xbps(&argv);
+            respond_ok_or(code == Some(0), "download failed");
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("REPOLOCK ") {
+            let pkgs = split_pkgnames(rest);
+            if pkgs.is_empty() {
+                println!("ERROR no packages specified");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            let mut argv: Vec<&str> = vec!["xbps-pkgdb", "-m", "repolock", "--"];
+            argv.extend(pkgs.iter().map(String::as_str));
+            let code = run_xbps(&argv);
+            respond_ok_or(code == Some(0), "repo-lock failed");
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("REPOUNLOCK ") {
+            let pkgs = split_pkgnames(rest);
+            if pkgs.is_empty() {
+                println!("ERROR no packages specified");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            let mut argv: Vec<&str> = vec!["xbps-pkgdb", "-m", "repounlock", "--"];
+            argv.extend(pkgs.iter().map(String::as_str));
+            let code = run_xbps(&argv);
+            respond_ok_or(code == Some(0), "repo-unlock failed");
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("MARKAUTO ") {
+            let pkgs = split_pkgnames(rest);
+            if pkgs.is_empty() {
+                println!("ERROR no packages specified");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            let mut argv: Vec<&str> = vec!["xbps-pkgdb", "-m", "auto", "--"];
+            argv.extend(pkgs.iter().map(String::as_str));
+            let code = run_xbps(&argv);
+            respond_ok_or(code == Some(0), "marking automatic failed");
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("MARKMANUAL ") {
+            let pkgs = split_pkgnames(rest);
+            if pkgs.is_empty() {
+                println!("ERROR no packages specified");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            let mut argv: Vec<&str> = vec!["xbps-pkgdb", "-m", "manual", "--"];
+            argv.extend(pkgs.iter().map(String::as_str));
+            let code = run_xbps(&argv);
+            respond_ok_or(code == Some(0), "marking manual failed");
             continue;
         }
 

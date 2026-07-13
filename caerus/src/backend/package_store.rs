@@ -747,6 +747,7 @@ unsafe extern "C" fn rpool_repo_cb(
                 essential: false,
                 arch,
                 is_orphan: false,
+                is_repolocked: false,
             },
         );
     }
@@ -806,6 +807,10 @@ unsafe extern "C" fn pkgdb_cb(
     if let Some(repo) = dict_str(dict, "repository") {
         p.repository = Some(repo);
     }
+
+    // Read before the hold early-return below so it's still picked up
+    // for a package that's simultaneously on hold and repo-locked.
+    p.is_repolocked = dict_str(dict, "repolock").as_deref() == Some("yes");
 
     let hold = dict_str(dict, "hold");
     if hold.as_deref() == Some("yes") {
@@ -1105,6 +1110,12 @@ fn get_extra_info(
         let mut download_size: u64 = 0;
         xbps_sys::xbps_dictionary_get_uint64(d, cstr("filename-size").as_ptr(), &mut download_size);
 
+        let provides = read_string_array(d, "provides");
+        let conflicts = read_string_array(d, "conflicts");
+        let replaces = read_string_array(d, "replaces");
+        let shlib_requires = read_string_array(d, "shlib-requires");
+        let shlib_provides = read_string_array(d, "shlib-provides");
+
         Some(PackageExtraInfo {
             homepage,
             license,
@@ -1113,6 +1124,11 @@ fn get_extra_info(
             automatic_install,
             has_automatic_install,
             download_size,
+            provides,
+            conflicts,
+            replaces,
+            shlib_requires,
+            shlib_provides,
         })
     }
 }
