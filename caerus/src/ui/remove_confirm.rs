@@ -35,22 +35,38 @@ pub fn confirm_remove_impact(
     pkgname: &str,
     cb: impl Fn(bool) + 'static,
 ) {
-    // Transitive: `(affected_pkgname, direct_parent_that_pulled_it_in)`.
-    // A name reached only through an intermediate package (parent !=
-    // `pkgname` itself) gets annotated "(via parent)" below so the
-    // dialog shows *why* it would break, not just that it would.
-    let affected: Vec<(String, String)> = store
-        .get_rdeps_transitive(pkgname)
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|(name, _)| name != pkgname && still_installed_afterward(store, name))
-        .collect();
+    // The reverse-dependency walk runs on the xbps worker thread; the
+    // dialog (or the fast-path `cb(true)`) follows once it reports back,
+    // keeping the main loop responsive even if the worker is mid-reload.
+    let parent = parent.cloned();
+    let store2 = store.clone();
+    let pkgname = pkgname.to_string();
+    store.get_rdeps_transitive_async(&pkgname.clone(), move |rdeps| {
+        // Transitive: `(affected_pkgname, direct_parent_that_pulled_it_in)`.
+        // A name reached only through an intermediate package (parent !=
+        // `pkgname` itself) gets annotated "(via parent)" below so the
+        // dialog shows *why* it would break, not just that it would.
+        let affected: Vec<(String, String)> = rdeps
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(name, _)| name != &pkgname && still_installed_afterward(&store2, name))
+            .collect();
 
-    if affected.is_empty() {
-        // The common case — don't interrupt removing a leaf package.
-        cb(true);
-        return;
-    }
+        if affected.is_empty() {
+            // The common case — don't interrupt removing a leaf package.
+            cb(true);
+            return;
+        }
+        show_impact_dialog(parent.as_ref(), &pkgname, affected, cb);
+    });
+}
+
+fn show_impact_dialog(
+    parent: Option<&gtk::Window>,
+    pkgname: &str,
+    affected: Vec<(String, String)>,
+    cb: impl Fn(bool) + 'static,
+) {
     let n = affected.len();
     let cb: Rc<dyn Fn(bool)> = Rc::new(cb);
 

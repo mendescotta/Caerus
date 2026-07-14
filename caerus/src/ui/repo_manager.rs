@@ -83,9 +83,18 @@ fn confirm_add_repo(parent: Option<&gtk::Window>, url: &str, cb: impl Fn(bool) +
 const MANAGED_REPO_CONF: &str = "/etc/xbps.d/90-caerus.conf";
 
 /// (url, removable-by-us), deduplicated, sorted by URL.
+///
+/// Mirrors xbps.d(5)'s override rule: a file in `/etc/xbps.d` *replaces*
+/// the `/usr/share/xbps.d` file of the same name entirely — so a
+/// same-named vendor file's repositories must not be listed when an
+/// `/etc` override exists (the override may exist precisely to disable
+/// them).
 fn scan_configured_repos() -> Vec<(String, bool)> {
     let mut map: std::collections::BTreeMap<String, bool> = std::collections::BTreeMap::new();
+    let mut etc_names: std::collections::HashSet<std::ffi::OsString> =
+        std::collections::HashSet::new();
     for dir in ["/etc/xbps.d", "/usr/share/xbps.d"] {
+        let is_etc = dir == "/etc/xbps.d";
         let Ok(entries) = std::fs::read_dir(dir) else {
             continue;
         };
@@ -96,6 +105,13 @@ fn scan_configured_repos() -> Vec<(String, bool)> {
             .collect();
         paths.sort();
         for path in paths {
+            if let Some(name) = path.file_name() {
+                if is_etc {
+                    etc_names.insert(name.to_os_string());
+                } else if etc_names.contains(name) {
+                    continue; // overridden by the /etc/xbps.d file above
+                }
+            }
             let Ok(contents) = std::fs::read_to_string(&path) else {
                 continue;
             };

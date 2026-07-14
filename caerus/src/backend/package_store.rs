@@ -433,61 +433,94 @@ impl PackageStore {
         }
     }
 
-    // ── Synchronous per-package detail queries ──────────────────────
+    // ── Asynchronous per-package detail queries ─────────────────────
+    //
+    // These used to block the calling (GTK main) thread on `rx.recv()`.
+    // That was fine for an idle worker, but every query goes down the
+    // same strictly-sequential channel as `Cmd::Reload` — so a click
+    // that landed while a reload was in flight would freeze the whole
+    // UI until the rescan finished. Each query instead polls its reply
+    // channel from a main-loop timeout and hands the result to a
+    // callback, keeping the main loop responsive no matter what the
+    // worker is busy with.
 
-    pub fn get_deps(&self, pkgname: &str) -> Option<Vec<String>> {
+    /// Sends `cmd` to the worker and polls for the reply on the GTK main
+    /// loop, invoking `on_reply` exactly once — with `None` if the worker
+    /// thread is gone (channel disconnected / send failed).
+    fn request<T: Send + 'static>(
+        &self,
+        make_cmd: impl FnOnce(mpsc::Sender<T>) -> Cmd,
+        on_reply: impl FnOnce(Option<T>) + 'static,
+    ) {
         let (tx, rx) = mpsc::channel();
-        self.inner
-            .cmd_tx
-            .send(Cmd::GetDeps(pkgname.to_string(), tx))
-            .ok()?;
-        rx.recv().unwrap_or(None)
+        if self.inner.cmd_tx.send(make_cmd(tx)).is_err() {
+            on_reply(None);
+            return;
+        }
+        let cb = Cell::new(Some(Box::new(on_reply) as Box<dyn FnOnce(Option<T>)>));
+        glib::source::timeout_add_local(Duration::from_millis(15), move || {
+            match rx.try_recv() {
+                Ok(v) => {
+                    if let Some(f) = cb.take() {
+                        f(Some(v));
+                    }
+                    glib::ControlFlow::Break
+                }
+                Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    if let Some(f) = cb.take() {
+                        f(None);
+                    }
+                    glib::ControlFlow::Break
+                }
+            }
+        });
     }
 
-    pub fn get_rdeps(&self, pkgname: &str) -> Option<Vec<String>> {
-        let (tx, rx) = mpsc::channel();
-        self.inner
-            .cmd_tx
-            .send(Cmd::GetRdeps(pkgname.to_string(), tx))
-            .ok()?;
-        rx.recv().unwrap_or(None)
+    pub fn get_deps_async(&self, pkgname: &str, f: impl FnOnce(Option<Vec<String>>) + 'static) {
+        let name = pkgname.to_string();
+        self.request(|tx| Cmd::GetDeps(name, tx), move |r| f(r.flatten()));
     }
 
-    pub fn get_files(&self, pkgname: &str) -> Option<Vec<String>> {
-        let (tx, rx) = mpsc::channel();
-        self.inner
-            .cmd_tx
-            .send(Cmd::GetFiles(pkgname.to_string(), tx))
-            .ok()?;
-        rx.recv().unwrap_or(None)
+    pub fn get_rdeps_async(&self, pkgname: &str, f: impl FnOnce(Option<Vec<String>>) + 'static) {
+        let name = pkgname.to_string();
+        self.request(|tx| Cmd::GetRdeps(name, tx), move |r| f(r.flatten()));
     }
 
-    pub fn get_extra_info(&self, pkgname: &str) -> Option<PackageExtraInfo> {
-        let (tx, rx) = mpsc::channel();
-        self.inner
-            .cmd_tx
-            .send(Cmd::GetExtraInfo(pkgname.to_string(), tx))
-            .ok()?;
-        rx.recv().unwrap_or(None)
+    pub fn get_files_async(&self, pkgname: &str, f: impl FnOnce(Option<Vec<String>>) + 'static) {
+        let name = pkgname.to_string();
+        self.request(|tx| Cmd::GetFiles(name, tx), move |r| f(r.flatten()));
+    }
+
+    pub fn get_extra_info_async(
+        &self,
+        pkgname: &str,
+        f: impl FnOnce(Option<PackageExtraInfo>) + 'static,
+    ) {
+        let name = pkgname.to_string();
+        self.request(|tx| Cmd::GetExtraInfo(name, tx), move |r| f(r.flatten()));
     }
 
     /// Resolves `pkgname`'s full `run_depends` closure (transitive,
-    /// cycle-safe) and returns the subset not currently installed.
+    /// cycle-safe) and reports the subset not currently installed.
     /// Builds a name -> `PkgState` snapshot from the live list first (so
     /// the worker thread never needs to touch GTK objects), then hands
     /// the whole recursive resolution to the worker in one message.
-    pub fn get_missing_deps(&self, pkgname: &str) -> Option<Vec<String>> {
+    pub fn get_missing_deps_async(
+        &self,
+        pkgname: &str,
+        f: impl FnOnce(Option<Vec<String>>) + 'static,
+    ) {
         let mut snapshot = HashMap::new();
         self.for_each(|o| {
             let p = o.pkg();
             snapshot.insert(p.name.clone(), p.state);
         });
-        let (tx, rx) = mpsc::channel();
-        self.inner
-            .cmd_tx
-            .send(Cmd::GetMissingDeps(pkgname.to_string(), snapshot, tx))
-            .ok()?;
-        rx.recv().unwrap_or(None)
+        let name = pkgname.to_string();
+        self.request(
+            |tx| Cmd::GetMissingDeps(name, snapshot, tx),
+            move |r| f(r.flatten()),
+        );
     }
 
     /// Full transitive closure of `pkgname`'s reverse dependencies —
@@ -496,31 +529,56 @@ impl PackageStore {
     /// Each entry is `(affected_pkgname, direct_parent_that_pulled_it_in)`
     /// so the UI can show *why* a transitively-reached package is
     /// affected, not just that it is.
-    pub fn get_rdeps_transitive(&self, pkgname: &str) -> Option<Vec<(String, String)>> {
-        let (tx, rx) = mpsc::channel();
-        self.inner
-            .cmd_tx
-            .send(Cmd::GetRdepsTransitive(pkgname.to_string(), tx))
-            .ok()?;
-        rx.recv().unwrap_or(None)
+    pub fn get_rdeps_transitive_async(
+        &self,
+        pkgname: &str,
+        f: impl FnOnce(Option<Vec<(String, String)>>) + 'static,
+    ) {
+        let name = pkgname.to_string();
+        self.request(
+            |tx| Cmd::GetRdepsTransitive(name, tx),
+            move |r| f(r.flatten()),
+        );
     }
 
     /// Runs a real `libxbps` dry-run: `xbps_transaction_*` calls for each
     /// `op` followed by `xbps_transaction_prepare()`, reading back real
     /// sizes/ordering/conflicts from `xh.transd` — but never calling
-    /// `xbps_transaction_commit()`, so nothing on disk changes. Blocks
-    /// the calling thread briefly, same cost class as the other
-    /// synchronous detail queries above.
-    pub fn preview_transaction(
+    /// `xbps_transaction_commit()`, so nothing on disk changes. `f`
+    /// receives `None` only if the worker thread is unreachable.
+    pub fn preview_transaction_async(
         &self,
         ops: Vec<PreviewOp>,
-    ) -> Option<Result<TransactionPreview, TransactionError>> {
-        let (tx, rx) = mpsc::channel();
-        self.inner
-            .cmd_tx
-            .send(Cmd::PreviewTransaction(ops, tx))
-            .ok()?;
-        rx.recv().ok()
+        f: impl FnOnce(Option<Result<TransactionPreview, TransactionError>>) + 'static,
+    ) {
+        self.request(|tx| Cmd::PreviewTransaction(ops, tx), f);
+    }
+}
+
+/// Compares two xbps version strings with `libxbps`'s own comparator, so
+/// UI sorts agree with what xbps itself considers newer (plain string
+/// ordering gets e.g. "1.10" vs "1.9" backwards). `xbps_cmpver` is a
+/// pure function of its two string arguments — it takes no
+/// `xbps_handle` and touches no shared state — so calling it from the
+/// main thread doesn't violate the one-thread-owns-the-handle invariant
+/// documented at the top of this file.
+pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    let ca = cstr(a);
+    let cb = cstr(b);
+    unsafe { xbps_sys::xbps_cmpver(ca.as_ptr(), cb.as_ptr()) }.cmp(&0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_comparison_is_numeric_not_lexicographic() {
+        use std::cmp::Ordering;
+        assert_eq!(compare_versions("1.9_1", "1.10_1"), Ordering::Less);
+        assert_eq!(compare_versions("1.10_1", "1.9_1"), Ordering::Greater);
+        assert_eq!(compare_versions("2.0_1", "2.0_1"), Ordering::Equal);
+        assert_eq!(compare_versions("1.0_2", "1.0_10"), Ordering::Less);
     }
 }
 
@@ -807,9 +865,22 @@ unsafe extern "C" fn pkgdb_cb(
         p.repository = Some(repo);
     }
 
-    // Read before the hold early-return below so it's still picked up
-    // for a package that's simultaneously on hold and repo-locked.
+    // Read before the hold early-return below so they're still picked up
+    // for a package that's on hold: repolock, essential (otherwise a held
+    // essential package would lose its cannot-be-removed guard in the
+    // UI), and the pkgdb-recorded architecture.
     p.is_repolocked = dict_str(dict, "repolock").as_deref() == Some("yes");
+
+    let mut essential: bool = false;
+    xbps_sys::xbps_dictionary_get_bool(dict, cstr("essential").as_ptr(), &mut essential);
+    p.essential = essential;
+
+    // Same precedence rule as "repository" above: the pkgdb's own
+    // recorded architecture (what's actually installed) wins over
+    // whatever the currently-configured repo scan happened to set.
+    if let Some(arch) = dict_str(dict, "architecture") {
+        p.arch = Some(arch);
+    }
 
     let hold = dict_str(dict, "hold");
     if hold.as_deref() == Some("yes") {
@@ -832,17 +903,6 @@ unsafe extern "C" fn pkgdb_cb(
         }
     } else {
         p.state = PkgState::Installed;
-    }
-
-    let mut essential: bool = false;
-    xbps_sys::xbps_dictionary_get_bool(dict, cstr("essential").as_ptr(), &mut essential);
-    p.essential = essential;
-
-    // Same precedence rule as "repository" above: the pkgdb's own
-    // recorded architecture (what's actually installed) wins over
-    // whatever the currently-configured repo scan happened to set.
-    if let Some(arch) = dict_str(dict, "architecture") {
-        p.arch = Some(arch);
     }
 
     0
@@ -1170,9 +1230,16 @@ fn process_deps_of(
         if visited.contains(&dep_name) {
             continue;
         }
+        // Anything but NotInstalled counts as present — including OnHold
+        // and Broken. Treating a held dependency as "missing" would list
+        // it in the deps-confirm dialog and mark it for Install, and the
+        // resulting `xbps-install <held-pkg>` would upgrade it, silently
+        // violating the user's hold (hold only shields against -Su).
+        // Same state set `remove_confirm::still_installed_afterward` and
+        // `count_installed` already use.
         let already_installed = matches!(
             by_name.get(&dep_name),
-            Some(PkgState::Installed | PkgState::Upgradable)
+            Some(PkgState::Installed | PkgState::Upgradable | PkgState::OnHold | PkgState::Broken)
         );
         visited.insert(dep_name.clone());
         if !already_installed {

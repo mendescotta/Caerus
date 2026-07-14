@@ -277,7 +277,19 @@ fn main() {
         }
 
         if line == "UPGRADE" {
-            let code = run_xbps(&["xbps-install", "-y", "-Su"]);
+            let mut code = run_xbps(&["xbps-install", "-y", "-Su"]);
+            // When the `xbps` package itself has an update pending,
+            // `xbps-install -Su` deliberately updates only xbps and
+            // exits EBUSY (16), expecting to be re-run for the rest of
+            // the system — see xbps-install(1). A CLI user re-runs it by
+            // hand; do that one re-run here instead of surfacing a
+            // baffling "upgrade failed" for documented behavior.
+            const EBUSY: i32 = 16;
+            if code == Some(EBUSY) {
+                println!("LOG xbps updated itself; re-running the system upgrade\u{2026}");
+                let _ = io::stdout().flush();
+                code = run_xbps(&["xbps-install", "-y", "-Su"]);
+            }
             respond_ok_or(code == Some(0), "upgrade failed");
             continue;
         }

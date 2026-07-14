@@ -4,6 +4,77 @@ All notable changes to Caerus are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); dates are release dates,
 not commit dates.
 
+## [0.4.1] - 2026-07-14
+
+Fresh-perspective audit pass: five correctness fixes, a responsiveness
+rework, and a UI/UX consistency sweep.
+
+### Fixed
+- **Held essential packages keep their removal guard.** The pkgdb scan
+  returned early for on-hold packages before reading the `essential`
+  flag (and the recorded architecture), so a package that was both held
+  and essential could be marked for removal from the UI.
+- **Held dependencies are no longer treated as missing.** The
+  install-time dependency check only counted `Installed`/`Upgradable`
+  as present, so an on-hold dependency was listed as "additional
+  package required" and marked for Install — and the resulting
+  `xbps-install <pkg>` would have upgraded it, silently bypassing the
+  hold (which only shields against `-Su`).
+- **Version columns sort like xbps.** "Installed"/"Available" sorted
+  lexicographically ("1.10" before "1.9"); they now use libxbps's own
+  `xbps_cmpver`.
+- **Launching Caerus while it's already running presents the existing
+  window** instead of opening a duplicate window (with its own second
+  worker thread and pkexec session) in the same process.
+- **Full System Upgrade handles xbps updating itself.** When `xbps`
+  itself has a pending update, `xbps-install -Su` updates only xbps and
+  exits expecting a re-run; the helper now performs that re-run
+  automatically instead of reporting a baffling failure.
+- The adwaita build no longer sets `gtk-application-prefer-dark-theme`
+  (unsupported under libadwaita, warned at runtime); it follows the
+  system dark/light preference via `AdwStyleManager` instead.
+- The repositories dialog now honors xbps.d(5) override semantics: a
+  file in `/etc/xbps.d` shadows the same-named file in
+  `/usr/share/xbps.d`, so repos disabled that way are no longer listed.
+
+### Changed
+- **The UI can no longer freeze on a busy backend.** Every xbps worker
+  query (detail-pane info/deps/reverse-deps/files, both confirmation
+  dialogs' checks, and the Apply/Full-Upgrade dry-run previews) is now
+  asynchronous. Previously they blocked the main loop, and one landing
+  behind an in-flight reload froze the whole window until the rescan
+  finished. Stale replies are discarded when the selection has moved on.
+- The status bar shows visible-row counts ("N shown — …") whenever
+  anything narrows the list — sidebar preset or repository filter, not
+  just search text — so the numbers always describe what's on screen.
+- **Remove Orphaned Packages asks first**, listing the packages it
+  would remove (menu entry gained the "…" it deserved); Reconfigure All
+  Packages also confirms before force-rerunning every install script.
+  "Verify Package Database" lost its misleading ellipsis. Menu
+  convention now: "…" means a dialog opens before anything runs.
+- The detail pane's Repository row uses the same custom repository
+  display names as the sidebar (set via right-click → rename).
+- Transaction History records local wall-clock time instead of UTC
+  (old UTC entries still display as recorded).
+- The Delete key now acts on the whole selection: one row keeps the
+  usual reverse-dependency confirmation; a multi-row selection applies
+  a bulk Remove mark, matching the context menu's bulk action.
+- Apply-dialog polish: the progress bar's overlay text always shows a
+  known percentage (it previously vanished until the first per-package
+  status line), and the Details log is styled for scanning — errors in
+  red, per-package completions in green, phase banners bold, protocol
+  chatter dimmed.
+- The pre-Apply summary's heading counts everything the transaction
+  will actually touch (marked packages plus dependencies pulled in by
+  the dry-run), matching the list below it.
+- Dependencies/Reverse-Dependencies placeholders now distinguish "no
+  selection", "loading", and "none" instead of always claiming "Select
+  a package".
+- "Mark All Upgrades" applies its marks in a single pass instead of one
+  full-list scan per package.
+- On the plain-GTK4 build, transient status-bar messages self-dismiss
+  after a few seconds instead of persisting until the next reload.
+
 ## [0.4.0] - 2026-07-14
 
 ### Added

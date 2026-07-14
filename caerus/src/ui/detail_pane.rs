@@ -64,6 +64,11 @@ struct Inner {
     labels: Labels,
     deps_list: gtk::ListBox,
     rdeps_list: gtk::ListBox,
+    /// The two lists' placeholder labels, retargeted per state: "Select
+    /// a package" with no selection, "Loading…" while the async fetch is
+    /// in flight, "No (reverse) dependencies" once an empty reply lands.
+    deps_placeholder: gtk::Label,
+    rdeps_placeholder: gtk::Label,
     files_expander: gtk::Expander,
     files_list: gtk::ListBox,
     provides_list: gtk::ListBox,
@@ -354,7 +359,7 @@ impl DetailPane {
         rdeps_scroll.set_vexpand(true);
         let rdeps_list = gtk::ListBox::new();
         rdeps_list.set_selection_mode(gtk::SelectionMode::None);
-        let rdeps_ph = gtk::Label::new(Some("No reverse dependencies"));
+        let rdeps_ph = gtk::Label::new(Some("Select a package"));
         rdeps_ph.add_css_class("dim-label");
         rdeps_ph.set_margin_top(12);
         rdeps_list.set_placeholder(Some(&rdeps_ph));
@@ -402,6 +407,8 @@ impl DetailPane {
             },
             deps_list,
             rdeps_list,
+            deps_placeholder: deps_ph,
+            rdeps_placeholder: rdeps_ph,
             files_expander,
             files_list,
             provides_list,
@@ -848,7 +855,17 @@ fn wire_files_expander(inner: &Rc<Inner>) {
         let Some(name) = inner.current_pkgname.borrow().clone() else {
             return;
         };
-        populate_files(&inner.files_list, inner.store.get_files(&name));
+        let inner2 = inner.clone();
+        let name_for_call = name.clone();
+        inner.store.get_files_async(&name_for_call, move |files| {
+            // The selection may have moved on (or the expander collapsed,
+            // which show_package_impl does on every new selection) while
+            // the worker was busy — a stale reply must not overwrite the
+            // now-current package's (empty) list.
+            if inner2.current_pkgname.borrow().as_deref() == Some(name.as_str()) {
+                populate_files(&inner2.files_list, files);
+            }
+        });
     });
 }
 
@@ -932,6 +949,8 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
         l.repository.set_text(DASH);
         l.install_date.set_text(DASH);
         l.auto_install.set_text(DASH);
+        inner.deps_placeholder.set_text("Select a package");
+        inner.rdeps_placeholder.set_text("Select a package");
         populate(&inner.deps_list, None);
         populate(&inner.rdeps_list, None);
         populate_provides_conflicts(inner, None);
@@ -975,22 +994,11 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
     l.installed_size
         .set_text(&crate::backend::package::pkg_format_size(pkg.install_size));
 
-    let mut dsz = if pkg.download_size > 0 {
+    let dsz = if pkg.download_size > 0 {
         Some(crate::backend::package::pkg_format_size(pkg.download_size))
     } else {
         None
     };
-
-    // ── Maintainer & Source (and a possibly more accurate download size) ──
-    let extra = inner.store.get_extra_info(&pkg.name);
-
-    if let Some(extra) = &extra {
-        if extra.download_size > 0 {
-            dsz = Some(crate::backend::package::pkg_format_size(
-                extra.download_size,
-            ));
-        }
-    }
     l.download_size.set_text(dsz.as_deref().unwrap_or(DASH));
 
     l.maintainer.set_text(if pkg.maintainer.is_empty() {
@@ -999,57 +1007,131 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
         &pkg.maintainer
     });
 
-    set_homepage_value(
-        &l.homepage_box,
-        extra.as_ref().and_then(|e| e.homepage.as_deref()),
-    );
+    // ── Maintainer & Source: provisional placeholders now, real values
+    // once the async extra-info lookup lands. Would flicker if the
+    // worker were slow, but these queries are fast whenever the worker
+    // isn't mid-reload — and when it *is*, this is exactly what keeps
+    // the whole UI from freezing until the rescan finishes.
+    set_homepage_value(&l.homepage_box, None);
+    l.license.set_text(DASH);
+    l.repository.set_text(DASH);
+    l.install_date.set_text(DASH);
+    l.auto_install.set_text(DASH);
+    inner.btn_mark_manual.set_visible(false);
+    inner.btn_mark_auto.set_visible(false);
+    populate_provides_conflicts(inner, None);
 
-    l.license.set_text(
-        extra
-            .as_ref()
-            .and_then(|e| e.license.as_deref())
-            .unwrap_or(DASH),
-    );
-    l.repository.set_text(
-        extra
-            .as_ref()
-            .and_then(|e| e.repository.as_deref())
-            .map_or(DASH, crate::backend::repo_names::display_repo),
-    );
-    l.install_date.set_text(
-        extra
-            .as_ref()
-            .and_then(|e| e.install_date.as_deref())
-            .unwrap_or(DASH),
-    );
+    {
+        let inner = inner.clone();
+        let name = pkg.name.clone();
+        inner.store.clone().get_extra_info_async(&pkg.name, move |extra| {
+            // Stale-reply guard: the user may have selected another
+            // package while this was queued behind other worker commands.
+            if inner.current_pkgname.borrow().as_deref() != Some(name.as_str()) {
+                return;
+            }
+            let l = &inner.labels;
 
-    if let Some(extra) = &extra {
-        if extra.has_automatic_install {
-            l.auto_install
-                .set_text(if extra.automatic_install { "Yes" } else { "No" });
-        } else {
-            l.auto_install.set_text(DASH);
-        }
-    } else {
-        l.auto_install.set_text(DASH);
+            if let Some(extra) = &extra {
+                if extra.download_size > 0 {
+                    l.download_size
+                        .set_text(&crate::backend::package::pkg_format_size(
+                            extra.download_size,
+                        ));
+                }
+            }
+
+            set_homepage_value(
+                &l.homepage_box,
+                extra.as_ref().and_then(|e| e.homepage.as_deref()),
+            );
+            l.license.set_text(
+                extra
+                    .as_ref()
+                    .and_then(|e| e.license.as_deref())
+                    .unwrap_or(DASH),
+            );
+            // Honor the user's custom repository display name (set via
+            // right-click in the filter sidebar) — the sidebar and this
+            // row otherwise showed two different names for the same repo.
+            // Re-loaded per lookup so a rename done mid-session shows up
+            // on the next selection; the file is a handful of lines.
+            let repo_names = crate::backend::repo_names::RepoNames::load();
+            l.repository.set_text(
+                extra
+                    .as_ref()
+                    .and_then(|e| e.repository.as_deref())
+                    .map_or(DASH.to_string(), |url| {
+                        repo_names.get(url).map_or_else(
+                            || crate::backend::repo_names::display_repo(url).to_string(),
+                            str::to_string,
+                        )
+                    })
+                    .as_str(),
+            );
+            l.install_date.set_text(
+                extra
+                    .as_ref()
+                    .and_then(|e| e.install_date.as_deref())
+                    .unwrap_or(DASH),
+            );
+
+            if let Some(extra) = &extra {
+                if extra.has_automatic_install {
+                    l.auto_install
+                        .set_text(if extra.automatic_install { "Yes" } else { "No" });
+                } else {
+                    l.auto_install.set_text(DASH);
+                }
+            } else {
+                l.auto_install.set_text(DASH);
+            }
+
+            // Manual/automatic marking only makes sense for a real
+            // installed pkgdb entry (`has_automatic_install`) — a
+            // not-yet-installed package (or one whose extra info failed
+            // to load) gets neither.
+            let auto_flag = extra.as_ref().filter(|e| e.has_automatic_install);
+            inner
+                .btn_mark_manual
+                .set_visible(auto_flag.is_some_and(|e| e.automatic_install));
+            inner
+                .btn_mark_auto
+                .set_visible(auto_flag.is_some_and(|e| !e.automatic_install));
+
+            populate_provides_conflicts(&inner, extra.as_ref());
+        });
     }
 
-    // Manual/automatic marking only makes sense for a real installed
-    // pkgdb entry (`has_automatic_install`) — a not-yet-installed
-    // package (or one whose extra info failed to load) gets neither.
-    let auto_flag = extra.as_ref().filter(|e| e.has_automatic_install);
-    inner
-        .btn_mark_manual
-        .set_visible(auto_flag.is_some_and(|e| e.automatic_install));
-    inner
-        .btn_mark_auto
-        .set_visible(auto_flag.is_some_and(|e| !e.automatic_install));
-
-    populate_provides_conflicts(inner, extra.as_ref());
-
     // ── Dependency column ──
-    populate(&inner.deps_list, inner.store.get_deps(&pkg.name));
-    populate(&inner.rdeps_list, inner.store.get_rdeps(&pkg.name));
+    inner.deps_placeholder.set_text("Loading\u{2026}");
+    inner.rdeps_placeholder.set_text("Loading\u{2026}");
+    populate(&inner.deps_list, None);
+    populate(&inner.rdeps_list, None);
+    {
+        let inner2 = inner.clone();
+        let name = pkg.name.clone();
+        inner.store.get_deps_async(&pkg.name, move |deps| {
+            if inner2.current_pkgname.borrow().as_deref() == Some(name.as_str()) {
+                if deps.is_none() {
+                    inner2.deps_placeholder.set_text("No dependencies");
+                }
+                populate(&inner2.deps_list, deps);
+            }
+        });
+    }
+    {
+        let inner2 = inner.clone();
+        let name = pkg.name.clone();
+        inner.store.get_rdeps_async(&pkg.name, move |rdeps| {
+            if inner2.current_pkgname.borrow().as_deref() == Some(name.as_str()) {
+                if rdeps.is_none() {
+                    inner2.rdeps_placeholder.set_text("No reverse dependencies");
+                }
+                populate(&inner2.rdeps_list, rdeps);
+            }
+        });
+    }
 
     update_action_buttons(inner, Some(pkg));
 }
