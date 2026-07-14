@@ -4,6 +4,22 @@ All notable changes to Caerus are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); dates are release dates,
 not commit dates.
 
+## [0.3.1] - 2026-07-14
+
+### Fixed
+- The Apply/maintenance progress bar's embedded percentage text was
+  actually rendering as a separate label *above* the bar rather than
+  overlaid inside it — `GtkProgressBar`'s own `show-text`/`text`
+  property lays that label out as a sibling of the trough, not on top
+  of it, contrary to the previous fix's assumption. It's now a real
+  `GtkOverlay` with a centered label stacked on top of the bar.
+- After a batch finished, the overlay text could be left showing a
+  stale percentage (e.g. "21%") even though the bar itself was full and
+  the dialog said "Finished successfully." — the last percentage tick
+  seen is rarely actually 100 (a package's final log lines often carry
+  no percentage at all). It's now cleared/updated to just the package
+  count on finish, not a stale in-flight percentage.
+
 ## [0.3.0] - 2026-07-14
 
 ### Added
