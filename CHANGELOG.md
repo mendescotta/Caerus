@@ -15,10 +15,13 @@ not commit dates.
   binary to trust.
 - **Optional `adwaita` Cargo feature** (`--features caerus/adwaita`,
   needs `libadwaita-devel`): a build-time choice, not runtime detection,
-  that swaps in libadwaita widgets where available. First one: the About
-  window now uses `AdwAboutWindow`'s proper GNOME-standard chrome instead
-  of plain `GtkAboutDialog`. CI now builds and lints both configurations
-  so this doesn't silently bit-rot.
+  that swaps in libadwaita widgets where available: the About window
+  now uses `AdwAboutWindow`'s proper GNOME-standard chrome instead of
+  plain `GtkAboutDialog`, and transient notifications (sync failed,
+  changes applied, a batch finished, ...) show as an auto-dismissing
+  `AdwToast` instead of overwriting the status bar's persistent package
+  count. CI now builds and lints both configurations so this doesn't
+  silently bit-rot.
 
 ### Changed
 - "Sync Repositories at Launch" now defaults to **off**. A fresh install
