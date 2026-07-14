@@ -364,7 +364,8 @@ progressbar.apply-progress trough progress {
   min-height: 22px; }
 .apply-progress-text {
   font-size: 0.8em; font-weight: bold; color: white;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.7); }",
+  text-shadow: 0 0 2px rgba(0,0,0,0.9), 0 1px 2px rgba(0,0,0,0.8),
+               0 -1px 2px rgba(0,0,0,0.8); }",
     );
     gtk::style_context_add_provider_for_display(
         &gtk::prelude::WidgetExt::display(window),
@@ -499,7 +500,10 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuB
          (and without touching) anything currently marked. For queuing upgrades alongside \
          other pending changes instead, use Mark All Upgrades + Apply.",
     ));
-    let remove_orphans = flat_menu_button("Remove Orphaned Packages");
+    // "…" marks entries that open a further dialog (confirmation or
+    // otherwise) before anything runs; entries without it act
+    // immediately (progress dialog only).
+    let remove_orphans = flat_menu_button("Remove Orphaned Packages\u{2026}");
     remove_orphans.set_tooltip_text(Some(
         "xbps-remove -o — drop packages nothing else depends on anymore",
     ));
@@ -507,7 +511,7 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuB
     clean_cache.set_tooltip_text(Some(
         "xbps-remove -O — delete cached package files superseded by a newer version",
     ));
-    let verify_db = flat_menu_button("Verify Package Database\u{2026}");
+    let verify_db = flat_menu_button("Verify Package Database");
     verify_db.set_tooltip_text(Some(
         "xbps-pkgdb -a --checks files,dependencies,alternatives,pkgdb",
     ));
@@ -732,7 +736,7 @@ fn show_shortcuts_dialog(parent: &gtk::ApplicationWindow) {
         ("Ctrl+F", "Focus search"),
         ("Escape", "Clear search, or close the current dialog"),
         ("F5", "Reload package list"),
-        ("Delete", "Mark selected package for removal"),
+        ("Delete", "Mark selected package(s) for removal"),
         (
             "Ctrl+A",
             "Select all visible packages (for right-click bulk actions)",
@@ -803,16 +807,14 @@ fn wire_keyboard_shortcuts(state: &Rc<WindowState>) {
             // query with Delete/Backspace could simultaneously mark
             // the currently-selected row for removal.
             gtk::gdk::Key::Delete if !state.search_entry.has_focus() => {
-                if let Some(pkg) = state.selected_pkg.borrow().clone() {
-                    // Goes through the same reverse-dependency confirmation
-                    // and "not already marked" guard every other removal
-                    // path uses (checkbox, context menu, detail pane,
-                    // double-click) — status bar/detail pane refresh
-                    // happens via the usual marks-changed callback once
-                    // (or if) the mark is actually applied, not here.
-                    let root = state.window.clone().upcast::<gtk::Window>();
-                    state.pkg_list.request_remove(Some(root), &pkg);
-                }
+                // Acts on the whole selection: a single row goes through
+                // the same reverse-dependency confirmation every other
+                // removal path uses; a Ctrl+A/multi-row selection applies
+                // a bulk Remove mark, same as the context menu's bulk
+                // action (previously Delete silently did nothing with
+                // more than one row selected).
+                let root = state.window.clone().upcast::<gtk::Window>();
+                state.pkg_list.delete_selected(Some(root));
                 glib::Propagation::Stop
             }
             _ => glib::Propagation::Proceed,
@@ -997,7 +999,7 @@ fn wire_up(state: &Rc<WindowState>) {
         let btn = state.menu_buttons.remove_orphans.clone();
         let state = state.clone();
         btn.connect_clicked(move |_| {
-            run_maintenance_command(&state, "ORPHANS", "Removing Orphaned Packages");
+            on_remove_orphans_clicked(&state);
         });
     }
     {
@@ -1018,7 +1020,7 @@ fn wire_up(state: &Rc<WindowState>) {
         let btn = state.menu_buttons.reconfigure_all.clone();
         let state = state.clone();
         btn.connect_clicked(move |_| {
-            run_maintenance_command(&state, "RECONFIGURE_ALL", "Reconfiguring All Packages");
+            on_reconfigure_all_clicked(&state);
         });
     }
     {
@@ -1114,6 +1116,10 @@ fn wire_up(state: &Rc<WindowState>) {
         let btn_mark_upgrades = state.btn_mark_upgrades.clone();
         let state = state.clone();
         btn_mark_upgrades.connect_clicked(move |_| {
+            // Collected first, then applied in one `set_marks` pass —
+            // per-name `set_mark` calls would each rescan the whole
+            // list (O(n·m) on a big repo set).
+            let mut names = std::collections::HashSet::new();
             let n = state.store.list().n_items();
             for i in 0..n {
                 if let Some(obj) = state.store.list().item(i) {
@@ -1122,12 +1128,11 @@ fn wire_up(state: &Rc<WindowState>) {
                         .unwrap();
                     let p = obj.pkg();
                     if p.state == PkgState::Upgradable && p.mark == PkgMark::None {
-                        let name = p.name.clone();
-                        drop(p);
-                        state.store.set_mark(&name, PkgMark::Upgrade);
+                        names.insert(p.name.clone());
                     }
                 }
             }
+            state.store.set_marks(&names, PkgMark::Upgrade);
             update_status_bar(&state);
         });
     }
@@ -1330,42 +1335,49 @@ fn on_apply_clicked(state: &Rc<WindowState>) {
         .chain(removes.iter().map(|n| PreviewOp::Remove(n.clone())))
         .chain(purges.iter().map(|n| PreviewOp::Purge(n.clone())))
         .collect();
-    let preview = state.store.preview_transaction(ops);
 
+    // The libxbps dry-run happens on the worker thread; the confirm
+    // dialog opens once it reports back, so a click on Apply never
+    // freezes the main loop (previously this blocked on the worker,
+    // which could be seconds if a reload was queued ahead of it).
     let state2 = state.clone();
-    apply_confirm::confirm(
-        Some(state.window.upcast_ref()),
-        &installs,
-        &upgrades,
-        &removes,
-        &purges,
-        preview,
-        move |confirmed| {
-            if !confirmed {
-                return;
-            }
-            let state3 = state2.clone();
-            let commands_for_history = commands.clone();
-            let commands_for_retry = commands.clone();
-            apply_dialog::run(
-                Some(state2.window.upcast_ref()),
-                &state2.session,
-                &commands,
-                "Applying Changes",
-                move |success| {
-                    crate::backend::history::record(&commands_for_history, success);
-                    if success {
-                        show_toast(&state3, "Changes applied. Reloading\u{2026}");
-                        state3.store.clear_all_marks();
-                        do_reload(&state3);
-                    } else {
-                        show_toast(&state3, "Some changes failed — see log.");
-                        offer_force_retry(&state3, commands_for_retry.clone());
-                    }
-                },
-            );
-        },
-    );
+    state.store.preview_transaction_async(ops, move |preview| {
+        let state = state2;
+        let state2 = state.clone();
+        apply_confirm::confirm(
+            Some(state.window.upcast_ref()),
+            &installs,
+            &upgrades,
+            &removes,
+            &purges,
+            preview,
+            move |confirmed| {
+                if !confirmed {
+                    return;
+                }
+                let state3 = state2.clone();
+                let commands_for_history = commands.clone();
+                let commands_for_retry = commands.clone();
+                apply_dialog::run(
+                    Some(state2.window.upcast_ref()),
+                    &state2.session,
+                    &commands,
+                    "Applying Changes",
+                    move |success| {
+                        crate::backend::history::record(&commands_for_history, success);
+                        if success {
+                            show_toast(&state3, "Changes applied. Reloading\u{2026}");
+                            state3.store.clear_all_marks();
+                            do_reload(&state3);
+                        } else {
+                            show_toast(&state3, "Some changes failed — see log.");
+                            offer_force_retry(&state3, commands_for_retry.clone());
+                        }
+                    },
+                );
+            },
+        );
+    });
 }
 
 /// Hold/unhold is applied right away rather than queued as a pending
@@ -1407,22 +1419,153 @@ fn on_full_upgrade_clicked(state: &Rc<WindowState>) {
         .iter()
         .map(|n| PreviewOp::Update(n.clone()))
         .collect();
-    let preview = state.store.preview_transaction(ops);
 
+    // Async for the same reason as `on_apply_clicked`'s preview.
     let state2 = state.clone();
-    apply_confirm::confirm(
-        Some(state.window.upcast_ref()),
-        &[],
-        &upgrades,
-        &[],
-        &[],
-        preview,
-        move |confirmed| {
-            if confirmed {
-                run_maintenance_command(&state2, "UPGRADE", "Full System Upgrade");
+    state.store.preview_transaction_async(ops, move |preview| {
+        let state = state2;
+        let state2 = state.clone();
+        apply_confirm::confirm(
+            Some(state.window.upcast_ref()),
+            &[],
+            &upgrades,
+            &[],
+            &[],
+            preview,
+            move |confirmed| {
+                if confirmed {
+                    run_maintenance_command(&state2, "UPGRADE", "Full System Upgrade");
+                }
+            },
+        );
+    });
+}
+
+/// Confirms before `xbps-remove -o`: this removes packages, so it gets
+/// the same ask-first treatment as every other destructive path in the
+/// app (remove marks, purge, force retry). The list shown is the app's
+/// own `is_orphan` set from the last reload — the same set `xbps-remove
+/// -o` computes, barring changes made outside caerus since then.
+fn on_remove_orphans_clicked(state: &Rc<WindowState>) {
+    let mut orphans = Vec::new();
+    let n = state.store.list().n_items();
+    for i in 0..n {
+        if let Some(obj) = state.store.list().item(i) {
+            let obj = obj
+                .downcast::<crate::backend::package::PackageObject>()
+                .unwrap();
+            if obj.pkg().is_orphan {
+                orphans.push(obj.name());
             }
-        },
+        }
+    }
+    if orphans.is_empty() {
+        show_toast(state, "No orphaned packages to remove.");
+        return;
+    }
+    orphans.sort();
+
+    let (dlg, outer) = crate::ui::dialog_util::modal_window(
+        "Remove Orphaned Packages?",
+        Some(state.window.upcast_ref()),
+        true,
+        (420, -1),
+        10,
     );
+
+    let n = orphans.len();
+    let heading = gtk::Label::new(Some(&format!(
+        "This removes {} package{} that nothing else depends on anymore:",
+        n,
+        if n == 1 { "" } else { "s" },
+    )));
+    heading.set_xalign(0.0);
+    heading.set_wrap(true);
+    outer.append(&heading);
+
+    let scroll = gtk::ScrolledWindow::new();
+    scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    scroll.set_propagate_natural_height(true);
+    scroll.set_max_content_height(360);
+    scroll.set_vexpand(true);
+    let list = gtk::ListBox::new();
+    list.set_selection_mode(gtk::SelectionMode::None);
+    for name in &orphans {
+        list.append(&crate::ui::dialog_util::text_list_row(name, false));
+    }
+    scroll.set_child(Some(&list));
+    outer.append(&scroll);
+
+    let (btn_box, cancel_btn) = crate::ui::dialog_util::cancel_button_row(4);
+    let remove_btn = gtk::Button::with_label("Remove Orphans");
+    remove_btn.add_css_class("destructive-action");
+    btn_box.append(&remove_btn);
+    outer.append(&btn_box);
+
+    // Cancel is the safer default — same convention as `remove_confirm`.
+    dlg.set_default_widget(Some(&cancel_btn));
+
+    {
+        let dlg = dlg.clone();
+        cancel_btn.connect_clicked(move |_| dlg.destroy());
+    }
+    {
+        let state = state.clone();
+        let dlg = dlg.clone();
+        remove_btn.connect_clicked(move |_| {
+            dlg.destroy();
+            run_maintenance_command(&state, "ORPHANS", "Removing Orphaned Packages");
+        });
+    }
+
+    crate::ui::dialog_util::present_focused(&dlg, &cancel_btn);
+}
+
+/// Confirms before `xbps-reconfigure -fa`: not destructive, but it
+/// force-reruns every installed package's post-install script — a heavy,
+/// system-wide action worth a deliberate second click (and its menu
+/// entry carries the "…" that promises a dialog).
+fn on_reconfigure_all_clicked(state: &Rc<WindowState>) {
+    let (dlg, outer) = crate::ui::dialog_util::modal_window(
+        "Reconfigure All Packages?",
+        Some(state.window.upcast_ref()),
+        false,
+        (440, -1),
+        10,
+    );
+
+    let heading = gtk::Label::new(Some(
+        "This force-reruns the post-install configuration script of every \
+         installed package (xbps-reconfigure -fa). It's useful after an \
+         interrupted transaction or a libc upgrade, but can take a while \
+         on a large system.",
+    ));
+    heading.set_xalign(0.0);
+    heading.set_wrap(true);
+    outer.append(&heading);
+
+    let (btn_box, cancel_btn) = crate::ui::dialog_util::cancel_button_row(4);
+    let go_btn = gtk::Button::with_label("Reconfigure All");
+    go_btn.add_css_class("suggested-action");
+    btn_box.append(&go_btn);
+    outer.append(&btn_box);
+
+    dlg.set_default_widget(Some(&go_btn));
+
+    {
+        let dlg = dlg.clone();
+        cancel_btn.connect_clicked(move |_| dlg.destroy());
+    }
+    {
+        let state = state.clone();
+        let dlg = dlg.clone();
+        go_btn.connect_clicked(move |_| {
+            dlg.destroy();
+            run_maintenance_command(&state, "RECONFIGURE_ALL", "Reconfiguring All Packages");
+        });
+    }
+
+    crate::ui::dialog_util::present_focused(&dlg, &go_btn);
 }
 
 /// Runs a single privileged protocol command outside the normal
@@ -1572,6 +1715,16 @@ fn show_toast(state: &Rc<WindowState>, msg: &str) {
     #[cfg(not(feature = "adwaita"))]
     {
         state.status_label.set_text(msg);
+        // Approximate the AdwToast's self-dismissal: put the persistent
+        // package-count summary back after a few seconds, so a transient
+        // message ("helper disconnected", ...) can't sit in the status
+        // bar for the rest of the session. Overlapping toasts each arm
+        // their own restore; the last one wins, which is fine — they all
+        // restore the same summary.
+        let state = state.clone();
+        glib::source::timeout_add_local_once(std::time::Duration::from_secs(6), move || {
+            update_status_bar(&state);
+        });
     }
 }
 
@@ -1579,18 +1732,15 @@ fn update_status_bar(state: &Rc<WindowState>) {
     let upgradable = state.store.count_upgradable();
     let marked = state.store.count_marked();
 
-    if state.pkg_list.has_active_search() {
-        // While searching, the whole-database totals aren't what the
-        // user is looking at — show counts for the results actually on
-        // screen instead (installed vs. not, among matches).
+    if state.pkg_list.has_active_filters() {
+        // While any filter narrows the list (search text, a sidebar
+        // preset, or a repository), the whole-database totals aren't
+        // what the user is looking at — show counts for the rows
+        // actually on screen instead (installed vs. not, among them).
         let (total, installed, not_installed) = state.pkg_list.visible_counts();
         state.status_label.set_text(&format!(
-            "{} result{} — {} installed, {} not installed.  {} marked.",
-            total,
-            if total == 1 { "" } else { "s" },
-            installed,
-            not_installed,
-            marked
+            "{} shown — {} installed, {} not installed.  {} marked.",
+            total, installed, not_installed, marked
         ));
     } else {
         let total = state.store.list().n_items();

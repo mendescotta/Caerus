@@ -48,6 +48,11 @@ fn find_dev_icon_search_dir() -> Option<std::path::PathBuf> {
         .then_some(candidate)
 }
 
+/// Only used by the plain-GTK4 build — the adwaita build's
+/// `AdwStyleManager` (set to `PreferLight` in `main`) tracks the portal
+/// itself, and setting `gtk-application-prefer-dark-theme` alongside it
+/// is explicitly unsupported (libadwaita warns at runtime).
+///
 /// Plain GTK4 (unlike libadwaita) never reads the desktop's dark/light
 /// preference on its own outside of a Flatpak sandbox — `GtkSettings`'s
 /// `gtk-application-prefer-dark-theme` only follows `XSettings`/
@@ -60,6 +65,7 @@ fn find_dev_icon_search_dir() -> Option<std::path::PathBuf> {
 /// Silently does nothing if the portal isn't available (e.g. no
 /// `xdg-desktop-portal` running) — the app just falls back to whatever
 /// GTK would otherwise have picked.
+#[cfg(not(feature = "adwaita"))]
 fn sync_color_scheme_from_portal() {
     // The `Read` reply and `SettingChanged`'s `value` param are declared
     // as `variant` in the portal spec, but GNOME's implementation nests
@@ -137,7 +143,15 @@ fn main() -> glib::ExitCode {
     // GTK4 until then. Calling `adw::init()` up front instead makes the
     // whole app consistently adwaita-styled from the first frame.
     #[cfg(feature = "adwaita")]
-    adw::init().expect("libadwaita init failed");
+    {
+        adw::init().expect("libadwaita init failed");
+        // `PreferLight` = follow the system's dark/light preference
+        // (libadwaita tracks the settings portal itself, live); the
+        // default `ColorScheme::Default` would mean always-light. The
+        // plain-GTK4 build gets the same behavior from
+        // `sync_color_scheme_from_portal` below instead.
+        adw::StyleManager::default().set_color_scheme(adw::ColorScheme::PreferLight);
+    }
 
     let app = gtk::Application::new(Some(APP_ID), gio::ApplicationFlags::default());
 
@@ -157,10 +171,21 @@ fn main() -> glib::ExitCode {
             }
         }
         gtk::Window::set_default_icon_name(APP_ID);
+        #[cfg(not(feature = "adwaita"))]
         sync_color_scheme_from_portal();
     });
 
     app.connect_activate(|app| {
+        // GApplication is unique per application id: launching caerus
+        // while it's already running routes the second launch's
+        // "activate" to the existing process. Present the existing
+        // window instead of building a second one (which would mean two
+        // package stores, two xbps worker threads, and two pkexec helper
+        // sessions in one process).
+        if let Some(window) = app.active_window() {
+            window.present();
+            return;
+        }
         let window = ui::window::build_window(app);
         window.present();
     });

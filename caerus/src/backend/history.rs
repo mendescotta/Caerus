@@ -27,7 +27,7 @@ fn data_file_path() -> Option<PathBuf> {
     Some(data_home.join("caerus").join("history.log"))
 }
 
-/// Appends one tab-separated record: `RFC3339-timestamp\tjoined-commands\tOK|ERROR`.
+/// Appends one tab-separated record: `local-timestamp\tjoined-commands\tOK|ERROR`.
 /// `commands` are the raw protocol lines (e.g. `"INSTALL foo bar"`,
 /// `"REMOVE baz"`) that made up this batch — joined with " | " for
 /// display, since a single Apply can carry several.
@@ -41,7 +41,7 @@ pub fn record(commands: &[String], success: bool) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let timestamp = now_rfc3339();
+    let timestamp = now_local();
     let joined = commands.join(" | ").replace(['\t', '\n'], " ");
     let line = format!(
         "{}\t{}\t{}\n",
@@ -84,32 +84,16 @@ pub fn load() -> Vec<HistoryEntry> {
     out
 }
 
-/// No `chrono`/`time` dependency in this crate — a hand-rolled UTC
-/// RFC3339 timestamp from `SystemTime` is a handful of lines and this is
-/// the only place that needs one.
-fn now_rfc3339() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs();
-    let days = secs / 86400;
-    let rem = secs % 86400;
-    let (hour, min, sec) = (rem / 3600, (rem % 3600) / 60, rem % 60);
-
-    // Civil-from-days algorithm (Howard Hinnant's public-domain
-    // `civil_from_days`), converting a day count since the Unix epoch
-    // into a proleptic-Gregorian (year, month, day) — avoids pulling in
-    // a date/time crate for this one conversion.
-    let z = days as i64 + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = if month <= 2 { y + 1 } else { y };
-
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{min:02}:{sec:02}Z")
+/// Local wall-clock time, human-readable — this string is shown verbatim
+/// in the Transaction History dialog, and a UTC timestamp there (the
+/// previous behavior) read hours off from when the user actually did the
+/// thing. `glib` is already a dependency, so its `DateTime` replaces the
+/// hand-rolled civil-from-days conversion this module used to carry.
+/// Older history lines recorded in the previous `...Z` UTC format still
+/// parse and display fine — they're plain strings either way.
+fn now_local() -> String {
+    glib::DateTime::now_local()
+        .ok()
+        .and_then(|dt| dt.format("%Y-%m-%d %H:%M:%S").ok())
+        .map_or_else(|| "unknown-time".to_string(), |s| s.to_string())
 }

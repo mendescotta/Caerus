@@ -203,17 +203,34 @@ pub fn run(
         let last_pct = last_pct.clone();
         move || {
             let n = seen_count.get();
-            let text = match (total_pkgs > 1, last_pct.get()) {
-                (true, Some(p)) if n > 0 => {
-                    format!("Package {n} of {total_pkgs} — {p}%")
-                }
-                (true, _) if n > 0 => format!("Package {n} of {total_pkgs}"),
+            // A known percentage is always displayed — previously a
+            // multi-package batch whose first progress ticks arrived
+            // before any per-package status line (n still 0) showed
+            // nothing inside the bar despite having a live percentage.
+            let text = match (total_pkgs > 1 && n > 0, last_pct.get()) {
+                (true, Some(p)) => format!("Package {n} of {total_pkgs} — {p}%"),
+                (true, None) => format!("Package {n} of {total_pkgs}"),
                 (false, Some(p)) => format!("{p}%"),
-                _ => String::new(),
+                (false, None) => String::new(),
             };
             bar_text_label.set_text(&text);
         }
     };
+
+    // Styled log rendering: xbps's raw output is a wall of uniform
+    // monospace; a handful of `GtkTextTag`s make it scannable — errors
+    // red, per-package completions green, "[*]"-style phase banners
+    // bold, and protocol chatter (OK/READY/session notes) dimmed. The
+    // colors are from GNOME's palette midtones, picked to stay legible
+    // on both light and dark backgrounds.
+    let buf = text_view.buffer();
+    let tag_error = gtk::TextTag::builder().foreground("#ed333b").build();
+    let tag_success = gtk::TextTag::builder().foreground("#2ec27e").build();
+    let tag_banner = gtk::TextTag::builder().weight(700).build(); // Pango bold
+    let tag_dim = gtk::TextTag::builder().foreground("#88898f").build();
+    for tag in [&tag_error, &tag_success, &tag_banner, &tag_dim] {
+        buf.tag_table().add(tag);
+    }
 
     let append_log: Rc<dyn Fn(&str)> = {
         let text_view = text_view;
@@ -235,16 +252,36 @@ pub fn run(
                 return;
             }
             let clean = strip_log_decoration(line);
+            let (display, tag) = if line == "OK" {
+                ("\u{2713} Command completed".to_string(), Some(&tag_success))
+            } else if line == "READY" {
+                ("Privileged session ready.".to_string(), Some(&tag_dim))
+            } else if line.starts_with("ERROR") {
+                (clean.clone(), Some(&tag_error))
+            } else if line.contains("[*]") {
+                (clean.clone(), Some(&tag_banner))
+            } else if clean.ends_with("successfully.") {
+                (clean.clone(), Some(&tag_success))
+            } else if clean.starts_with('(') {
+                // This dialog's own annotations, e.g. "(privileged
+                // session ended)".
+                (clean.clone(), Some(&tag_dim))
+            } else {
+                (clean.clone(), None)
+            };
             let buf = text_view.buffer();
             let mut end = buf.end_iter();
-            buf.insert(&mut end, &clean);
+            match tag {
+                Some(tag) => buf.insert_with_tags(&mut end, &display, &[tag]),
+                None => buf.insert(&mut end, &display),
+            }
             buf.insert(&mut end, "\n");
             let mark = buf.get_insert();
             let end = buf.end_iter();
             buf.move_mark(&mark, &end);
             text_view.scroll_mark_onscreen(&mark);
 
-            if line != "OK" && !clean.is_empty() {
+            if line != "OK" && line != "READY" && !clean.is_empty() {
                 if total_pkgs > 1 {
                     if let Some(pkgver) = extract_pkgver(&clean) {
                         if *last_pkgver.borrow() != pkgver {

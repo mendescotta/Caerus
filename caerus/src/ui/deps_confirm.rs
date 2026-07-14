@@ -18,11 +18,29 @@ pub fn confirm_install_deps(
     pkgname: &str,
     cb: impl Fn(bool) + 'static,
 ) {
-    let Some(deps) = store.get_missing_deps(pkgname) else {
-        // Nothing missing — don't interrupt the common case.
-        cb(true);
-        return;
-    };
+    // The missing-deps resolution runs on the xbps worker thread; the
+    // dialog (or the fast-path `cb(true)`) follows once it reports back,
+    // keeping the main loop responsive even if the worker is mid-reload.
+    let parent = parent.cloned();
+    let store2 = store.clone();
+    let pkgname = pkgname.to_string();
+    store.get_missing_deps_async(&pkgname.clone(), move |deps| {
+        let Some(deps) = deps else {
+            // Nothing missing — don't interrupt the common case.
+            cb(true);
+            return;
+        };
+        show_deps_dialog(parent.as_ref(), &store2, &pkgname, deps, cb);
+    });
+}
+
+fn show_deps_dialog(
+    parent: Option<&gtk::Window>,
+    store: &PackageStore,
+    pkgname: &str,
+    deps: Vec<String>,
+    cb: impl Fn(bool) + 'static,
+) {
     let n = deps.len();
     let deps: Rc<Vec<String>> = Rc::new(deps);
     let cb: Rc<dyn Fn(bool)> = Rc::new(cb);

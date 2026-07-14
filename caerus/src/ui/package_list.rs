@@ -53,6 +53,18 @@ fn pkg_of(obj: &glib::Object) -> PackageObject {
     obj.clone().downcast::<PackageObject>().unwrap()
 }
 
+/// Version-column ordering: absent versions ("—" rows) first, then
+/// proper xbps version comparison (via `libxbps`'s own comparator) so
+/// "1.10" sorts after "1.9" instead of lexicographically before it.
+fn cmp_opt_version(a: Option<&str>, b: Option<&str>) -> CmpOrdering {
+    match (a, b) {
+        (None, None) => CmpOrdering::Equal,
+        (None, Some(_)) => CmpOrdering::Less,
+        (Some(_), None) => CmpOrdering::Greater,
+        (Some(x), Some(y)) => crate::backend::package_store::compare_versions(x, y),
+    }
+}
+
 /// Status rank: lower sorts first — broken, then marked-for-action,
 /// then upgradable, then on-hold, then plain installed, then
 /// not-installed last. Mirrors `pkg_sort_rank` in the original.
@@ -179,6 +191,27 @@ impl PackageList {
         }
     }
 
+    /// Delete-key entry point: acts on the current selection. A single
+    /// selected row goes through `request_remove`'s confirmation path;
+    /// a multi-row selection applies a bulk Remove mark to every
+    /// applicable package, exactly like the right-click context menu's
+    /// bulk action (and, like it, skips the per-package confirmation
+    /// chain — the pre-Apply review covers it).
+    pub fn delete_selected(&self, root: Option<gtk::Window>) {
+        let pkgs = {
+            let selection = self.inner.selection.borrow();
+            let Some(selection) = selection.as_ref() else {
+                return;
+            };
+            selected_packages(selection)
+        };
+        match pkgs.as_slice() {
+            [] => {}
+            [pkg] => self.request_remove(root, pkg),
+            _ => apply_bulk_mark(&self.inner.store, &self.inner, &pkgs, PkgMark::Remove),
+        }
+    }
+
     pub fn set_filter(&self, mode: FilterMode) {
         self.inner.current_filter.set(mode);
         self.inner
@@ -205,6 +238,17 @@ impl PackageList {
     }
     pub fn has_active_search(&self) -> bool {
         !self.inner.current_search.borrow().is_empty()
+    }
+
+    /// Whether anything at all narrows the visible list right now —
+    /// search text, a sidebar preset other than "All", or a repository
+    /// restriction. The status bar switches from whole-database totals
+    /// to visible-row counts whenever this holds, so the numbers always
+    /// describe what's actually on screen.
+    pub fn has_active_filters(&self) -> bool {
+        self.has_active_search()
+            || self.inner.current_filter.get() != FilterMode::All
+            || self.inner.current_repo_filter.borrow().is_some()
     }
 
     /// (total, installed, not-installed) among the currently *visible*
@@ -559,10 +603,7 @@ fn build(inner: Rc<Inner>) {
         }
     });
     set_column_sorter(&col_inst, |a, b| {
-        a.version_installed
-            .clone()
-            .unwrap_or_default()
-            .cmp(&b.version_installed.clone().unwrap_or_default())
+        cmp_opt_version(a.version_installed.as_deref(), b.version_installed.as_deref())
     });
     column_view.append_column(&col_inst);
 
@@ -581,10 +622,7 @@ fn build(inner: Rc<Inner>) {
         }
     });
     set_column_sorter(&col_avail, |a, b| {
-        a.version_available
-            .clone()
-            .unwrap_or_default()
-            .cmp(&b.version_available.clone().unwrap_or_default())
+        cmp_opt_version(a.version_available.as_deref(), b.version_available.as_deref())
     });
     column_view.append_column(&col_avail);
 
@@ -789,7 +827,7 @@ pub fn mark_applies_to(pkg: &Package, mark: PkgMark) -> bool {
 /// wording — "Mark for Installation" rather than "Mark 1 for
 /// Installation" — when there's exactly one, matching how this menu
 /// always read before multi-select existed).
-fn context_menu_items(pkgs: &[Package]) -> Vec<(String, PkgMark, bool)> {
+fn context_menu_items(pkgs: &[Package]) -> Vec<(String, PkgMark)> {
     let multi = pkgs.len() > 1;
     let mut items = Vec::new();
     for mark in [
@@ -815,7 +853,7 @@ fn context_menu_items(pkgs: &[Package]) -> Vec<(String, PkgMark, bool)> {
             (_, false) => "Unmark".to_string(),
             (_, true) => format!("Unmark {n}"),
         };
-        items.push((label, mark, true));
+        items.push((label, mark));
     }
     items
 }
@@ -888,13 +926,12 @@ fn show_context_menu(
 
     let root = widget.root().and_downcast::<gtk::Window>();
     let selected = Rc::new(selected);
-    for (label, mark, enabled) in items {
+    for (label, mark) in items {
         let btn = gtk::Button::with_label(&label);
         btn.set_has_frame(false);
         if let Some(l) = btn.child().and_downcast::<gtk::Label>() {
             l.set_xalign(0.0);
         }
-        btn.set_sensitive(enabled);
 
         let store = inner.store.clone();
         let inner = inner.clone();

@@ -1,15 +1,15 @@
 # Template file for 'caerus'
 #
-# There's no tagged release yet, so this follows the usual Void
-# "-git"-style pattern: do_fetch() clones the repo directly instead of
-# using distfiles/checksum. Push local commits to origin/main before
-# rebuilding with xbps-src, since do_fetch always pulls from GitHub, not
-# this working tree.
+# Follows the usual Void "-git"-style pattern: do_fetch() clones the
+# repo directly (tracking main) instead of using distfiles/checksum.
+# Push local commits to origin/main before rebuilding with xbps-src,
+# since do_fetch always pulls from GitHub, not this working tree.
+# `version` mirrors the latest tagged release main corresponds to.
 #
 # To use: copy or symlink this directory to <void-packages checkout>/srcpkgs/caerus,
 # then from inside that checkout: ./xbps-src pkg caerus
 pkgname=caerus
-version=0.2.0
+version=0.4.1
 revision=1
 build_style=cargo
 hostmakedepends="pkg-config clang git"

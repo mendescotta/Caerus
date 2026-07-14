@@ -152,7 +152,14 @@ pub fn confirm(
 ) {
     let (dlg, outer) = modal_window("Confirm Changes", parent, true, (480, -1), 4);
 
-    let total = installs.len() + upgrades.len() + removes.len() + purges.len();
+    // With a real preview, count what the transaction will actually
+    // touch (marked packages plus whatever dependencies libxbps pulled
+    // in) — otherwise the heading would say "3 packages" above a list
+    // visibly showing more.
+    let total = match &preview {
+        Some(Ok(p)) => p.items.len(),
+        _ => installs.len() + upgrades.len() + removes.len() + purges.len(),
+    };
     let heading = gtk::Label::new(Some(&format!(
         "About to apply changes to {} package{}:",
         total,
