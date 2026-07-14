@@ -35,6 +35,9 @@
 //!   ADDREPO url      — add a repository (persisted to a caerus-owned
 //!                      xbps.d conf file, never someone else's)
 //!   REMOVEREPO url   — remove a repository previously added by ADDREPO
+//!   VKPURGE v1 v2    — remove old kernel files/modules for the given
+//!                      version(s), via `vkpurge rm` (not an xbps tool —
+//!                      the standalone Void kernel-cleanup script)
 //!   QUIT             — exit
 //!
 //! Responses:
@@ -203,7 +206,21 @@ fn respond_ok_or(success: bool, err_msg: &str) {
 /// config or losing track of what caerus itself is responsible for.
 const MANAGED_REPO_CONF: &str = "/etc/xbps.d/90-caerus.conf";
 
+/// Rejects control characters before either repo function ever touches
+/// the conf file. The GUI's own repo-manager dialog and `Transaction::
+/// add_command`'s blanket check already keep these out of anything sent
+/// down this protocol today, but this is the one privileged component in
+/// the project — it shouldn't rely entirely on a well-behaved caller to
+/// keep an embedded newline from smuggling a second, unintended
+/// `repository=...` line into a file it writes as root.
+fn has_control_char(s: &str) -> bool {
+    s.chars().any(|c| c.is_control())
+}
+
 fn add_repo(url: &str) -> Result<(), String> {
+    if has_control_char(url) {
+        return Err("refusing to add a repository URL with control characters".to_string());
+    }
     let existing = std::fs::read_to_string(MANAGED_REPO_CONF).unwrap_or_default();
     let line = format!("repository={}", url);
     if existing.lines().any(|l| l == line) {
@@ -219,6 +236,9 @@ fn add_repo(url: &str) -> Result<(), String> {
 }
 
 fn remove_repo(url: &str) -> Result<(), String> {
+    if has_control_char(url) {
+        return Err("refusing to remove a repository URL with control characters".to_string());
+    }
     let Ok(existing) = std::fs::read_to_string(MANAGED_REPO_CONF) else {
         return Ok(()); // file doesn't exist, nothing to remove
     };
@@ -410,6 +430,25 @@ fn main() {
             // counterpart to the per-package RECONFIGURE above.
             let code = run_xbps(&["xbps-reconfigure", "-f", "-a"]);
             respond_ok_or(code == Some(0), "reconfigure-all failed");
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("VKPURGE ") {
+            let versions = split_pkgnames(rest);
+            if versions.is_empty() {
+                println!("ERROR no kernel versions specified");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            // Not an xbps tool — `vkpurge` re-validates each version
+            // against its own removable-kernel list before touching
+            // anything, so passing exactly what our own prior `vkpurge
+            // list` produced (see caerus/src/ui/vkpurge_dialog.rs, an
+            // unprivileged read run directly from the GUI) is safe.
+            let mut argv: Vec<&str> = vec!["vkpurge", "rm"];
+            argv.extend(versions.iter().map(String::as_str));
+            let code = run_xbps(&argv);
+            respond_ok_or(code == Some(0), "kernel purge failed");
             continue;
         }
 
@@ -641,5 +680,15 @@ mod tests {
         );
         assert_eq!(split_pkgnames(""), Vec::<String>::new());
         assert_eq!(split_pkgnames("  foo   bar  "), vec!["foo", "bar"]);
+    }
+
+    #[test]
+    fn control_chars_detected() {
+        assert!(has_control_char("http://evil\nrepository=http://also-evil"));
+        assert!(has_control_char("http://example.org/\r"));
+        assert!(!has_control_char(
+            "https://repo-default.voidlinux.org/current"
+        ));
+        assert!(!has_control_char(""));
     }
 }

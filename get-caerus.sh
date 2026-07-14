@@ -44,15 +44,19 @@ if ! command -v xbps-install >/dev/null 2>&1; then
 fi
 
 # Binary-providing deps (checked via `command -v`) vs devel/library
-# packages (checked via `xbps-query -l`, since they provide no binary of
-# their own) — same package list as README's "On Void Linux" line.
+# packages (checked via `xbps-query <pkgname>`'s exit code — an exact,
+# unambiguous installed-package check, unlike grepping `xbps-query -l`
+# output for a name prefix, which can false-positive on an installed
+# package that merely starts with the same prefix, e.g. `clang-analyzer18`
+# satisfying a naive check for plain `clang`) — same package list as
+# README's "On Void Linux" line.
 missing_bins=""
 for bin in git cargo rustc; do
     command -v "$bin" >/dev/null 2>&1 || missing_bins="$missing_bins $bin"
 done
 missing_pkgs=""
 for pkg in gtk4-devel libxbps-devel glib-devel clang pkg-config; do
-    xbps-query -l 2>/dev/null | awk '{print $2}' | grep -q "^${pkg}-" || missing_pkgs="$missing_pkgs $pkg"
+    xbps-query "$pkg" >/dev/null 2>&1 || missing_pkgs="$missing_pkgs $pkg"
 done
 # git/cargo/rustc map to real xbps package names for the install command
 # below (rustc/cargo both come from the single "rust"+"cargo" packages).
@@ -64,6 +68,10 @@ case "$missing_bins" in *cargo*|*rustc*) to_install="$to_install rust cargo" ;; 
 if [ -n "$to_install" ]; then
     echo "Missing build dependencies:$to_install"
     if ask "Install them now via 'sudo xbps-install -y$to_install'?" y; then
+        # Deliberately unquoted: $to_install is always a space-joined
+        # list of this script's own literal package-name constants above,
+        # never external input, so word-splitting it here is the intent,
+        # not an injection risk.
         sudo xbps-install -Sy $to_install
     else
         echo "Can't build without them — install manually and re-run." >&2

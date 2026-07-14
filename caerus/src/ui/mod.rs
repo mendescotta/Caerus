@@ -10,4 +10,5 @@ pub mod history_dialog;
 pub mod package_list;
 pub mod remove_confirm;
 pub mod repo_manager;
+pub mod vkpurge_dialog;
 pub mod window;

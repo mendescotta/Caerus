@@ -39,15 +39,18 @@ A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
   the full chain down to indirectly-affected ones
 - Transaction history log of every applied batch and maintenance action
 - Full system upgrade, orphaned-package removal, cache cleanup, database
-  verification, and force-reconfiguring every installed package, from the
-  app menu
+  verification, force-reconfiguring every installed package, and purging
+  old kernel files/modules (`vkpurge`), from the app menu
 - Find which package owns a file (`xbps-query -o`), and switch between
   packages providing the same files (`xbps-alternatives`)
 - Add/remove repositories, with an optional custom display name each
 - Keyboard shortcuts (Ctrl+F search, F5 reload, Delete to mark for removal,
   Ctrl+A select all, Escape to clear search, Ctrl+Q to quit)
-- "Sync Repositories at Launch" toggle, for anyone who'd rather not see an
-  authentication prompt immediately on open
+- Settings dialog: sync-at-launch toggle, and default search mode
+  (name-only vs. name + description)
+- Collapsible sidebar (header bar toggle) for a wider package table
+- Optional libadwaita look (`--features adwaita` at build time — see
+  [Build and install](#build-and-install))
 
 <details>
 <summary>Every Caerus action and its underlying xbps command</summary>
@@ -75,6 +78,8 @@ A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
 | Clean Package Cache | App menu | `xbps-remove -O` |
 | Verify Package Database | App menu | `xbps-pkgdb -a --checks files,dependencies,alternatives,pkgdb` |
 | Reconfigure All Packages | App menu | `xbps-reconfigure -fa` |
+| List removable kernels | Purge Old Kernels window | `vkpurge list` (not xbps — runs unprivileged, straight from the GUI) |
+| Purge Old Kernels | Purge Old Kernels window | `vkpurge rm <version...>` (not xbps — the one part of this row that's privileged) |
 | Switch Alternative | Alternatives dialog | `xbps-alternatives -g <group> -s <pkg>` |
 | Add Repository | Repositories dialog | writes `/etc/xbps.d/90-caerus.conf` (no xbps CLI), then queues `xbps-install -S` |
 | Remove Repository | Repositories dialog | edits the same conf file, then `xbps-install -S` |
