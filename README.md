@@ -121,6 +121,10 @@ On Void Linux:
 xbps-install -S cargo gtk4-devel libxbps-devel glib-devel polkit clang pkg-config
 ```
 
+Only Void's **glibc** variant is built, tested, and covered by CI. The
+**musl** variant is untested — it may work, but nobody's checked; see
+[DISCLAIMER.md](DISCLAIMER.md) for details.
+
 ### Build and install
 
 ```sh

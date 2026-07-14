@@ -40,6 +40,10 @@ implementation, debugging, and iteration. This means:
 - **AI-assisted code review gaps**: some logic (e.g. reference-counting
   around GObject lifecycles) is easy to get subtly wrong in ways that pass
   casual testing but fail under specific timing or object-lifetime conditions.
+- **glibc only, tested**: every build, test, and CI run so far targets Void's
+  glibc variant. Void's musl variant is untested — it may build and run
+  fine, or it may not; nobody has checked. Treat musl as unsupported until
+  someone actually verifies it, not as "probably works."
 
 ## How It's Built
 
