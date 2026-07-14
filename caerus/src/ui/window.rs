@@ -37,6 +37,15 @@ struct WindowState {
     btn_search_name_only: gtk::ToggleButton,
     status_label: gtk::Label,
 
+    /// Wraps the whole window content so transient, self-dismissing
+    /// notifications (sync failed, changes applied, ...) can show as a
+    /// toast instead of overwriting `status_label`'s persistent package
+    /// count — see `show_toast`. Only exists when built with
+    /// `--features adwaita`; the plain-GTK4 build has no equivalent
+    /// widget, `show_toast` just falls back to `status_label` there.
+    #[cfg(feature = "adwaita")]
+    toast_overlay: adw::ToastOverlay,
+
     /// Mirrors the package list's current selection, kept here purely
     /// so the Delete-key shortcut has something to act on without
     /// having to poke a getter through `DetailPane`.
@@ -241,6 +250,15 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     let root_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
     root_box.append(&main_paned);
     root_box.append(&status_bar);
+
+    #[cfg(feature = "adwaita")]
+    let toast_overlay = adw::ToastOverlay::new();
+    #[cfg(feature = "adwaita")]
+    {
+        toast_overlay.set_child(Some(&root_box));
+        window.set_child(Some(&toast_overlay));
+    }
+    #[cfg(not(feature = "adwaita"))]
     window.set_child(Some(&root_box));
 
     let state = Rc::new(WindowState {
@@ -263,6 +281,8 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         search_entry,
         btn_search_name_only,
         status_label,
+        #[cfg(feature = "adwaita")]
+        toast_overlay,
         selected_pkg: RefCell::new(None),
         sync_at_launch: std::cell::Cell::new(geometry.sync_at_launch),
     });
@@ -746,9 +766,7 @@ fn wire_up(state: &Rc<WindowState>) {
         let state = state.clone();
         store.connect_load_error(move |msg| {
             set_loading(&state, false);
-            state
-                .status_label
-                .set_text(&format!("Error loading packages: {}", msg));
+            show_toast(&state, &format!("Error loading packages: {}", msg));
         });
     }
 
@@ -969,12 +987,14 @@ fn wire_up(state: &Rc<WindowState>) {
         session.connect_disconnected(move |reason| match reason {
             crate::backend::transaction::DisconnectReason::Expected => {}
             crate::backend::transaction::DisconnectReason::Unexpected => {
-                state.status_label.set_text(
+                show_toast(
+                    &state,
                     "Privileged helper disconnected — the next action will re-authenticate.",
                 );
             }
             crate::backend::transaction::DisconnectReason::AuthFailed => {
-                state.status_label.set_text(
+                show_toast(
+                    &state,
                     "Could not authenticate as root — is a polkit authentication agent \
                      running for this session? Most desktop environments start one \
                      automatically; a bare window manager setup may need one added to \
@@ -1139,13 +1159,9 @@ fn trigger_update(state: &Rc<WindowState>, sync_first: bool, silent: bool) {
                 session.disconnect_finished(finished_id_cell2.get());
                 crate::backend::history::record(&commands_for_history, success);
                 if !success {
-                    state2
-                        .status_label
-                        .set_text("Repository sync failed — loading local data.");
+                    show_toast(&state2, "Repository sync failed — loading local data.");
                 } else {
-                    state2
-                        .status_label
-                        .set_text("Repositories synced. Loading package list\u{2026}");
+                    show_toast(&state2, "Repositories synced. Loading package list\u{2026}");
                 }
                 do_reload(&state2);
             });
@@ -1162,9 +1178,10 @@ fn trigger_update(state: &Rc<WindowState>, sync_first: bool, silent: bool) {
                 move |success| {
                     crate::backend::history::record(&commands_for_history, success);
                     if !success {
-                        state2
-                            .status_label
-                            .set_text("Repository sync failed — loading local data anyway.");
+                        show_toast(
+                            &state2,
+                            "Repository sync failed — loading local data anyway.",
+                        );
                     }
                     do_reload(&state2);
                 },
@@ -1246,15 +1263,11 @@ fn on_apply_clicked(state: &Rc<WindowState>) {
                 move |success| {
                     crate::backend::history::record(&commands_for_history, success);
                     if success {
-                        state3
-                            .status_label
-                            .set_text("Changes applied. Reloading\u{2026}");
+                        show_toast(&state3, "Changes applied. Reloading\u{2026}");
                         state3.store.clear_all_marks();
                         do_reload(&state3);
                     } else {
-                        state3
-                            .status_label
-                            .set_text("Some changes failed — see log.");
+                        show_toast(&state3, "Some changes failed — see log.");
                         offer_force_retry(&state3, commands_for_retry.clone());
                     }
                 },
@@ -1335,11 +1348,14 @@ fn run_maintenance_command(state: &Rc<WindowState>, cmd: &str, title: &str) {
         title,
         move |success| {
             crate::backend::history::record(std::slice::from_ref(&cmd_for_history), success);
-            state2.status_label.set_text(if success {
-                "Done. Reloading\u{2026}"
-            } else {
-                "Failed — see log. Reloading\u{2026}"
-            });
+            show_toast(
+                &state2,
+                if success {
+                    "Done. Reloading\u{2026}"
+                } else {
+                    "Failed — see log. Reloading\u{2026}"
+                },
+            );
             do_reload(&state2);
         },
     );
@@ -1424,11 +1440,14 @@ fn offer_force_retry(state: &Rc<WindowState>, commands: Vec<String>) {
                 "Retrying With Force",
                 move |success| {
                     crate::backend::history::record(&forced_for_history, success);
-                    state2.status_label.set_text(if success {
-                        "Changes applied. Reloading\u{2026}"
-                    } else {
-                        "Force retry also failed — see log. Reloading\u{2026}"
-                    });
+                    show_toast(
+                        &state2,
+                        if success {
+                            "Changes applied. Reloading\u{2026}"
+                        } else {
+                            "Force retry also failed — see log. Reloading\u{2026}"
+                        },
+                    );
                     state2.store.clear_all_marks();
                     do_reload(&state2);
                 },
@@ -1443,6 +1462,25 @@ fn offer_force_retry(state: &Rc<WindowState>, commands: Vec<String>) {
     }
 
     crate::ui::dialog_util::present_focused(&dlg, &cancel_btn);
+}
+
+/// Shows a transient, self-dismissing notification — sync failed,
+/// changes applied, a batch finished, etc — as opposed to
+/// `update_status_bar`'s persistent package-count summary. On the
+/// `adwaita` build this is a real auto-dismissing `AdwToast` that
+/// doesn't clobber the persistent summary underneath; otherwise it
+/// falls back to overwriting `status_label` directly, exactly like
+/// before this existed (the next reload's `update_status_bar` call
+/// still puts the real summary back either way).
+fn show_toast(state: &Rc<WindowState>, msg: &str) {
+    #[cfg(feature = "adwaita")]
+    {
+        state.toast_overlay.add_toast(adw::Toast::new(msg));
+    }
+    #[cfg(not(feature = "adwaita"))]
+    {
+        state.status_label.set_text(msg);
+    }
 }
 
 fn update_status_bar(state: &Rc<WindowState>) {
