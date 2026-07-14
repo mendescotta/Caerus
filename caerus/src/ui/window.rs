@@ -302,8 +302,9 @@ progressbar.apply-progress trough {
   min-height: 22px; }
 progressbar.apply-progress trough progress {
   min-height: 22px; }
-progressbar.apply-progress text {
-  font-size: 0.85em; }",
+.apply-progress-text {
+  font-size: 0.8em; font-weight: bold; color: white;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.7); }",
     );
     gtk::style_context_add_provider_for_display(
         &gtk::prelude::WidgetExt::display(window),

@@ -130,14 +130,24 @@ pub fn run(
     outer.append(&action_label);
 
     // Thicker than the GTK4 default (see the `.apply-progress` CSS rule
-    // in window.rs) so its own overlaid text — "Package N of M", the
-    // live percentage, or both — is legible instead of a thin sliver.
-    // This replaces the separate progress-count label the dialog used
-    // to show above the bar.
+    // in window.rs). GtkProgressBar's own `show-text`/`text` property
+    // lays its label out as a *sibling* of the trough (above the bar,
+    // not on top of it — confirmed visually), so getting the text
+    // genuinely inside the bar needs a real overlay: the label is a
+    // separate widget stacked on top of the bar via `GtkOverlay`, kept
+    // in sync manually via `bar_text_label` below. This replaces the
+    // separate progress-count label the dialog used to show above the
+    // bar.
     let progress_bar = gtk::ProgressBar::new();
     progress_bar.add_css_class("apply-progress");
-    progress_bar.set_show_text(true);
-    outer.append(&progress_bar);
+    let bar_text_label = gtk::Label::new(None);
+    bar_text_label.add_css_class("apply-progress-text");
+    bar_text_label.set_halign(gtk::Align::Center);
+    bar_text_label.set_valign(gtk::Align::Center);
+    let progress_overlay = gtk::Overlay::new();
+    progress_overlay.set_child(Some(&progress_bar));
+    progress_overlay.add_overlay(&bar_text_label);
+    outer.append(&progress_overlay);
 
     let expander = gtk::Expander::new(Some("Details"));
     let scroll = gtk::ScrolledWindow::new();
@@ -188,20 +198,20 @@ pub fn run(
     let last_pct: Rc<Cell<Option<u8>>> = Rc::new(Cell::new(None));
 
     let set_bar_text = {
-        let progress_bar = progress_bar.clone();
+        let bar_text_label = bar_text_label.clone();
         let seen_count = seen_count.clone();
         let last_pct = last_pct.clone();
         move || {
             let n = seen_count.get();
             let text = match (total_pkgs > 1, last_pct.get()) {
                 (true, Some(p)) if n > 0 => {
-                    Some(format!("Package {} of {} — {}%", n, total_pkgs, p))
+                    format!("Package {} of {} — {}%", n, total_pkgs, p)
                 }
-                (true, _) if n > 0 => Some(format!("Package {} of {}", n, total_pkgs)),
-                (false, Some(p)) => Some(format!("{}%", p)),
-                _ => None,
+                (true, _) if n > 0 => format!("Package {} of {}", n, total_pkgs),
+                (false, Some(p)) => format!("{}%", p),
+                _ => String::new(),
             };
-            progress_bar.set_text(text.as_deref());
+            bar_text_label.set_text(&text);
         }
     };
 
@@ -287,6 +297,8 @@ pub fn run(
         let pulsing = pulsing.clone();
         let spinner = spinner.clone();
         let progress_bar = progress_bar.clone();
+        let bar_text_label = bar_text_label.clone();
+        let seen_count = seen_count.clone();
         let status_label = status_label.clone();
         let close_btn = close_btn.clone();
         let done_cb = Rc::new(done_cb);
@@ -297,6 +309,19 @@ pub fn run(
             pulsing.set(false);
             spinner.stop();
             progress_bar.set_fraction(1.0);
+            // The last percentage tick seen is almost never really 100 —
+            // e.g. a package's last log line before "installed
+            // successfully" might be a download tick partway through, or
+            // there may be no percentage-bearing line for it at all — so
+            // leaving that stale number in the overlay text once the
+            // whole batch is done (irrespective of success/failure) reads
+            // as a bug. The bar's fraction above already shows 1.0/full;
+            // the count (if any) is the only part still meaningful here.
+            bar_text_label.set_text(&if total_pkgs > 1 {
+                format!("Package {} of {}", seen_count.get(), total_pkgs)
+            } else {
+                String::new()
+            });
             status_label.set_text(if success {
                 "Finished successfully."
             } else if auth_failed.get() {
