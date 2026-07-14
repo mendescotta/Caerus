@@ -129,6 +129,16 @@ fn sync_color_scheme_from_portal() {
 }
 
 fn main() -> glib::ExitCode {
+    // Deliberate, not incidental: constructing any libadwaita widget
+    // activates its global `AdwStyleManager`, which restyles the whole
+    // process's GTK4 widgets, not just that one widget — previously this
+    // only kicked in once the About window (the one Adw widget in the
+    // app) happened to be opened, so the rest of the UI looked plain
+    // GTK4 until then. Calling `adw::init()` up front instead makes the
+    // whole app consistently adwaita-styled from the first frame.
+    #[cfg(feature = "adwaita")]
+    adw::init().expect("libadwaita init failed");
+
     let app = gtk::Application::new(Some(APP_ID), gio::ApplicationFlags::default());
 
     app.connect_startup(|_app| {

@@ -52,10 +52,17 @@ struct WindowState {
     selected_pkg: RefCell<Option<Package>>,
 
     /// Whether to sync repositories at launch — see `WindowGeometry`'s
-    /// field of the same name. Only read/written by the "Sync
-    /// Repositories at Launch" menu checkbox and the close-request
-    /// handler that persists it; not consulted again after startup.
+    /// field of the same name. Only read/written by the Settings
+    /// dialog's checkbox and the close-request handler that persists
+    /// it; not consulted again after startup.
     sync_at_launch: std::cell::Cell<bool>,
+
+    /// Whether the header's "search by name only" toggle should start
+    /// active at next launch — see `WindowGeometry`'s field of the same
+    /// name. Only read/written by the Settings dialog's checkbox and the
+    /// close-request handler; doesn't change mid-session just because
+    /// the header toggle does.
+    search_name_only_default: std::cell::Cell<bool>,
 }
 
 /// Window size + paned-divider positions, persisted across launches so
@@ -71,9 +78,13 @@ struct WindowGeometry {
     /// launch, before the user has clicked anything. Defaults to `false`
     /// — a fresh install shouldn't greet a first-time user with an
     /// unexplained authentication prompt before they've seen a single
-    /// package; exposed as a checkable "Sync Repositories at Launch" item
-    /// in the app menu for anyone who'd rather have it back.
+    /// package; exposed as a checkbox in the Settings dialog for anyone
+    /// who'd rather have it back.
     sync_at_launch: bool,
+    /// Whether the header's "search by name only" toggle starts active.
+    /// Defaults to `false` (name + description, the original behavior);
+    /// exposed as a checkbox in the Settings dialog.
+    search_name_only_default: bool,
 }
 
 impl Default for WindowGeometry {
@@ -84,6 +95,7 @@ impl Default for WindowGeometry {
             sidebar_pos: 200,
             detail_pos: 420,
             sync_at_launch: false,
+            search_name_only_default: false,
         }
     }
 }
@@ -118,6 +130,12 @@ impl WindowGeometry {
                 }
                 continue;
             }
+            if key == "search_name_only_default" {
+                if let Ok(b) = value.parse::<i32>() {
+                    geometry.search_name_only_default = b != 0;
+                }
+                continue;
+            }
             let Ok(n) = value.parse::<i32>() else {
                 continue;
             };
@@ -143,8 +161,13 @@ impl WindowGeometry {
             let _ = std::fs::create_dir_all(parent);
         }
         let contents = format!(
-            "width={}\nheight={}\nsidebar_pos={}\ndetail_pos={}\nsync_at_launch={}\n",
-            self.width, self.height, self.sidebar_pos, self.detail_pos, self.sync_at_launch as i32
+            "width={}\nheight={}\nsidebar_pos={}\ndetail_pos={}\nsync_at_launch={}\nsearch_name_only_default={}\n",
+            self.width,
+            self.height,
+            self.sidebar_pos,
+            self.detail_pos,
+            self.sync_at_launch as i32,
+            self.search_name_only_default as i32
         );
         let _ = std::fs::write(&path, contents);
     }
@@ -165,6 +188,12 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     let title_label = gtk::Label::new(Some("Caerus"));
     title_label.add_css_class("title");
     header.set_title_widget(Some(&title_label));
+
+    let btn_toggle_sidebar = gtk::ToggleButton::new();
+    btn_toggle_sidebar.set_icon_name("sidebar-show-symbolic");
+    btn_toggle_sidebar.set_active(true);
+    btn_toggle_sidebar.set_tooltip_text(Some("Show/hide the filter sidebar"));
+    header.pack_start(&btn_toggle_sidebar);
 
     let spinner = gtk::Spinner::new();
     let btn_update = gtk::Button::from_icon_name("software-update-available-symbolic");
@@ -217,6 +246,12 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
 
     // ── Body ──
     let sidebar = FilterSidebar::new();
+    {
+        let sidebar_widget = sidebar.widget().clone();
+        btn_toggle_sidebar.connect_toggled(move |btn| {
+            sidebar_widget.set_visible(btn.is_active());
+        });
+    }
     let pkg_list = PackageList::new(store.clone());
     let detail_pane = DetailPane::new(store.clone());
 
@@ -285,14 +320,18 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         toast_overlay,
         selected_pkg: RefCell::new(None),
         sync_at_launch: std::cell::Cell::new(geometry.sync_at_launch),
+        search_name_only_default: std::cell::Cell::new(geometry.search_name_only_default),
     });
-    state
-        .menu_buttons
-        .sync_at_launch
-        .set_active(geometry.sync_at_launch);
 
     wire_up(&state);
     wire_keyboard_shortcuts(&state);
+
+    // After wire_up, so the toggled handler (which also updates
+    // pkg_list's actual search mode, the tooltip, and the status bar)
+    // is already connected if this actually flips the button's state.
+    state
+        .btn_search_name_only
+        .set_active(geometry.search_name_only_default);
 
     // Sync repos at launch silently (no dialog), then reload — unless
     // the user has opted out via "Sync Repositories at Launch" in the
@@ -340,6 +379,7 @@ progressbar.apply-progress trough progress {
 const USED_SYMBOLIC_ICONS: &[&str] = &[
     "software-update-available-symbolic",
     "view-refresh-symbolic",
+    "sidebar-show-symbolic",
     "edit-find-symbolic",
     "open-menu-symbolic",
     "user-trash-symbolic",
@@ -429,11 +469,12 @@ struct AppMenuButtons {
     clean_cache: gtk::Button,
     verify_db: gtk::Button,
     reconfigure_all: gtk::Button,
+    vkpurge: gtk::Button,
     find_owner: gtk::Button,
     alternatives: gtk::Button,
     repositories: gtk::Button,
     history: gtk::Button,
-    sync_at_launch: gtk::CheckButton,
+    settings: gtk::Button,
 }
 
 fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuButtons) {
@@ -476,20 +517,13 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuB
          configuration script. Useful after an interrupted transaction or a libc/shared \
          library upgrade left some packages unconfigured.",
     ));
-
-    let options_header = gtk::Label::new(Some("OPTIONS"));
-    options_header.set_xalign(0.0);
-    options_header.add_css_class("section-header");
-    options_header.set_margin_top(6);
-    let sync_at_launch = gtk::CheckButton::with_label("Sync Repositories at Launch");
-    sync_at_launch.set_margin_start(6);
-    sync_at_launch.set_margin_top(2);
-    sync_at_launch.set_margin_bottom(2);
-    sync_at_launch.set_tooltip_text(Some(
-        "When enabled, Caerus syncs repository indexes (a privileged action, prompting for \
-         your password) automatically every time it starts. Disable this to skip that prompt \
-         at launch — you can still sync manually any time via the header bar's sync button.",
+    let vkpurge = flat_menu_button("Purge Old Kernels\u{2026}");
+    vkpurge.set_tooltip_text(Some(
+        "vkpurge — remove kernel files/modules left behind by an upgrade, once nothing \
+         installed still needs them (not an xbps tool)",
     ));
+
+    let settings = flat_menu_button("Settings\u{2026}");
 
     let tools_header = gtk::Label::new(Some("TOOLS"));
     tools_header.set_xalign(0.0);
@@ -516,14 +550,14 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuB
     vbox.append(&clean_cache);
     vbox.append(&verify_db);
     vbox.append(&reconfigure_all);
-    vbox.append(&options_header);
-    vbox.append(&sync_at_launch);
+    vbox.append(&vkpurge);
     vbox.append(&tools_header);
     vbox.append(&find_owner);
     vbox.append(&alternatives);
     vbox.append(&repositories);
     vbox.append(&history);
     vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    vbox.append(&settings);
     vbox.append(&btn_shortcuts);
     vbox.append(&btn_about);
     vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
@@ -539,11 +573,12 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuB
         clean_cache,
         verify_db,
         reconfigure_all,
+        vkpurge,
         find_owner,
         alternatives,
         repositories,
         history,
-        sync_at_launch,
+        settings,
     };
     for btn in [
         &buttons.full_upgrade,
@@ -551,10 +586,12 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuB
         &buttons.clean_cache,
         &buttons.verify_db,
         &buttons.reconfigure_all,
+        &buttons.vkpurge,
         &buttons.find_owner,
         &buttons.alternatives,
         &buttons.repositories,
         &buttons.history,
+        &buttons.settings,
     ] {
         let popover = popover.clone();
         btn.connect_clicked(move |_| popover.popdown());
@@ -634,6 +671,52 @@ fn show_about_dialog(parent: &gtk::ApplicationWindow) {
     // instead; `AboutDialog` exposes no such button to target, so just
     // clear focus outright.
     gtk::prelude::GtkWindowExt::set_focus(&about, None::<&gtk::Widget>);
+}
+
+/// Defined here rather than as its own `ui` module, unlike most other
+/// dialogs — it needs direct access to `WindowState`'s persisted-setting
+/// `Cell`s, which are private to this module (same reasoning
+/// `show_about_dialog`/`show_shortcuts_dialog` already follow).
+fn show_settings_dialog(state: &Rc<WindowState>) {
+    let (dlg, outer) = crate::ui::dialog_util::modal_window(
+        "Settings",
+        Some(state.window.upcast_ref()),
+        false,
+        (420, -1),
+        10,
+    );
+
+    let sync_cb = gtk::CheckButton::with_label("Sync Repositories at Launch");
+    sync_cb.set_active(state.sync_at_launch.get());
+    sync_cb.set_tooltip_text(Some(
+        "When enabled, Caerus syncs repository indexes (a privileged action, prompting for \
+         your password) automatically every time it starts. Disable this to skip that prompt \
+         at launch — you can still sync manually any time via the header bar's sync button.",
+    ));
+    {
+        let state = state.clone();
+        sync_cb.connect_toggled(move |cb| {
+            state.sync_at_launch.set(cb.is_active());
+        });
+    }
+    outer.append(&sync_cb);
+
+    let search_cb = gtk::CheckButton::with_label("Search by Name Only by Default");
+    search_cb.set_active(state.search_name_only_default.get());
+    search_cb.set_tooltip_text(Some(
+        "Controls what the header bar's name-only search toggle starts as the next time \
+         Caerus launches — doesn't change the current session's search mode.",
+    ));
+    {
+        let state = state.clone();
+        search_cb.connect_toggled(move |cb| {
+            state.search_name_only_default.set(cb.is_active());
+        });
+    }
+    outer.append(&search_cb);
+
+    let close_btn = crate::ui::dialog_util::close_button(&outer, &dlg, 8);
+    crate::ui::dialog_util::present_focused(&dlg, &close_btn);
 }
 
 fn show_shortcuts_dialog(parent: &gtk::ApplicationWindow) {
@@ -939,10 +1022,18 @@ fn wire_up(state: &Rc<WindowState>) {
         });
     }
     {
-        let btn = state.menu_buttons.sync_at_launch.clone();
+        let btn = state.menu_buttons.vkpurge.clone();
+        let window = state.window.clone();
+        let session = state.session.clone();
+        btn.connect_clicked(move |_| {
+            crate::ui::vkpurge_dialog::show(Some(window.upcast_ref()), &session);
+        });
+    }
+    {
+        let btn = state.menu_buttons.settings.clone();
         let state = state.clone();
-        btn.connect_toggled(move |btn| {
-            state.sync_at_launch.set(btn.is_active());
+        btn.connect_clicked(move |_| {
+            show_settings_dialog(&state);
         });
     }
     {
@@ -1091,6 +1182,7 @@ fn wire_up(state: &Rc<WindowState>) {
                 sidebar_pos: state.main_paned.position(),
                 detail_pos: state.right_paned.position(),
                 sync_at_launch: state.sync_at_launch.get(),
+                search_name_only_default: state.search_name_only_default.get(),
             }
             .save();
             state.session.shutdown();

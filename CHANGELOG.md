@@ -4,6 +4,36 @@ All notable changes to Caerus are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); dates are release dates,
 not commit dates.
 
+## [0.5.0] - 2026-07-14
+
+### Added
+- **Purge Old Kernels** window (app menu → Maintenance): lists removable
+  kernel versions (`vkpurge list`, unprivileged, run straight from the
+  GUI like Find Owning Package) in a checkbox table, with Reload, Select
+  All, and Purge Selected (`vkpurge rm`, via `caerus-helper`). Not an
+  xbps tool — the standalone Void kernel-cleanup script.
+- **Settings dialog** (app menu → Settings…): the "Sync Repositories at
+  Launch" checkbox moved here from its own inline menu section, plus a
+  new "Search by Name Only by Default" checkbox controlling what the
+  header's name-only search toggle starts as next launch.
+- **Collapsible sidebar** — a header bar toggle button hides/shows the
+  filter/repository sidebar for a wider package table.
+- With the `adwaita` feature, the whole UI now consistently gets
+  libadwaita's styling from launch, not just after opening About —
+  `adw::init()` now runs at startup instead of relying on the About
+  window happening to be the thing that first activated it.
+
+### Fixed
+- `get-caerus.sh`'s dependency check used to grep `xbps-query -l` output
+  for a name prefix, which could false-positive on an installed package
+  that merely starts with the same prefix (e.g. `clang-analyzer18`
+  satisfying a check for plain `clang`). Now uses `xbps-query <pkgname>`'s
+  exit code — an exact, unambiguous check.
+- `caerus-helper`'s `ADDREPO`/`REMOVEREPO` handlers now reject control
+  characters themselves, instead of relying entirely on the GUI having
+  already sanitized the URL — defense-in-depth for the one privileged
+  component in the project.
+
 ## [0.4.0] - 2026-07-14
 
 ### Added
