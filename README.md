@@ -2,10 +2,7 @@
 
 # Caerus
 
-A package manager for [Void Linux](https://voidlinux.org/) inspired by [Synaptic](https://en.wikipedia.org/wiki/Synaptic_(software)) built
-directly on `libxbps`. GTK4, no root required to run — only the small
-privileged helper that actually installs/removes packages is ever elevated,
-via `pkexec`.
+A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
 
 > **Disclaimer:** Caerus was built with the help of AI (Claude). See [DISCLAIMER.md](DISCLAIMER.md)
 > for details.
@@ -83,10 +80,6 @@ via `pkexec`.
 | Find Owning Package | App menu → Find Owning Package | `xbps-query -o <path>` (the only literal `xbps-query` subprocess call in the app) |
 | Package details, deps, reverse-deps, files, provides/conflicts/replaces, shlib info | Detail pane | via libxbps directly (`xbps_pkgdb_get_pkg`/`xbps_rpool_get_pkg` + dictionary reads) — equivalent to `xbps-query -S/-x/-X/-f` |
 
-Everything except Find Owning Package and repo add/remove goes through
-`caerus-helper` (spawned via `pkexec`) rather than calling `xbps-*` directly
-from the GUI — that's the privilege boundary the whole app is built around.
-
 </details>
 
 ## Installing
@@ -110,13 +103,7 @@ Runtime:
 On Void Linux:
 
 ```sh
-xbps-install -S gtk4-devel libxbps-devel glib-devel polkit clang pkg-config
-```
-
-If you don't already have Rust:
-
-```sh
-curl https://sh.rustup.rs -sSf | sh
+xbps-install -S cargo gtk4-devel libxbps-devel glib-devel polkit clang pkg-config
 ```
 
 ### Build and install
