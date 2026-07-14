@@ -4,36 +4,6 @@ All notable changes to Caerus are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); dates are release dates,
 not commit dates.
 
-## [0.5.0] - 2026-07-14
-
-### Added
-- **Purge Old Kernels** window (app menu → Maintenance): lists removable
-  kernel versions (`vkpurge list`, unprivileged, run straight from the
-  GUI like Find Owning Package) in a checkbox table, with Reload, Select
-  All, and Purge Selected (`vkpurge rm`, via `caerus-helper`). Not an
-  xbps tool — the standalone Void kernel-cleanup script.
-- **Settings dialog** (app menu → Settings…): the "Sync Repositories at
-  Launch" checkbox moved here from its own inline menu section, plus a
-  new "Search by Name Only by Default" checkbox controlling what the
-  header's name-only search toggle starts as next launch.
-- **Collapsible sidebar** — a header bar toggle button hides/shows the
-  filter/repository sidebar for a wider package table.
-- With the `adwaita` feature, the whole UI now consistently gets
-  libadwaita's styling from launch, not just after opening About —
-  `adw::init()` now runs at startup instead of relying on the About
-  window happening to be the thing that first activated it.
-
-### Fixed
-- `get-caerus.sh`'s dependency check used to grep `xbps-query -l` output
-  for a name prefix, which could false-positive on an installed package
-  that merely starts with the same prefix (e.g. `clang-analyzer18`
-  satisfying a check for plain `clang`). Now uses `xbps-query <pkgname>`'s
-  exit code — an exact, unambiguous check.
-- `caerus-helper`'s `ADDREPO`/`REMOVEREPO` handlers now reject control
-  characters themselves, instead of relying entirely on the GUI having
-  already sanitized the URL — defense-in-depth for the one privileged
-  component in the project.
-
 ## [0.4.0] - 2026-07-14
 
 ### Added
@@ -46,18 +16,41 @@ not commit dates.
 - **Optional `adwaita` Cargo feature** (`--features caerus/adwaita`,
   needs `libadwaita-devel`): a build-time choice, not runtime detection,
   that swaps in libadwaita widgets where available: the About window
-  now uses `AdwAboutWindow`'s proper GNOME-standard chrome instead of
-  plain `GtkAboutDialog`, and transient notifications (sync failed,
-  changes applied, a batch finished, ...) show as an auto-dismissing
-  `AdwToast` instead of overwriting the status bar's persistent package
-  count. CI now builds and lints both configurations so this doesn't
-  silently bit-rot.
+  uses `AdwAboutWindow`'s proper GNOME-standard chrome instead of plain
+  `GtkAboutDialog`, transient notifications (sync failed, changes
+  applied, a batch finished, ...) show as an auto-dismissing `AdwToast`
+  instead of overwriting the status bar's persistent package count, and
+  `adw::init()` runs at startup so the whole UI is consistently
+  adwaita-styled from launch. CI builds and lints both configurations so
+  this doesn't silently bit-rot.
+- **Purge Old Kernels** window (app menu → Maintenance): lists removable
+  kernel versions (`vkpurge list`, unprivileged, run straight from the
+  GUI like Find Owning Package) in a checkbox table, with Reload, Select
+  All, and Purge Selected (`vkpurge rm`, via `caerus-helper`). Not an
+  xbps tool — the standalone Void kernel-cleanup script.
+- **Settings dialog** (app menu → Settings…): a "Sync Repositories at
+  Launch" checkbox (moved here from its own inline menu section) and a
+  new "Search by Name Only by Default" checkbox controlling what the
+  header's name-only search toggle starts as next launch.
+- **Collapsible sidebar** — a header bar toggle button hides/shows the
+  filter/repository sidebar for a wider package table.
 
 ### Changed
 - "Sync Repositories at Launch" now defaults to **off**. A fresh install
   shouldn't greet a first-time user with an unexplained authentication
-  prompt before they've seen a single package; the toggle in the app menu
+  prompt before they've seen a single package; the toggle in Settings
   still turns it back on for anyone who wants it.
+
+### Fixed
+- `get-caerus.sh`'s dependency check used to grep `xbps-query -l` output
+  for a name prefix, which could false-positive on an installed package
+  that merely starts with the same prefix (e.g. `clang-analyzer18`
+  satisfying a check for plain `clang`). Now uses `xbps-query <pkgname>`'s
+  exit code — an exact, unambiguous check.
+- `caerus-helper`'s `ADDREPO`/`REMOVEREPO` handlers now reject control
+  characters themselves, instead of relying entirely on the GUI having
+  already sanitized the URL — defense-in-depth for the one privileged
+  component in the project.
 
 ### Documentation
 - Noted that only Void's glibc variant is built/tested/covered by CI —
