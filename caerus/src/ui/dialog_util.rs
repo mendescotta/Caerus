@@ -100,7 +100,7 @@ pub fn close_button(outer: &gtk::Box, dlg: &gtk::Window, margin_top: i32) -> gtk
 /// dependency/removal-impact confirmations, Add Repository) uses for its
 /// button row. Doesn't append the row to `outer` or wire `Cancel`'s
 /// click itself: callers still need to append their own primary (and
-/// sometimes secondary, e.g. apply_confirm's "Copy Dry-Run Output")
+/// sometimes secondary, e.g. `apply_confirm`'s "Copy Dry-Run Output")
 /// button(s) after `Cancel` before appending the finished row, and each
 /// has its own idea of what "cancel" should do (just `dlg.destroy()`,
 /// or also running a callback with `false`).

@@ -49,6 +49,6 @@ fn main() {
         println!("cargo:rustc-link-search=native={}", path.display());
     }
     for l in &lib.libs {
-        println!("cargo:rustc-link-lib={}", l);
+        println!("cargo:rustc-link-lib={l}");
     }
 }

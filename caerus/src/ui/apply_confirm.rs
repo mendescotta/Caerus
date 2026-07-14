@@ -251,7 +251,7 @@ pub fn confirm(
         });
     }
     {
-        let cb = cb.clone();
+        let cb = cb;
         dlg.connect_close_request(move |_| {
             cb(false);
             glib::Propagation::Proceed

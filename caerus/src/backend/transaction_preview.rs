@@ -37,29 +37,29 @@ pub enum TransAction {
 }
 
 impl TransAction {
-    pub fn from_raw(v: u8) -> Self {
+    pub const fn from_raw(v: u8) -> Self {
         match v {
-            1 => TransAction::Install,
-            2 => TransAction::Reinstall,
-            3 => TransAction::Update,
-            4 => TransAction::Configure,
-            5 => TransAction::Remove,
-            6 => TransAction::Hold,
-            7 => TransAction::Download,
-            _ => TransAction::Unknown,
+            1 => Self::Install,
+            2 => Self::Reinstall,
+            3 => Self::Update,
+            4 => Self::Configure,
+            5 => Self::Remove,
+            6 => Self::Hold,
+            7 => Self::Download,
+            _ => Self::Unknown,
         }
     }
 
-    pub fn label(self) -> &'static str {
+    pub const fn label(self) -> &'static str {
         match self {
-            TransAction::Install => "install",
-            TransAction::Reinstall => "reinstall",
-            TransAction::Update => "update",
-            TransAction::Configure => "configure",
-            TransAction::Remove => "remove",
-            TransAction::Hold => "hold",
-            TransAction::Download => "download",
-            TransAction::Unknown => "unknown",
+            Self::Install => "install",
+            Self::Reinstall => "reinstall",
+            Self::Update => "update",
+            Self::Configure => "configure",
+            Self::Remove => "remove",
+            Self::Hold => "hold",
+            Self::Download => "download",
+            Self::Unknown => "unknown",
         }
     }
 }
@@ -95,10 +95,12 @@ impl TransactionPreview {
     /// line.
     pub fn to_plain_text(&self) -> String {
         use crate::backend::package::pkg_format_size;
+        use std::fmt::Write as _;
         let mut out = String::new();
         for item in &self.items {
-            out.push_str(&format!(
-                "{} {} {} {} {} installed={} download={}\n",
+            let _ = writeln!(
+                out,
+                "{} {} {} {} {} installed={} download={}",
                 item.pkgname,
                 item.pkgver,
                 item.action.label(),
@@ -106,22 +108,24 @@ impl TransactionPreview {
                 item.repository.as_deref().unwrap_or("-"),
                 pkg_format_size(item.installed_size),
                 pkg_format_size(item.download_size),
-            ));
+            );
         }
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "\n{} to install, {} to update, {} to remove, {} on hold, {} to download\n",
             self.install_pkgs,
             self.update_pkgs,
             self.remove_pkgs,
             self.hold_pkgs,
             self.download_pkgs
-        ));
-        out.push_str(&format!(
+        );
+        let _ = write!(
+            out,
             "Total download size: {}\nTotal installed size: {}\nTotal removed size: {}\n",
             pkg_format_size(self.total_download_size),
             pkg_format_size(self.total_installed_size),
             pkg_format_size(self.total_removed_size),
-        ));
+        );
         out
     }
 }
@@ -142,16 +146,14 @@ pub enum TransactionError {
 impl TransactionError {
     pub fn summary(&self) -> String {
         match self {
-            TransactionError::MissingDeps(_) => {
+            Self::MissingDeps(_) => {
                 "Transaction aborted due to unresolved dependencies.".to_string()
             }
-            TransactionError::MissingShlibs(_) => {
+            Self::MissingShlibs(_) => {
                 "Transaction aborted due to unresolved shared libraries.".to_string()
             }
-            TransactionError::Conflicts(_) => {
-                "Transaction aborted due to conflicting packages.".to_string()
-            }
-            TransactionError::NotEnoughSpace { need, free } => {
+            Self::Conflicts(_) => "Transaction aborted due to conflicting packages.".to_string(),
+            Self::NotEnoughSpace { need, free } => {
                 use crate::backend::package::pkg_format_size;
                 format!(
                     "Transaction aborted due to insufficient disk space (need {}, got {} free).",
@@ -159,16 +161,14 @@ impl TransactionError {
                     pkg_format_size(*free)
                 )
             }
-            TransactionError::Other(msg) => msg.clone(),
+            Self::Other(msg) => msg.clone(),
         }
     }
 
     pub fn details(&self) -> &[String] {
         match self {
-            TransactionError::MissingDeps(v)
-            | TransactionError::MissingShlibs(v)
-            | TransactionError::Conflicts(v) => v,
-            TransactionError::NotEnoughSpace { .. } | TransactionError::Other(_) => &[],
+            Self::MissingDeps(v) | Self::MissingShlibs(v) | Self::Conflicts(v) => v,
+            Self::NotEnoughSpace { .. } | Self::Other(_) => &[],
         }
     }
 }

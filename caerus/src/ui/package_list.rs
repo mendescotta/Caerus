@@ -1,6 +1,6 @@
 //! The main package table: a `gtk::ColumnView` over a filter+sort model
 //! chain, plus a checkbox column for marking several packages at once.
-//! Rust translation of ui/package_list.{h,c}.
+//! Rust translation of `ui/package_list.{h,c}`.
 
 use crate::backend::package::{
     pkg_format_size, pkg_state_icon, pkg_state_tooltip, FilterMode, Package, PackageObject,
@@ -41,7 +41,7 @@ pub struct PackageList {
     inner: Rc<Inner>,
 }
 
-fn ord(c: CmpOrdering) -> gtk::Ordering {
+const fn ord(c: CmpOrdering) -> gtk::Ordering {
     match c {
         CmpOrdering::Less => gtk::Ordering::Smaller,
         CmpOrdering::Equal => gtk::Ordering::Equal,
@@ -131,7 +131,7 @@ impl PackageList {
 
         build(inner.clone());
 
-        PackageList { inner }
+        Self { inner }
     }
 
     pub fn widget(&self) -> &gtk::Box {
@@ -443,10 +443,10 @@ fn build(inner: Rc<Inner>) {
     );
     set_column_sorter(&col_status, |a, b| {
         let (ra, rb) = (pkg_sort_rank(a), pkg_sort_rank(b));
-        if ra != rb {
-            ra.cmp(&rb)
-        } else {
+        if ra == rb {
             a.name.to_lowercase().cmp(&b.name.to_lowercase())
+        } else {
+            ra.cmp(&rb)
         }
     });
     column_view.append_column(&col_status);
@@ -503,10 +503,10 @@ fn build(inner: Rc<Inner>) {
             let l = item.child().and_downcast::<gtk::Label>().unwrap();
             let p = obj.pkg();
             l.set_text(&p.name);
-            if p.mark != PkgMark::None {
-                l.add_css_class("pkg-marked");
-            } else {
+            if p.mark == PkgMark::None {
                 l.remove_css_class("pkg-marked");
+            } else {
+                l.add_css_class("pkg-marked");
             }
         },
     );
@@ -550,15 +550,12 @@ fn build(inner: Rc<Inner>) {
         };
         let l = item.child().and_downcast::<gtk::Label>().unwrap();
         let p = obj.pkg();
-        match &p.version_installed {
-            Some(v) => {
-                l.set_text(v);
-                l.add_css_class("pkg-installed");
-            }
-            None => {
-                l.set_text("\u{2014}");
-                l.remove_css_class("pkg-installed");
-            }
+        if let Some(v) = &p.version_installed {
+            l.set_text(v);
+            l.add_css_class("pkg-installed");
+        } else {
+            l.set_text("\u{2014}");
+            l.remove_css_class("pkg-installed");
         }
     });
     set_column_sorter(&col_inst, |a, b| {
@@ -637,7 +634,7 @@ fn build(inner: Rc<Inner>) {
     // only changes selection, handled above).
     {
         let inner = inner.clone();
-        let selection = selection.clone();
+        let selection = selection;
         column_view.connect_activate(move |view, position| {
             let Some(obj) = selection.item(position).map(|o| pkg_of(&o)) else {
                 return;
@@ -699,7 +696,7 @@ fn toggle_mark(
         PkgState::NotInstalled => request_install_with_confirm(root, store, inner, &name, |_| {}),
         PkgState::Upgradable => set_mark_and_notify(store, inner, &name, PkgMark::Upgrade),
         _ if !essential => {
-            request_remove_with_confirm(root, store, inner, &name, PkgMark::Remove, |_| {})
+            request_remove_with_confirm(root, store, inner, &name, PkgMark::Remove, |_| {});
         }
         _ => {} // essential and already installed: no quick action
     }
@@ -808,15 +805,15 @@ fn context_menu_items(pkgs: &[Package]) -> Vec<(String, PkgMark, bool)> {
         }
         let label = match (mark, multi) {
             (PkgMark::Install, false) => "Mark for Installation".to_string(),
-            (PkgMark::Install, true) => format!("Mark {} for Installation", n),
+            (PkgMark::Install, true) => format!("Mark {n} for Installation"),
             (PkgMark::Upgrade, false) => "Mark for Upgrade".to_string(),
-            (PkgMark::Upgrade, true) => format!("Mark {} for Upgrade", n),
+            (PkgMark::Upgrade, true) => format!("Mark {n} for Upgrade"),
             (PkgMark::Remove, false) => "Mark for Removal".to_string(),
-            (PkgMark::Remove, true) => format!("Mark {} for Removal", n),
+            (PkgMark::Remove, true) => format!("Mark {n} for Removal"),
             (PkgMark::Purge, false) => "Mark for Purge".to_string(),
-            (PkgMark::Purge, true) => format!("Mark {} for Purge", n),
+            (PkgMark::Purge, true) => format!("Mark {n} for Purge"),
             (_, false) => "Unmark".to_string(),
-            (_, true) => format!("Unmark {}", n),
+            (_, true) => format!("Unmark {n}"),
         };
         items.push((label, mark, true));
     }
@@ -881,7 +878,7 @@ fn show_context_menu(
     popover.set_parent(widget);
     popover.set_has_arrow(true);
     popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
-    popover.connect_closed(|p| p.unparent());
+    popover.connect_closed(gtk::prelude::WidgetExt::unparent);
 
     let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
     vbox.set_margin_start(4);
@@ -912,7 +909,7 @@ fn show_context_menu(
                 let name = selected[0].name.clone();
                 match mark {
                     PkgMark::Install => {
-                        request_install_with_confirm(root.clone(), &store, &inner, &name, |_| {})
+                        request_install_with_confirm(root.clone(), &store, &inner, &name, |_| {});
                     }
                     PkgMark::Remove | PkgMark::Purge => request_remove_with_confirm(
                         root.clone(),

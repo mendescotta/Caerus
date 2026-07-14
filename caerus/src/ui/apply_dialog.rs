@@ -2,7 +2,7 @@
 //! existing, caller-owned `Transaction`. The dialog does not create,
 //! destroy, or take ownership of `session`; it stays alive after the
 //! dialog closes, so the next call reuses it without re-authenticating.
-//! Rust translation of ui/apply_dialog.{h,c}.
+//! Rust translation of `ui/apply_dialog.{h,c}`.
 
 use crate::backend::transaction::{DisconnectReason, Transaction};
 use crate::ui::dialog_util::modal_window;
@@ -205,10 +205,10 @@ pub fn run(
             let n = seen_count.get();
             let text = match (total_pkgs > 1, last_pct.get()) {
                 (true, Some(p)) if n > 0 => {
-                    format!("Package {} of {} — {}%", n, total_pkgs, p)
+                    format!("Package {n} of {total_pkgs} — {p}%")
                 }
-                (true, _) if n > 0 => format!("Package {} of {}", n, total_pkgs),
-                (false, Some(p)) => format!("{}%", p),
+                (true, _) if n > 0 => format!("Package {n} of {total_pkgs}"),
+                (false, Some(p)) => format!("{p}%"),
                 _ => String::new(),
             };
             bar_text_label.set_text(&text);
@@ -216,14 +216,11 @@ pub fn run(
     };
 
     let append_log: Rc<dyn Fn(&str)> = {
-        let text_view = text_view.clone();
-        let action_label = action_label.clone();
+        let text_view = text_view;
+        let action_label = action_label;
         let pulsing = pulsing.clone();
         let progress_bar = progress_bar.clone();
         let seen_count = seen_count.clone();
-        let last_pkgver = last_pkgver.clone();
-        let last_pct = last_pct.clone();
-        let set_bar_text = set_bar_text.clone();
         Rc::new(move |line: &str| {
             if let Some(pct) = extract_percentage(line) {
                 // A real progress tick — switch the bar from pulsing to
@@ -232,7 +229,7 @@ pub fn run(
                 // file and the surrounding "foo: unpacking ..." line
                 // already says what's happening.
                 pulsing.set(false);
-                progress_bar.set_fraction(pct as f64 / 100.0);
+                progress_bar.set_fraction(f64::from(pct) / 100.0);
                 last_pct.set(Some(pct));
                 set_bar_text();
                 return;
@@ -294,12 +291,10 @@ pub fn run(
         })
     };
     {
-        let pulsing = pulsing.clone();
-        let spinner = spinner.clone();
-        let progress_bar = progress_bar.clone();
-        let bar_text_label = bar_text_label.clone();
-        let seen_count = seen_count.clone();
-        let status_label = status_label.clone();
+        let spinner = spinner;
+        let progress_bar = progress_bar;
+        let bar_text_label = bar_text_label;
+        let status_label = status_label;
         let close_btn = close_btn.clone();
         let done_cb = Rc::new(done_cb);
         let session_for_cleanup = session.clone();
@@ -352,7 +347,7 @@ pub fn run(
         // reload afterward if the dialog (and its `finished` listener)
         // disappeared early. Block the close request outright while
         // busy, matching the disabled button.
-        let close_btn = close_btn.clone();
+        let close_btn = close_btn;
         dlg.connect_close_request(move |_| {
             if close_btn.is_sensitive() {
                 glib::Propagation::Proceed

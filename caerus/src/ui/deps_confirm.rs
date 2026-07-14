@@ -1,6 +1,6 @@
-//! If a package has any not-yet-installed run_depends (transitively),
+//! If a package has any not-yet-installed `run_depends` (transitively),
 //! shows a confirmation dialog transient for `parent` listing them.
-//! Rust translation of ui/deps_confirm.{h,c}.
+//! Rust translation of `ui/deps_confirm.{h,c}`.
 //!
 //! Asynchronous: `cb` may fire after this function returns (a real
 //! dialog was shown) or before it returns (the no-deps-missing fast
@@ -85,7 +85,6 @@ pub fn confirm_install_deps(
     }
     {
         let store = store.clone();
-        let deps = deps.clone();
         let cb = cb.clone();
         let dlg = dlg.clone();
         install_btn.connect_clicked(move |_| {

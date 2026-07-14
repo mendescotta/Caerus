@@ -2,7 +2,7 @@
 //! built directly on libxbps. Rust translation of src/main.c.
 //!
 //! caerus runs entirely unprivileged. Only `caerus-helper` is ever
-//! pkexec'd (see backend::transaction) — the GUI itself never needs
+//! pkexec'd (see `backend::transaction`) — the GUI itself never needs
 //! root.
 
 mod backend;
@@ -50,7 +50,7 @@ fn find_dev_icon_search_dir() -> Option<std::path::PathBuf> {
 
 /// Plain GTK4 (unlike libadwaita) never reads the desktop's dark/light
 /// preference on its own outside of a Flatpak sandbox — `GtkSettings`'s
-/// `gtk-application-prefer-dark-theme` only follows XSettings/
+/// `gtk-application-prefer-dark-theme` only follows `XSettings`/
 /// `settings.ini`, which most desktops (including GNOME since it moved
 /// dark-mode to the separate `color-scheme` key) don't populate for it.
 /// So, like `libadwaita` itself does internally, ask the

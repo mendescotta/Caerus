@@ -90,7 +90,7 @@ fn scan_configured_repos() -> Vec<(String, bool)> {
             continue;
         };
         let mut paths: Vec<_> = entries
-            .filter_map(|e| e.ok())
+            .filter_map(Result::ok)
             .map(|e| e.path())
             .filter(|p| p.extension().is_some_and(|e| e == "conf"))
             .collect();
@@ -207,7 +207,7 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction, on_changed: imp
     let inner = Rc::new(Inner {
         dlg: dlg.clone(),
         session: session.clone(),
-        repos_list: repos_list.clone(),
+        repos_list,
         on_changed: Box::new(on_changed),
     });
 

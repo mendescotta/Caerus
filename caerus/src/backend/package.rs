@@ -1,5 +1,5 @@
 //! Plain data model for a single xbps package, plus the `PackageObject`
-//! GObject wrapper needed to put `Package` values into a `gio::ListStore`
+//! `GObject` wrapper needed to put `Package` values into a `gio::ListStore`
 //! (GTK4's list widgets — `gtk::ColumnView` here — only work with
 //! `glib::Object`-derived items).
 //!
@@ -48,15 +48,15 @@ pub enum FilterMode {
 }
 
 impl FilterMode {
-    pub fn from_row_index(i: i32) -> Self {
+    pub const fn from_row_index(i: i32) -> Self {
         match i {
-            1 => FilterMode::Installed,
-            2 => FilterMode::NotInstalled,
-            3 => FilterMode::Upgradable,
-            4 => FilterMode::OnHold,
-            5 => FilterMode::Marked,
-            6 => FilterMode::Orphaned,
-            _ => FilterMode::All,
+            1 => Self::Installed,
+            2 => Self::NotInstalled,
+            3 => Self::Upgradable,
+            4 => Self::OnHold,
+            5 => Self::Marked,
+            6 => Self::Orphaned,
+            _ => Self::All,
         }
     }
 }
@@ -84,7 +84,7 @@ pub struct Package {
     pub state: PkgState,
     pub mark: PkgMark,
     pub essential: bool,
-    /// xbps "architecture" property (e.g. "x86_64", "noarch").
+    /// xbps "architecture" property (e.g. "`x86_64`", "noarch").
     pub arch: Option<String>,
     /// Computed once per reload via `xbps_find_pkg_orphans` — true if
     /// this package is installed but nothing else depends on it anymore.
@@ -119,7 +119,7 @@ pub struct PackageExtraInfo {
     pub shlib_provides: Vec<String>,
 }
 
-pub fn pkg_state_icon(state: PkgState, mark: PkgMark) -> Option<&'static str> {
+pub const fn pkg_state_icon(state: PkgState, mark: PkgMark) -> Option<&'static str> {
     match mark {
         PkgMark::Install => return Some("list-add-symbolic"),
         PkgMark::Remove => return Some("list-remove-symbolic"),
@@ -136,7 +136,7 @@ pub fn pkg_state_icon(state: PkgState, mark: PkgMark) -> Option<&'static str> {
     }
 }
 
-pub fn pkg_state_tooltip(state: PkgState, mark: PkgMark) -> &'static str {
+pub const fn pkg_state_tooltip(state: PkgState, mark: PkgMark) -> &'static str {
     match mark {
         PkgMark::Install => return "Marked for installation",
         PkgMark::Remove => return "Marked for removal",
@@ -154,8 +154,8 @@ pub fn pkg_state_tooltip(state: PkgState, mark: PkgMark) -> &'static str {
 }
 
 pub fn pkg_format_size(bytes: u64) -> String {
-    const GIB: f64 = 1073741824.0;
-    const MIB: f64 = 1048576.0;
+    const GIB: f64 = 1_073_741_824.0;
+    const MIB: f64 = 1_048_576.0;
     const KIB: f64 = 1024.0;
     let b = bytes as f64;
     if bytes as f64 >= GIB {
@@ -165,7 +165,7 @@ pub fn pkg_format_size(bytes: u64) -> String {
     } else if bytes as f64 >= KIB {
         format!("{:.1} KiB", b / KIB)
     } else {
-        format!("{} B", bytes)
+        format!("{bytes} B")
     }
 }
 

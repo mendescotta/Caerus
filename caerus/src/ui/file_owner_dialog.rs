@@ -20,7 +20,7 @@ fn query_owner(path: &str) -> Result<String, String> {
         .arg("-o")
         .arg(path)
         .output()
-        .map_err(|e| format!("failed to run xbps-query: {}", e))?;
+        .map_err(|e| format!("failed to run xbps-query: {e}"))?;
     let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
@@ -72,7 +72,7 @@ pub fn show(parent: Option<&gtk::Window>) {
 
     let run_search = {
         let entry = entry.clone();
-        let results_list = results_list.clone();
+        let results_list = results_list;
         move || {
             let query = entry.text().trim().to_string();
             while let Some(child) = results_list.first_child() {
@@ -116,7 +116,7 @@ pub fn show(parent: Option<&gtk::Window>) {
         search_btn.connect_clicked(move |_| run_search());
     }
     {
-        let run_search = run_search.clone();
+        let run_search = run_search;
         entry.connect_activate(move |_| run_search());
     }
     present_focused(&dlg, &entry);

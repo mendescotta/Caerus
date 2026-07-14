@@ -1,5 +1,5 @@
 //! Main application window. Rust translation of ui/window.{h,c} (built
-//! directly in code here rather than from a GtkBuilder .ui file).
+//! directly in code here rather than from a `GtkBuilder` .ui file).
 
 use crate::backend::package::{Package, PkgMark, PkgState};
 use crate::backend::package_store::PackageStore;
@@ -89,7 +89,7 @@ struct WindowGeometry {
 
 impl Default for WindowGeometry {
     fn default() -> Self {
-        WindowGeometry {
+        Self {
             width: 1100,
             height: 700,
             sidebar_pos: 200,
@@ -111,7 +111,7 @@ fn state_file_path() -> Option<std::path::PathBuf> {
 
 impl WindowGeometry {
     fn load() -> Self {
-        let mut geometry = WindowGeometry::default();
+        let mut geometry = Self::default();
         let Some(path) = state_file_path() else {
             return geometry;
         };
@@ -166,8 +166,8 @@ impl WindowGeometry {
             self.height,
             self.sidebar_pos,
             self.detail_pos,
-            self.sync_at_launch as i32,
-            self.search_name_only_default as i32
+            i32::from(self.sync_at_launch),
+            i32::from(self.search_name_only_default)
         );
         let _ = std::fs::write(&path, contents);
     }
@@ -303,15 +303,15 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         sidebar,
         pkg_list,
         detail_pane,
-        main_paned: main_paned.clone(),
-        right_paned: right_paned.clone(),
+        main_paned,
+        right_paned,
         spinner,
         btn_update,
         btn_reload,
         btn_mark_upgrades,
         btn_unmark_all,
         btn_apply,
-        menu_button: menu_button.clone(),
+        menu_button,
         menu_buttons,
         search_entry,
         btn_search_name_only,
@@ -607,7 +607,7 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuB
     }
     {
         let window = window.clone();
-        let popover = popover.clone();
+        let popover = popover;
         btn_about.connect_clicked(move |_| {
             popover.popdown();
             show_about_dialog(&window);
@@ -849,7 +849,7 @@ fn wire_up(state: &Rc<WindowState>) {
         let state = state.clone();
         store.connect_load_error(move |msg| {
             set_loading(&state, false);
-            show_toast(&state, &format!("Error loading packages: {}", msg));
+            show_toast(&state, &format!("Error loading packages: {msg}"));
         });
     }
 
@@ -925,7 +925,7 @@ fn wire_up(state: &Rc<WindowState>) {
         detail_pane.connect_reinstall_requested(move |pkgname| {
             run_maintenance_command(
                 &state,
-                &format!("REINSTALL {}", pkgname),
+                &format!("REINSTALL {pkgname}"),
                 "Reinstalling Package",
             );
         });
@@ -936,7 +936,7 @@ fn wire_up(state: &Rc<WindowState>) {
         detail_pane.connect_reconfigure_requested(move |pkgname| {
             run_maintenance_command(
                 &state,
-                &format!("RECONFIGURE {}", pkgname),
+                &format!("RECONFIGURE {pkgname}"),
                 "Reconfiguring Package",
             );
         });
@@ -947,7 +947,7 @@ fn wire_up(state: &Rc<WindowState>) {
         detail_pane.connect_download_requested(move |pkgname| {
             run_maintenance_command(
                 &state,
-                &format!("DOWNLOAD {}", pkgname),
+                &format!("DOWNLOAD {pkgname}"),
                 "Downloading Package",
             );
         });
@@ -957,9 +957,9 @@ fn wire_up(state: &Rc<WindowState>) {
         let state = state.clone();
         detail_pane.connect_repolock_requested(move |pkgname, want_locked| {
             let cmd = if want_locked {
-                format!("REPOLOCK {}", pkgname)
+                format!("REPOLOCK {pkgname}")
             } else {
-                format!("REPOUNLOCK {}", pkgname)
+                format!("REPOUNLOCK {pkgname}")
             };
             let title = if want_locked {
                 "Repo-Locking Package"
@@ -974,9 +974,9 @@ fn wire_up(state: &Rc<WindowState>) {
         let state = state.clone();
         detail_pane.connect_automatic_requested(move |pkgname, want_automatic| {
             let cmd = if want_automatic {
-                format!("MARKAUTO {}", pkgname)
+                format!("MARKAUTO {pkgname}")
             } else {
-                format!("MARKMANUAL {}", pkgname)
+                format!("MARKMANUAL {pkgname}")
             };
             let title = if want_automatic {
                 "Marking Automatic"
@@ -1246,14 +1246,14 @@ fn trigger_update(state: &Rc<WindowState>, sync_first: bool, silent: bool) {
             let session = state.session.clone();
             let finished_id_cell = Rc::new(std::cell::Cell::new(0u64));
             let finished_id_cell2 = finished_id_cell.clone();
-            let commands_for_history = commands.clone();
+            let commands_for_history = commands;
             let finished_id = state.session.connect_finished(move |success| {
                 session.disconnect_finished(finished_id_cell2.get());
                 crate::backend::history::record(&commands_for_history, success);
-                if !success {
-                    show_toast(&state2, "Repository sync failed — loading local data.");
-                } else {
+                if success {
                     show_toast(&state2, "Repositories synced. Loading package list\u{2026}");
+                } else {
+                    show_toast(&state2, "Repository sync failed — loading local data.");
                 }
                 do_reload(&state2);
             });
@@ -1374,9 +1374,9 @@ fn on_apply_clicked(state: &Rc<WindowState>) {
 /// to Apply.
 fn on_hold_requested(state: &Rc<WindowState>, pkgname: &str, want_hold: bool) {
     let cmd = if want_hold {
-        format!("HOLD {}", pkgname)
+        format!("HOLD {pkgname}")
     } else {
-        format!("UNHOLD {}", pkgname)
+        format!("UNHOLD {pkgname}")
     };
     let title = if want_hold {
         "Holding Package"
@@ -1462,7 +1462,7 @@ fn run_maintenance_command(state: &Rc<WindowState>, cmd: &str, title: &str) {
 fn force_variant(cmd: &str) -> String {
     for verb in ["INSTALL", "REMOVE", "PURGE"] {
         if let Some(rest) = cmd.strip_prefix(verb) {
-            return format!("{}_FORCE{}", verb, rest);
+            return format!("{verb}_FORCE{rest}");
         }
     }
     cmd.to_string()
@@ -1596,8 +1596,7 @@ fn update_status_bar(state: &Rc<WindowState>) {
         let total = state.store.list().n_items();
         let installed = state.store.count_installed();
         state.status_label.set_text(&format!(
-            "{} packages.  {} installed.  {} upgradable.  {} marked.",
-            total, installed, upgradable, marked
+            "{total} packages.  {installed} installed.  {upgradable} upgradable.  {marked} marked."
         ));
     }
     update_apply_button(state, marked);
@@ -1605,7 +1604,7 @@ fn update_status_bar(state: &Rc<WindowState>) {
 }
 
 fn update_apply_button(state: &Rc<WindowState>, marked: u32) {
-    state.btn_apply.set_label(&format!("Apply ({})", marked));
+    state.btn_apply.set_label(&format!("Apply ({marked})"));
     state.btn_apply.set_sensitive(marked > 0);
     state.btn_unmark_all.set_sensitive(marked > 0);
 }
