@@ -59,10 +59,11 @@ struct WindowGeometry {
     sidebar_pos: i32,
     detail_pos: i32,
     /// Whether to sync repositories (a privileged `pkexec` action) at
-    /// launch, before the user has clicked anything. Defaults to `true`
-    /// (previous, only) behavior; exposed as a checkable "Sync
-    /// Repositories at Launch" item in the app menu for anyone who'd
-    /// rather not see an authentication prompt immediately on open.
+    /// launch, before the user has clicked anything. Defaults to `false`
+    /// — a fresh install shouldn't greet a first-time user with an
+    /// unexplained authentication prompt before they've seen a single
+    /// package; exposed as a checkable "Sync Repositories at Launch" item
+    /// in the app menu for anyone who'd rather have it back.
     sync_at_launch: bool,
 }
 
@@ -73,7 +74,7 @@ impl Default for WindowGeometry {
             height: 700,
             sidebar_pos: 200,
             detail_pos: 420,
-            sync_at_launch: true,
+            sync_at_launch: false,
         }
     }
 }
@@ -568,6 +569,30 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuB
     (menu_button, buttons)
 }
 
+// libadwaita's AboutWindow gets a proper CSD titlebar matching every
+// other dialog in the app (see the earlier UX review's finding that
+// plain GtkAboutDialog was the one visibly inconsistent dialog); the
+// plain-GTK4 fallback below is otherwise identical in content. Which one
+// gets compiled in is a build-time choice (`--features adwaita`), not
+// something detected per-machine at runtime — see the `[features]` note
+// in caerus/Cargo.toml.
+#[cfg(feature = "adwaita")]
+fn show_about_dialog(parent: &gtk::ApplicationWindow) {
+    let about = adw::AboutWindow::builder()
+        .transient_for(parent)
+        .modal(true)
+        .application_name("Caerus")
+        .version(env!("CARGO_PKG_VERSION"))
+        .comments("A Synaptic-inspired package manager for Void Linux, built directly on libxbps.")
+        .website("https://github.com/mendescotta/Caerus")
+        .application_icon(crate::APP_ID)
+        .license_type(gtk::License::Gpl30)
+        .build();
+    about.present();
+    gtk::prelude::GtkWindowExt::set_focus(&about, None::<&gtk::Widget>);
+}
+
+#[cfg(not(feature = "adwaita"))]
 fn show_about_dialog(parent: &gtk::ApplicationWindow) {
     let about = gtk::AboutDialog::new();
     about.set_transient_for(Some(parent));

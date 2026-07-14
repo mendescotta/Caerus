@@ -12,9 +12,9 @@ implementation, debugging, and iteration. This means:
   code that compiles and looks idiomatic while still containing logic errors,
   especially around memory ownership, FFI boundaries, and privilege handling
   — the exact areas where this project needed the most care (see below).
-- **Users should treat Caerus as software from an independent hobby project**,
-  not an audited, vendor-backed package manager. Use `xbps` CLI tools
-  directly if you need a hardened, well-audited path for critical systems.
+- **Treat Caerus as software from an independent hobby project**, not an
+  audited, vendor-backed package manager. Use the `xbps` CLI tools directly
+  if you need a hardened, well-audited path for critical systems.
 
 ## Security Principles Caerus Is Built On
 
@@ -41,15 +41,35 @@ implementation, debugging, and iteration. This means:
   around GObject lifecycles) is easy to get subtly wrong in ways that pass
   casual testing but fail under specific timing or object-lifetime conditions.
 
+## How It's Built
+
+A 3-crate Cargo workspace: `xbps-sys` (bindgen FFI bindings to `libxbps`,
+generated at build time from your system's `<xbps.h>`), `caerus` (the
+unprivileged GTK4 app), and `caerus-helper` (the one privileged component,
+spawned via `pkexec`). No GtkBuilder `.ui` templates — the UI is hand-built
+in Rust, so there's no separate template/GResource build step; Cargo needs
+nothing beyond `libxbps-devel` and GTK4's own dev headers.
+
 ## Logic Behind Key Functionality
 
-- **GTK4 UI ↔ libxbps backend split**: the UI thread never blocks on package
-  operations directly; xbps calls are isolated so a slow or stuck backend
-  call doesn't freeze the interface.
-- **polkit for privileged actions**: rather than requesting a root password
-  inside Caerus (or running the whole app as root, which was rejected early
-  on), each privileged action is authorized individually through the
-  system's existing polkit rules — the same mechanism other desktop tools use.
+- **One thread touches libxbps.** Every `libxbps` call runs on a single
+  dedicated OS thread for the process's whole lifetime (see the comment
+  atop `caerus/src/backend/package_store.rs`) — everything else reaches it
+  by message over a channel, so the UI thread never blocks on a package
+  operation, and concurrent/re-entrant access is a type-level impossibility
+  rather than something a runtime lock has to enforce. This was the fix for
+  real crashes in the original C version, caused by concurrent/re-entrant
+  `xbps_init`/`xbps_end` calls.
+- **Privilege separation via polkit.** The GTK app never runs as root —
+  asking for a password inside Caerus, or running the whole app as root,
+  were both rejected early on. Instead, a change is queued as a
+  line-oriented command (`INSTALL pkg1 pkg2`, `REMOVE ...`, `SYNC`, ...) and
+  sent to `caerus-helper`, a small dependency-free binary spawned once via
+  `pkexec` and kept alive (5-minute idle timeout) so one session doesn't
+  keep re-prompting. It does nothing but parse that protocol and shell out
+  to the matching `xbps-*` tool, streaming output back — the one
+  privileged, security-relevant component in the project, kept
+  intentionally small and auditable.
 - **Buffer-based xbps calls**: functions like `xbps_pkgpattern_name` expect
   a caller-provided buffer rather than returning allocated memory. Caerus
   follows that contract explicitly rather than assuming ownership transfer,

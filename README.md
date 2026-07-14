@@ -4,8 +4,8 @@
 
 A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
 
-> **Disclaimer:** Caerus was built with the help of AI (Claude). See [DISCLAIMER.md](DISCLAIMER.md)
-> for details.
+> **Note:** built with the help of AI (Claude) — see [DISCLAIMER.md](DISCLAIMER.md)
+> for how it's built, the security assumptions behind it, and known risks.
 
 ## Screenshots
 
@@ -20,7 +20,7 @@ A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
 ## Features
 
 - Package table with search, click-to-sort columns, and per-row
-  checkboxes for marking several packages at once
+  checkboxes for bulk marking
 - Filter by state (All / Installed / Not Installed / Upgradable / On Hold /
   Marked / Orphaned) and by repository
 - Detail pane: description, tags, size, maintainer, dependencies, reverse
@@ -31,25 +31,23 @@ A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
 - From the detail pane's "More" menu: Reinstall, Reconfigure, Download Only,
   Repo-Lock/Release Repo-Lock, and Mark as Manually/Automatically Installed
 - Real transaction preview before applying anything — actual sizes,
-  ordering, and conflicts from `libxbps` itself, not an approximation, with
-  a "Copy Dry-Run Output" button
+  ordering, and conflicts from `libxbps` itself, with a "Copy Dry-Run
+  Output" button
 - Offers to retry with force (ignoring file conflicts or unresolved
   dependencies) if an Apply batch fails
 - Warns before a removal that would cascade to dependent packages, showing
   the full chain down to indirectly-affected ones
-- Transaction history log of every applied batch and maintenance action,
-  viewable from the app menu
-- Full system upgrade, orphaned-package removal, cache cleanup, package
-  database verification, and force-reconfiguring every installed package,
-  from the app menu
+- Transaction history log of every applied batch and maintenance action
+- Full system upgrade, orphaned-package removal, cache cleanup, database
+  verification, and force-reconfiguring every installed package, from the
+  app menu
 - Find which package owns a file (`xbps-query -o`), and switch between
   packages providing the same files (`xbps-alternatives`)
-- Add/remove repositories, with an optional custom display name per
-  repository
+- Add/remove repositories, with an optional custom display name each
 - Keyboard shortcuts (Ctrl+F search, F5 reload, Delete to mark for removal,
   Ctrl+A select all, Escape to clear search, Ctrl+Q to quit)
-- "Sync Repositories at Launch" toggle in the app menu, for anyone who'd
-  rather not see an authentication prompt immediately on open
+- "Sync Repositories at Launch" toggle, for anyone who'd rather not see an
+  authentication prompt immediately on open
 
 <details>
 <summary>Every Caerus action and its underlying xbps command</summary>
@@ -88,6 +86,19 @@ A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
 
 ## Installing
 
+### Quick install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mendescotta/Caerus/main/get-caerus.sh | sh
+```
+
+Clones the repo, offers to install any missing build dependencies via
+`xbps-install`, builds with `cargo build --release`, then asks whether to
+run it straight from the build tree or install it system-wide. Read
+[get-caerus.sh](get-caerus.sh) before piping it to `sh`, same as you
+should for any installer script — it only builds from source on your own
+machine, there's no prebuilt binary involved.
+
 ### Dependencies
 
 Build-time:
@@ -117,6 +128,12 @@ cargo build --release
 sudo ./install.sh
 ```
 
+Add `--features caerus/adwaita` to the build command (needs
+`libadwaita-devel`) to swap in a handful of libadwaita widgets — an
+About window with proper GNOME-standard chrome, for now — where plain
+GTK4 is used otherwise. This is a build-time choice, not something a
+single binary detects per-machine at runtime.
+
 `install.sh` installs `caerus` to `/usr/bin`, `caerus-helper` to
 `/usr/libexec`, and registers the `.desktop` launcher, polkit policy, and
 icon (set `PREFIX=/usr/local` or similar before running it to install
@@ -131,11 +148,10 @@ cargo build --release
 
 Caerus looks for `caerus-helper` next to its own binary first, so this
 works straight out of the build tree — no install step needed to try it
-out. The application icon needs `caerus/data/icons/` to be reachable
-relative to the binary for this to show correctly uninstalled; it's found
-automatically as long as you run the binary from inside the build tree
+out. The application icon needs `caerus/data/icons/` reachable relative to
+the binary, which it is as long as you run from inside the build tree
 (`target/debug/caerus` or `target/release/caerus`). This covers Caerus's
-own UI — the window icon, headerbar, and About dialog.
+own UI — window icon, headerbar, and About dialog.
 
 The desktop shell (GNOME's top bar, Alt-Tab, the Overview, etc.) is a
 separate matter: it identifies windows through an installed `.desktop`
@@ -163,51 +179,6 @@ sudo rm /usr/bin/caerus /usr/libexec/caerus-helper \
 ```
 
 (adjust the prefix if you installed with a custom `PREFIX`).
-
-## How it's built
-
-```
-caerus/
-├── xbps-sys/       raw FFI bindings to libxbps, generated by bindgen
-│                   at build time from your system's <xbps.h>
-├── caerus/         the GTK4 app (unprivileged)
-│   ├── src/backend/  package.rs, package_store.rs, transaction.rs,
-│   │                  repo_names.rs
-│   └── src/ui/       window.rs, filter_sidebar.rs, package_list.rs,
-│                      detail_pane.rs, apply_dialog.rs, apply_confirm.rs,
-│                      deps_confirm.rs, remove_confirm.rs,
-│                      alternatives_dialog.rs, file_owner_dialog.rs,
-│                      repo_manager.rs
-├── caerus-helper/  the privileged helper (spawned via pkexec), zero
-│                   external dependencies by design
-├── install.sh      system-wide install (requires root)
-└── dev-install.sh  per-user desktop/icon registration for an uninstalled
-                     build (no root)
-```
-
-**Concurrency model.** Exactly one dedicated OS thread ever touches
-`libxbps`, for the whole process lifetime (see the comment at the top of
-`caerus/src/backend/package_store.rs`). Every other part of the program —
-reload, and every detail-pane lookup — is a message sent down a channel to
-that thread and processed one at a time. Concurrent or re-entrant access to
-the `xbps_handle` isn't prevented by runtime locking; it's a type-level
-impossibility, because there's only ever one caller.
-
-**Privilege separation.** The GTK application never runs as root. When a
-change needs to actually happen, it's queued as a line-oriented command
-(`INSTALL pkg1 pkg2`, `REMOVE ...`, `SYNC`, ...) and sent to
-`caerus-helper`, a small dependency-free binary spawned once via `pkexec`
-and kept alive (with a 5-minute idle timeout) so repeated actions in one
-session don't re-prompt for authentication. `caerus-helper` does nothing but
-parse that line protocol and shell out to `xbps-install`/`xbps-remove`/
-`xbps-pkgdb`/`xbps-alternatives`, streaming their output back — it's the one
-privileged component in the project, kept intentionally small and
-dependency-free to minimize its attack surface.
-
-**No GtkBuilder `.ui` templates.** The UI is built directly in Rust code
-under `caerus/src/ui/` rather than from `.ui` XML — no
-`glib-compile-resources`/GResource build step, no separate template-editing
-tool. Cargo needs nothing beyond `libxbps-devel` and GTK4's own dev headers.
 
 ## License
 

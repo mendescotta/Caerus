@@ -14,7 +14,17 @@ gtk = { package = "gtk4", version = "0.9", features = ["v4_12"] }
 gio = "0.20"
 glib = "0.20"
 gdk = { package = "gdk4", version = "0.9", features = ["v4_12"] }
+adw = { package = "libadwaita", version = "0.7", features = ["v1_4"], optional = true }
 xbps-sys = { path = "../xbps-sys" }
+
+# Off by default: plain GTK4 has no runtime dependency on libadwaita at
+# all. Enable with `--features adwaita` when building/packaging for a
+# system where libadwaita is expected to be present — this is a
+# build-time choice (whoever builds Caerus picks one or the other), not
+# something a single binary detects per-machine at runtime. See
+# DISCLAIMER.md/CONTRIBUTING.md for what it currently changes.
+[features]
+adwaita = ["dep:adw"]
 
 [[bin]]
 name = "caerus"

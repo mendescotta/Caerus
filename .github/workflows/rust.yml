@@ -34,7 +34,10 @@ jobs:
         xbps-install -Suy
         # clang provides libclang, which xbps-sys's bindgen build script
         # needs at build time to generate libxbps FFI bindings.
-        xbps-install -y base-devel libxbps-devel gtk4-devel pkg-config rust cargo git clang
+        # libadwaita-devel is only needed for the optional `adwaita`
+        # feature build below, checked here too so it doesn't silently
+        # bit-rot without CI ever compiling it.
+        xbps-install -y base-devel libxbps-devel gtk4-devel libadwaita-devel pkg-config rust cargo git clang
     - uses: actions/checkout@v4
     - name: Build
       run: cargo build --verbose
@@ -44,3 +47,7 @@ jobs:
       run: cargo clippy --workspace --all-targets -- -D warnings
     - name: Formatting
       run: cargo fmt --check
+    - name: Build with adwaita feature
+      run: cargo build --verbose --features caerus/adwaita
+    - name: Clippy with adwaita feature
+      run: cargo clippy --workspace --all-targets --features caerus/adwaita -- -D warnings
