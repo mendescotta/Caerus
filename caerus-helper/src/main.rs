@@ -18,6 +18,8 @@
 //!   UNHOLD  p1 p2    — release a previously-set hold
 //!   REINSTALL p1 p2  — force re-installation of already-installed package(s)
 //!   RECONFIGURE p1 p2 — re-run post-install configuration script(s)
+//!   RECONFIGURE_ALL  — force re-run every installed package's
+//!                      post-install configuration script (-fa)
 //!   DOWNLOAD p1 p2   — fetch and verify package(s), don't install
 //!   REPOLOCK p1 p2   — only ever upgrade from the currently-installed repo
 //!   REPOUNLOCK p1 p2 — release a previously-set repo-lock
@@ -146,6 +148,45 @@ fn split_pkgnames(rest: &str) -> Vec<String> {
     rest.split_whitespace().map(str::to_owned).collect()
 }
 
+/// Maps a protocol verb (already stripped of its trailing space and
+/// package-name argument, e.g. `"PURGE"`) to the base xbps argv it
+/// should run, before package names are appended — the exact place a
+/// mismatched flag would silently produce the wrong real-world
+/// `xbps-remove`/`xbps-install`/`xbps-pkgdb` invocation. Kept as a pure
+/// mapping, separate from actually running anything, so it's
+/// unit-testable without spawning a privileged process.
+fn argv_for(verb: &str) -> Option<&'static [&'static str]> {
+    Some(match verb {
+        "INSTALL" => &["xbps-install", "-y", "--"],
+        "REMOVE" => &["xbps-remove", "-y", "--"],
+        "PURGE" => &["xbps-remove", "-y", "-R", "--"],
+        "INSTALL_FORCE" => &["xbps-install", "-y", "-I", "--"],
+        "REMOVE_FORCE" => &["xbps-remove", "-y", "-F", "--"],
+        "PURGE_FORCE" => &["xbps-remove", "-y", "-R", "-F", "--"],
+        "HOLD" => &["xbps-pkgdb", "-m", "hold", "--"],
+        "UNHOLD" => &["xbps-pkgdb", "-m", "unhold", "--"],
+        "REINSTALL" => &["xbps-install", "-f", "-y", "--"],
+        "RECONFIGURE" => &["xbps-reconfigure", "-f", "--"],
+        "DOWNLOAD" => &["xbps-install", "-D", "-y", "--"],
+        "REPOLOCK" => &["xbps-pkgdb", "-m", "repolock", "--"],
+        "REPOUNLOCK" => &["xbps-pkgdb", "-m", "repounlock", "--"],
+        "MARKAUTO" => &["xbps-pkgdb", "-m", "auto", "--"],
+        "MARKMANUAL" => &["xbps-pkgdb", "-m", "manual", "--"],
+        _ => return None,
+    })
+}
+
+/// Runs `verb`'s mapped argv (see `argv_for`) against `pkgs` and
+/// responds OK/ERROR — the shared body behind every pkg-name-taking
+/// protocol verb below.
+fn run_pkg_command(verb: &str, pkgs: &[String], err_msg: &str) {
+    let base = argv_for(verb).expect("run_pkg_command called with a known verb");
+    let mut argv: Vec<&str> = base.to_vec();
+    argv.extend(pkgs.iter().map(String::as_str));
+    let code = run_xbps(&argv);
+    respond_ok_or(code == Some(0), err_msg);
+}
+
 fn respond_ok_or(success: bool, err_msg: &str) {
     if success {
         println!("OK");
@@ -229,10 +270,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            let mut argv: Vec<&str> = vec!["xbps-install", "-y", "--"];
-            argv.extend(pkgs.iter().map(String::as_str));
-            let code = run_xbps(&argv);
-            respond_ok_or(code == Some(0), "install failed");
+            run_pkg_command("INSTALL", &pkgs, "install failed");
             continue;
         }
 
@@ -243,10 +281,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            let mut argv: Vec<&str> = vec!["xbps-remove", "-y", "--"];
-            argv.extend(pkgs.iter().map(String::as_str));
-            let code = run_xbps(&argv);
-            respond_ok_or(code == Some(0), "remove failed");
+            run_pkg_command("REMOVE", &pkgs, "remove failed");
             continue;
         }
 
@@ -261,10 +296,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            let mut argv: Vec<&str> = vec!["xbps-remove", "-y", "-R", "--"];
-            argv.extend(pkgs.iter().map(String::as_str));
-            let code = run_xbps(&argv);
-            respond_ok_or(code == Some(0), "purge failed");
+            run_pkg_command("PURGE", &pkgs, "purge failed");
             continue;
         }
 
@@ -277,10 +309,7 @@ fn main() {
             }
             // -I: ignore detected file conflicts — a fallback for when a
             // plain INSTALL failed because of one, not offered up front.
-            let mut argv: Vec<&str> = vec!["xbps-install", "-y", "-I", "--"];
-            argv.extend(pkgs.iter().map(String::as_str));
-            let code = run_xbps(&argv);
-            respond_ok_or(code == Some(0), "forced install failed");
+            run_pkg_command("INSTALL_FORCE", &pkgs, "forced install failed");
             continue;
         }
 
@@ -293,10 +322,7 @@ fn main() {
             }
             // -F: force removal even with unresolved revdeps/shared
             // libraries — a fallback for when a plain REMOVE failed.
-            let mut argv: Vec<&str> = vec!["xbps-remove", "-y", "-F", "--"];
-            argv.extend(pkgs.iter().map(String::as_str));
-            let code = run_xbps(&argv);
-            respond_ok_or(code == Some(0), "forced remove failed");
+            run_pkg_command("REMOVE_FORCE", &pkgs, "forced remove failed");
             continue;
         }
 
@@ -307,10 +333,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            let mut argv: Vec<&str> = vec!["xbps-remove", "-y", "-R", "-F", "--"];
-            argv.extend(pkgs.iter().map(String::as_str));
-            let code = run_xbps(&argv);
-            respond_ok_or(code == Some(0), "forced purge failed");
+            run_pkg_command("PURGE_FORCE", &pkgs, "forced purge failed");
             continue;
         }
 
@@ -338,10 +361,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            let mut argv: Vec<&str> = vec!["xbps-pkgdb", "-m", "hold", "--"];
-            argv.extend(pkgs.iter().map(String::as_str));
-            let code = run_xbps(&argv);
-            respond_ok_or(code == Some(0), "hold failed");
+            run_pkg_command("HOLD", &pkgs, "hold failed");
             continue;
         }
 
@@ -352,10 +372,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            let mut argv: Vec<&str> = vec!["xbps-pkgdb", "-m", "unhold", "--"];
-            argv.extend(pkgs.iter().map(String::as_str));
-            let code = run_xbps(&argv);
-            respond_ok_or(code == Some(0), "unhold failed");
+            run_pkg_command("UNHOLD", &pkgs, "unhold failed");
             continue;
         }
 
@@ -368,10 +385,7 @@ fn main() {
             }
             // -f forces re-installation of a package xbps otherwise
             // considers already up to date and does nothing for.
-            let mut argv: Vec<&str> = vec!["xbps-install", "-f", "-y", "--"];
-            argv.extend(pkgs.iter().map(String::as_str));
-            let code = run_xbps(&argv);
-            respond_ok_or(code == Some(0), "reinstall failed");
+            run_pkg_command("REINSTALL", &pkgs, "reinstall failed");
             continue;
         }
 
@@ -385,10 +399,17 @@ fn main() {
             // -f forces the reconfigure scripts to actually re-run for a
             // package xbps otherwise considers already configured.
             // xbps-reconfigure has no -y/--yes — it never prompts.
-            let mut argv: Vec<&str> = vec!["xbps-reconfigure", "-f", "--"];
-            argv.extend(pkgs.iter().map(String::as_str));
-            let code = run_xbps(&argv);
-            respond_ok_or(code == Some(0), "reconfigure failed");
+            run_pkg_command("RECONFIGURE", &pkgs, "reconfigure failed");
+            continue;
+        }
+
+        if line == "RECONFIGURE_ALL" {
+            // -f forces every package to be reconfigured even if xbps
+            // considers it already configured; -a means "every installed
+            // package" rather than a specific list — the system-wide
+            // counterpart to the per-package RECONFIGURE above.
+            let code = run_xbps(&["xbps-reconfigure", "-f", "-a"]);
+            respond_ok_or(code == Some(0), "reconfigure-all failed");
             continue;
         }
 
@@ -399,10 +420,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            let mut argv: Vec<&str> = vec!["xbps-install", "-D", "-y", "--"];
-            argv.extend(pkgs.iter().map(String::as_str));
-            let code = run_xbps(&argv);
-            respond_ok_or(code == Some(0), "download failed");
+            run_pkg_command("DOWNLOAD", &pkgs, "download failed");
             continue;
         }
 
@@ -413,10 +431,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            let mut argv: Vec<&str> = vec!["xbps-pkgdb", "-m", "repolock", "--"];
-            argv.extend(pkgs.iter().map(String::as_str));
-            let code = run_xbps(&argv);
-            respond_ok_or(code == Some(0), "repo-lock failed");
+            run_pkg_command("REPOLOCK", &pkgs, "repo-lock failed");
             continue;
         }
 
@@ -427,10 +442,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            let mut argv: Vec<&str> = vec!["xbps-pkgdb", "-m", "repounlock", "--"];
-            argv.extend(pkgs.iter().map(String::as_str));
-            let code = run_xbps(&argv);
-            respond_ok_or(code == Some(0), "repo-unlock failed");
+            run_pkg_command("REPOUNLOCK", &pkgs, "repo-unlock failed");
             continue;
         }
 
@@ -441,10 +453,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            let mut argv: Vec<&str> = vec!["xbps-pkgdb", "-m", "auto", "--"];
-            argv.extend(pkgs.iter().map(String::as_str));
-            let code = run_xbps(&argv);
-            respond_ok_or(code == Some(0), "marking automatic failed");
+            run_pkg_command("MARKAUTO", &pkgs, "marking automatic failed");
             continue;
         }
 
@@ -455,10 +464,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            let mut argv: Vec<&str> = vec!["xbps-pkgdb", "-m", "manual", "--"];
-            argv.extend(pkgs.iter().map(String::as_str));
-            let code = run_xbps(&argv);
-            respond_ok_or(code == Some(0), "marking manual failed");
+            run_pkg_command("MARKMANUAL", &pkgs, "marking manual failed");
             continue;
         }
 
@@ -515,5 +521,125 @@ fn main() {
 
         println!("ERROR unknown command: {}", line);
         let _ = io::stdout().flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn purge_uses_recursive_removal_flag() {
+        assert_eq!(
+            argv_for("PURGE"),
+            Some(["xbps-remove", "-y", "-R", "--"].as_slice())
+        );
+    }
+
+    #[test]
+    fn purge_force_combines_recursive_and_force_flags() {
+        assert_eq!(
+            argv_for("PURGE_FORCE"),
+            Some(["xbps-remove", "-y", "-R", "-F", "--"].as_slice())
+        );
+    }
+
+    #[test]
+    fn remove_vs_remove_force() {
+        assert_eq!(
+            argv_for("REMOVE"),
+            Some(["xbps-remove", "-y", "--"].as_slice())
+        );
+        assert_eq!(
+            argv_for("REMOVE_FORCE"),
+            Some(["xbps-remove", "-y", "-F", "--"].as_slice())
+        );
+    }
+
+    #[test]
+    fn install_vs_install_force() {
+        assert_eq!(
+            argv_for("INSTALL"),
+            Some(["xbps-install", "-y", "--"].as_slice())
+        );
+        assert_eq!(
+            argv_for("INSTALL_FORCE"),
+            Some(["xbps-install", "-y", "-I", "--"].as_slice())
+        );
+    }
+
+    #[test]
+    fn hold_and_unhold_are_distinct_pkgdb_modes() {
+        assert_eq!(
+            argv_for("HOLD"),
+            Some(["xbps-pkgdb", "-m", "hold", "--"].as_slice())
+        );
+        assert_eq!(
+            argv_for("UNHOLD"),
+            Some(["xbps-pkgdb", "-m", "unhold", "--"].as_slice())
+        );
+    }
+
+    #[test]
+    fn repolock_and_repounlock_are_distinct_pkgdb_modes() {
+        assert_eq!(
+            argv_for("REPOLOCK"),
+            Some(["xbps-pkgdb", "-m", "repolock", "--"].as_slice())
+        );
+        assert_eq!(
+            argv_for("REPOUNLOCK"),
+            Some(["xbps-pkgdb", "-m", "repounlock", "--"].as_slice())
+        );
+    }
+
+    #[test]
+    fn markauto_and_markmanual_are_distinct_pkgdb_modes() {
+        assert_eq!(
+            argv_for("MARKAUTO"),
+            Some(["xbps-pkgdb", "-m", "auto", "--"].as_slice())
+        );
+        assert_eq!(
+            argv_for("MARKMANUAL"),
+            Some(["xbps-pkgdb", "-m", "manual", "--"].as_slice())
+        );
+    }
+
+    #[test]
+    fn reinstall_forces_reinstallation() {
+        assert_eq!(
+            argv_for("REINSTALL"),
+            Some(["xbps-install", "-f", "-y", "--"].as_slice())
+        );
+    }
+
+    #[test]
+    fn reconfigure_forces_reconfiguration() {
+        assert_eq!(
+            argv_for("RECONFIGURE"),
+            Some(["xbps-reconfigure", "-f", "--"].as_slice())
+        );
+    }
+
+    #[test]
+    fn download_does_not_pass_yes_alone_but_fetch_flag() {
+        assert_eq!(
+            argv_for("DOWNLOAD"),
+            Some(["xbps-install", "-D", "-y", "--"].as_slice())
+        );
+    }
+
+    #[test]
+    fn unknown_verb_has_no_mapping() {
+        assert_eq!(argv_for("NOT_A_REAL_VERB"), None);
+    }
+
+    #[test]
+    fn split_pkgnames_splits_on_whitespace() {
+        assert_eq!(
+            split_pkgnames("foo bar baz"),
+            vec!["foo".to_string(), "bar".to_string(), "baz".to_string()]
+        );
+        assert_eq!(split_pkgnames(""), Vec::<String>::new());
+        assert_eq!(split_pkgnames("  foo   bar  "), vec!["foo", "bar"]);
     }
 }
