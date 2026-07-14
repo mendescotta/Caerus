@@ -35,6 +35,11 @@ enables `clippy::all` as a warning (see `[workspace.lints.clippy]` in the
 root `Cargo.toml`) — CI additionally denies warnings outright, so treat any
 clippy output as something to fix, not skip.
 
+Caerus also has an optional `adwaita` Cargo feature (`--features
+caerus/adwaita`, needs `libadwaita-devel`) that swaps in libadwaita
+widgets where available — build and clippy both configurations if you
+touch anything gated behind `#[cfg(feature = "adwaita")]`, since CI does.
+
 ## Testing changes
 
 Most of the app's *logic* — mark-to-command mapping, progress-line
