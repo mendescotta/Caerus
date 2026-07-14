@@ -30,8 +30,9 @@ fn count_target_packages(commands: &[String]) -> usize {
 }
 
 /// The helper's own log lines look like:
-///   LOG [*] Updating repository `https://...` ...
-///   LOG [*] Installing `foo-1.0_1` ... 42%
+///   LOG [*] Downloading packages
+///   LOG foo-1.0_1: [*****     ] 42% ETA: 00:03
+///   LOG foo-1.0_1: unpacking ...
 ///   OK
 /// "LOG " and "[*]" are stripped for display only; the underlying
 /// protocol line is untouched everywhere else.
@@ -46,6 +47,32 @@ fn strip_log_decoration(line: &str) -> String {
         s = rest;
     }
     s.trim().to_string()
+}
+
+/// Extracts the leading `<pkgver>` identifier from an already
+/// decoration-stripped xbps status line, e.g. `foo-1.0_1: unpacking
+/// ...` -> `Some("foo-1.0_1")`. Returns `None` for lines with no such
+/// prefix — banner lines like `Downloading packages`, or anything else
+/// that doesn't name a specific package.
+///
+/// xbps-install emits *several* differently-worded lines for the same
+/// single package over its lifecycle (confirmed against the literal
+/// format strings embedded in the `xbps-install` binary: `%s:
+/// unpacking ...`, `%s: configuring ...`, `%s: installed
+/// successfully.`, etc — no backticks, unlike an earlier version of
+/// this comment assumed). The progress counter below used to treat
+/// every distinct *raw line* as a new package, which overcounts by
+/// 2-4x and makes "Package N of M" hit its cap — and visually get
+/// stuck there — long before the batch is actually done. Counting
+/// distinct pkgver prefixes instead tracks the real per-package
+/// boundary.
+fn extract_pkgver(line: &str) -> Option<&str> {
+    let idx = line.find(": ")?;
+    let candidate = &line[..idx];
+    if candidate.is_empty() || candidate.contains(char::is_whitespace) {
+        return None;
+    }
+    Some(candidate)
 }
 
 /// The helper emits one line per percentage tick while a package
@@ -102,17 +129,14 @@ pub fn run(
     action_label.add_css_class("dim-label");
     outer.append(&action_label);
 
-    // Only shown when the batch actually names packages (INSTALL/REMOVE/
-    // PURGE/HOLD/UNHOLD) and there's more than one — for a single
-    // package, or a command with no package-name concept at all (SYNC,
-    // full UPGRADE, ...), the action line above already says enough.
-    let progress_count_label = gtk::Label::new(None);
-    progress_count_label.set_xalign(0.0);
-    progress_count_label.add_css_class("dim-label");
-    progress_count_label.set_visible(total_pkgs > 1);
-    outer.append(&progress_count_label);
-
+    // Thicker than the GTK4 default (see the `.apply-progress` CSS rule
+    // in window.rs) so its own overlaid text — "Package N of M", the
+    // live percentage, or both — is legible instead of a thin sliver.
+    // This replaces the separate progress-count label the dialog used
+    // to show above the bar.
     let progress_bar = gtk::ProgressBar::new();
+    progress_bar.add_css_class("apply-progress");
+    progress_bar.set_show_text(true);
     outer.append(&progress_bar);
 
     let expander = gtk::Expander::new(Some("Details"));
@@ -154,31 +178,53 @@ pub fn run(
         });
     }
 
-    // Heuristic package counter: xbps prints one non-percentage action
-    // line ("Installing `foo-1.0_1' ...") per package, so counting
-    // *distinct, consecutive* action-line changes approximates "package N
-    // of total" without parsing xbps's exact log format. Capped at
-    // `total_pkgs` since the heuristic can occasionally over-count (e.g.
-    // an intermediate status line for the same package that happens to
-    // differ from the last one shown).
+    // Package counter: counts transitions between distinct `pkgver`
+    // prefixes (see `extract_pkgver`) rather than distinct raw lines, so
+    // the several different status lines xbps prints per package don't
+    // each count as a separate one. Capped at `total_pkgs` as a
+    // last-resort safety net, not the primary correctness mechanism.
     let seen_count = Rc::new(Cell::new(0usize));
-    let last_action: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
+    let last_pkgver: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
+    let last_pct: Rc<Cell<Option<u8>>> = Rc::new(Cell::new(None));
+
+    let set_bar_text = {
+        let progress_bar = progress_bar.clone();
+        let seen_count = seen_count.clone();
+        let last_pct = last_pct.clone();
+        move || {
+            let n = seen_count.get();
+            let text = match (total_pkgs > 1, last_pct.get()) {
+                (true, Some(p)) if n > 0 => {
+                    Some(format!("Package {} of {} — {}%", n, total_pkgs, p))
+                }
+                (true, _) if n > 0 => Some(format!("Package {} of {}", n, total_pkgs)),
+                (false, Some(p)) => Some(format!("{}%", p)),
+                _ => None,
+            };
+            progress_bar.set_text(text.as_deref());
+        }
+    };
 
     let append_log: Rc<dyn Fn(&str)> = {
         let text_view = text_view.clone();
         let action_label = action_label.clone();
-        let progress_count_label = progress_count_label.clone();
         let pulsing = pulsing.clone();
         let progress_bar = progress_bar.clone();
+        let seen_count = seen_count.clone();
+        let last_pkgver = last_pkgver.clone();
+        let last_pct = last_pct.clone();
+        let set_bar_text = set_bar_text.clone();
         Rc::new(move |line: &str| {
             if let Some(pct) = extract_percentage(line) {
                 // A real progress tick — switch the bar from pulsing to
                 // an actual fraction. Still not logged to the Details
                 // pane individually; there can be dozens of these per
-                // file and the surrounding "Installing `foo' ..." line
+                // file and the surrounding "foo: unpacking ..." line
                 // already says what's happening.
                 pulsing.set(false);
                 progress_bar.set_fraction(pct as f64 / 100.0);
+                last_pct.set(Some(pct));
+                set_bar_text();
                 return;
             }
             let clean = strip_log_decoration(line);
@@ -192,12 +238,17 @@ pub fn run(
             text_view.scroll_mark_onscreen(&mark);
 
             if line != "OK" && !clean.is_empty() {
-                if total_pkgs > 1 && *last_action.borrow() != clean {
-                    let n = (seen_count.get() + 1).min(total_pkgs);
-                    seen_count.set(n);
-                    progress_count_label.set_text(&format!("Package {} of {}", n, total_pkgs));
+                if total_pkgs > 1 {
+                    if let Some(pkgver) = extract_pkgver(&clean) {
+                        if *last_pkgver.borrow() != pkgver {
+                            let n = (seen_count.get() + 1).min(total_pkgs);
+                            seen_count.set(n);
+                            *last_pkgver.borrow_mut() = pkgver.to_string();
+                            last_pct.set(None); // stale once the package changes
+                            set_bar_text();
+                        }
+                    }
                 }
-                *last_action.borrow_mut() = clean.clone();
                 action_label.set_text(&clean);
             }
         })
@@ -292,4 +343,95 @@ pub fn run(
 
     dlg.present();
     session.run_async();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pkgver_extracted_from_status_lines() {
+        assert_eq!(
+            extract_pkgver("foo-1.0_1: unpacking ..."),
+            Some("foo-1.0_1")
+        );
+        assert_eq!(
+            extract_pkgver("foo-1.0_1: configuring ..."),
+            Some("foo-1.0_1")
+        );
+        assert_eq!(
+            extract_pkgver("foo-1.0_1: installed successfully."),
+            Some("foo-1.0_1")
+        );
+        assert_eq!(extract_pkgver("bar-2.3_1: removing ..."), Some("bar-2.3_1"));
+    }
+
+    #[test]
+    fn pkgver_not_extracted_from_banner_lines() {
+        assert_eq!(extract_pkgver("Downloading packages"), None);
+        assert_eq!(extract_pkgver("Verifying package integrity"), None);
+        assert_eq!(extract_pkgver(""), None);
+        // Two space-separated words before any ':' isn't a pkgver either.
+        assert_eq!(extract_pkgver("some words: not a pkgver"), None);
+    }
+
+    #[test]
+    fn same_package_does_not_recount() {
+        // The bug this guards against: xbps prints several differently
+        // worded lines for the *same* package, which must not each be
+        // treated as a new package by the caller comparing consecutive
+        // `extract_pkgver` results.
+        let lines = [
+            "foo-1.0_1: unpacking ...",
+            "foo-1.0_1: configuring ...",
+            "foo-1.0_1: installed successfully.",
+        ];
+        let pkgvers: Vec<_> = lines.iter().map(|l| extract_pkgver(l)).collect();
+        assert!(pkgvers.iter().all(|p| *p == Some("foo-1.0_1")));
+    }
+
+    #[test]
+    fn percentage_extracted_from_progress_lines() {
+        assert_eq!(
+            extract_percentage("foo-1.0_1: [*****     ] 42% ETA: 00:03"),
+            Some(42)
+        );
+        assert_eq!(
+            extract_percentage("foo-1.0_1: [**********] 100%"),
+            Some(100)
+        );
+        assert_eq!(extract_percentage("no percentage here"), None);
+        assert_eq!(extract_percentage("just a % with no digits"), None);
+    }
+
+    #[test]
+    fn percentage_clamped_to_100() {
+        // Defensive only — xbps never actually emits over 100%.
+        assert_eq!(extract_percentage("foo: 150%"), Some(100));
+    }
+
+    #[test]
+    fn count_target_packages_sums_only_package_taking_verbs() {
+        let commands = vec![
+            "SYNC".to_string(),
+            "INSTALL foo bar".to_string(),
+            "REMOVE baz".to_string(),
+            "UPGRADE".to_string(),
+            "HOLD qux".to_string(),
+        ];
+        assert_eq!(count_target_packages(&commands), 4);
+    }
+
+    #[test]
+    fn strip_log_decoration_removes_prefixes() {
+        assert_eq!(
+            strip_log_decoration("LOG [*] Downloading packages"),
+            "Downloading packages"
+        );
+        assert_eq!(
+            strip_log_decoration("LOG foo-1.0_1: unpacking ..."),
+            "foo-1.0_1: unpacking ..."
+        );
+        assert_eq!(strip_log_decoration("OK"), "OK");
+    }
 }

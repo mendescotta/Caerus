@@ -41,6 +41,12 @@ struct WindowState {
     /// so the Delete-key shortcut has something to act on without
     /// having to poke a getter through `DetailPane`.
     selected_pkg: RefCell<Option<Package>>,
+
+    /// Whether to sync repositories at launch — see `WindowGeometry`'s
+    /// field of the same name. Only read/written by the "Sync
+    /// Repositories at Launch" menu checkbox and the close-request
+    /// handler that persists it; not consulted again after startup.
+    sync_at_launch: std::cell::Cell<bool>,
 }
 
 /// Window size + paned-divider positions, persisted across launches so
@@ -52,6 +58,12 @@ struct WindowGeometry {
     height: i32,
     sidebar_pos: i32,
     detail_pos: i32,
+    /// Whether to sync repositories (a privileged `pkexec` action) at
+    /// launch, before the user has clicked anything. Defaults to `true`
+    /// (previous, only) behavior; exposed as a checkable "Sync
+    /// Repositories at Launch" item in the app menu for anyone who'd
+    /// rather not see an authentication prompt immediately on open.
+    sync_at_launch: bool,
 }
 
 impl Default for WindowGeometry {
@@ -61,6 +73,7 @@ impl Default for WindowGeometry {
             height: 700,
             sidebar_pos: 200,
             detail_pos: 420,
+            sync_at_launch: true,
         }
     }
 }
@@ -87,13 +100,21 @@ impl WindowGeometry {
             let Some((key, value)) = line.split_once('=') else {
                 continue;
             };
-            let Ok(n) = value.trim().parse::<i32>() else {
+            let key = key.trim();
+            let value = value.trim();
+            if key == "sync_at_launch" {
+                if let Ok(b) = value.parse::<i32>() {
+                    geometry.sync_at_launch = b != 0;
+                }
+                continue;
+            }
+            let Ok(n) = value.parse::<i32>() else {
                 continue;
             };
             if n <= 0 {
                 continue;
             }
-            match key.trim() {
+            match key {
                 "width" => geometry.width = n,
                 "height" => geometry.height = n,
                 "sidebar_pos" => geometry.sidebar_pos = n,
@@ -112,8 +133,8 @@ impl WindowGeometry {
             let _ = std::fs::create_dir_all(parent);
         }
         let contents = format!(
-            "width={}\nheight={}\nsidebar_pos={}\ndetail_pos={}\n",
-            self.width, self.height, self.sidebar_pos, self.detail_pos
+            "width={}\nheight={}\nsidebar_pos={}\ndetail_pos={}\nsync_at_launch={}\n",
+            self.width, self.height, self.sidebar_pos, self.detail_pos, self.sync_at_launch as i32
         );
         let _ = std::fs::write(&path, contents);
     }
@@ -242,16 +263,24 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         btn_search_name_only,
         status_label,
         selected_pkg: RefCell::new(None),
+        sync_at_launch: std::cell::Cell::new(geometry.sync_at_launch),
     });
+    state
+        .menu_buttons
+        .sync_at_launch
+        .set_active(geometry.sync_at_launch);
 
     wire_up(&state);
     wire_keyboard_shortcuts(&state);
 
-    // Sync repos at launch silently (no dialog), then reload. Auth
-    // prompt still fires immediately via the session spawn. If sync
-    // fails, the error appears in the status bar and local load
-    // continues — matching the original's `trigger_update(win, TRUE, TRUE)`.
-    trigger_update(&state, true, true);
+    // Sync repos at launch silently (no dialog), then reload — unless
+    // the user has opted out via "Sync Repositories at Launch" in the
+    // app menu, in which case this is a plain local reload with no
+    // privileged action at all. When it does run, the auth prompt fires
+    // immediately via the session spawn; if sync fails, the error
+    // appears in the status bar and local load continues — matching the
+    // original's `trigger_update(win, TRUE, TRUE)`.
+    trigger_update(&state, geometry.sync_at_launch, true);
 
     window
 }
@@ -268,7 +297,13 @@ fn install_css(window: &gtk::ApplicationWindow) {
   letter-spacing: 0.06em; }
 .pkg-marked   { font-weight: bold; }
 .pkg-installed  { color: @success_color; }
-.pkg-upgradable { color: @warning_color; }",
+.pkg-upgradable { color: @warning_color; }
+progressbar.apply-progress trough {
+  min-height: 22px; }
+progressbar.apply-progress trough progress {
+  min-height: 22px; }
+progressbar.apply-progress text {
+  font-size: 0.85em; }",
     );
     gtk::style_context_add_provider_for_display(
         &gtk::prelude::WidgetExt::display(window),
@@ -371,10 +406,12 @@ struct AppMenuButtons {
     remove_orphans: gtk::Button,
     clean_cache: gtk::Button,
     verify_db: gtk::Button,
+    reconfigure_all: gtk::Button,
     find_owner: gtk::Button,
     alternatives: gtk::Button,
     repositories: gtk::Button,
     history: gtk::Button,
+    sync_at_launch: gtk::CheckButton,
 }
 
 fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuButtons) {
@@ -411,6 +448,26 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuB
     verify_db.set_tooltip_text(Some(
         "xbps-pkgdb -a --checks files,dependencies,alternatives,pkgdb",
     ));
+    let reconfigure_all = flat_menu_button("Reconfigure All Packages\u{2026}");
+    reconfigure_all.set_tooltip_text(Some(
+        "xbps-reconfigure -fa — force re-run every installed package's post-install \
+         configuration script. Useful after an interrupted transaction or a libc/shared \
+         library upgrade left some packages unconfigured.",
+    ));
+
+    let options_header = gtk::Label::new(Some("OPTIONS"));
+    options_header.set_xalign(0.0);
+    options_header.add_css_class("section-header");
+    options_header.set_margin_top(6);
+    let sync_at_launch = gtk::CheckButton::with_label("Sync Repositories at Launch");
+    sync_at_launch.set_margin_start(6);
+    sync_at_launch.set_margin_top(2);
+    sync_at_launch.set_margin_bottom(2);
+    sync_at_launch.set_tooltip_text(Some(
+        "When enabled, Caerus syncs repository indexes (a privileged action, prompting for \
+         your password) automatically every time it starts. Disable this to skip that prompt \
+         at launch — you can still sync manually any time via the header bar's sync button.",
+    ));
 
     let tools_header = gtk::Label::new(Some("TOOLS"));
     tools_header.set_xalign(0.0);
@@ -436,6 +493,9 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuB
     vbox.append(&remove_orphans);
     vbox.append(&clean_cache);
     vbox.append(&verify_db);
+    vbox.append(&reconfigure_all);
+    vbox.append(&options_header);
+    vbox.append(&sync_at_launch);
     vbox.append(&tools_header);
     vbox.append(&find_owner);
     vbox.append(&alternatives);
@@ -456,16 +516,19 @@ fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuB
         remove_orphans,
         clean_cache,
         verify_db,
+        reconfigure_all,
         find_owner,
         alternatives,
         repositories,
         history,
+        sync_at_launch,
     };
     for btn in [
         &buttons.full_upgrade,
         &buttons.remove_orphans,
         &buttons.clean_cache,
         &buttons.verify_db,
+        &buttons.reconfigure_all,
         &buttons.find_owner,
         &buttons.alternatives,
         &buttons.repositories,
@@ -825,6 +888,20 @@ fn wire_up(state: &Rc<WindowState>) {
         });
     }
     {
+        let btn = state.menu_buttons.reconfigure_all.clone();
+        let state = state.clone();
+        btn.connect_clicked(move |_| {
+            run_maintenance_command(&state, "RECONFIGURE_ALL", "Reconfiguring All Packages");
+        });
+    }
+    {
+        let btn = state.menu_buttons.sync_at_launch.clone();
+        let state = state.clone();
+        btn.connect_toggled(move |btn| {
+            state.sync_at_launch.set(btn.is_active());
+        });
+    }
+    {
         let btn = state.menu_buttons.find_owner.clone();
         let window = state.window.clone();
         btn.connect_clicked(move |_| {
@@ -967,6 +1044,7 @@ fn wire_up(state: &Rc<WindowState>) {
                 height: win.height(),
                 sidebar_pos: state.main_paned.position(),
                 detail_pos: state.right_paned.position(),
+                sync_at_launch: state.sync_at_launch.get(),
             }
             .save();
             state.session.shutdown();
@@ -1009,7 +1087,15 @@ fn do_reload(state: &Rc<WindowState>) {
 fn trigger_update(state: &Rc<WindowState>, sync_first: bool, silent: bool) {
     set_loading(state, true);
     if sync_first {
-        state.status_label.set_text("Syncing repositories\u{2026}");
+        state.status_label.set_text(if silent {
+            // At-launch: this is the very first thing the user sees, so
+            // spell out that a password prompt is about to appear rather
+            // than letting it show up unexplained — see "Sync
+            // Repositories at Launch" in the app menu to turn this off.
+            "Requesting authentication to sync repositories\u{2026}"
+        } else {
+            "Syncing repositories\u{2026}"
+        });
         let commands = vec!["SYNC".to_string()];
         if silent {
             // At-launch: queue SYNC and run it without a dialog, via a
@@ -1370,4 +1456,27 @@ fn update_apply_button(state: &Rc<WindowState>, marked: u32) {
 
 fn update_mark_upgrades_button(state: &Rc<WindowState>, upgradable: u32) {
     state.btn_mark_upgrades.set_sensitive(upgradable > 0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn force_variant_adds_suffix_to_install_remove_purge() {
+        assert_eq!(force_variant("INSTALL foo bar"), "INSTALL_FORCE foo bar");
+        assert_eq!(force_variant("REMOVE foo"), "REMOVE_FORCE foo");
+        assert_eq!(
+            force_variant("PURGE foo bar baz"),
+            "PURGE_FORCE foo bar baz"
+        );
+    }
+
+    #[test]
+    fn force_variant_leaves_commands_without_a_force_verb_unchanged() {
+        assert_eq!(force_variant("UPGRADE"), "UPGRADE");
+        assert_eq!(force_variant("HOLD foo"), "HOLD foo");
+        assert_eq!(force_variant("SYNC"), "SYNC");
+        assert_eq!(force_variant("RECONFIGURE_ALL"), "RECONFIGURE_ALL");
+    }
 }

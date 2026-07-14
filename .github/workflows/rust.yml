@@ -11,12 +11,36 @@ env:
 
 jobs:
   build:
-
+    # Caerus links against libxbps and GTK4, neither of which exist on
+    # stock ubuntu-latest — this job ran "green" on nothing but its own
+    # first pkg-config step failing for years otherwise. Running inside
+    # Void Linux's own official container image is the only way to get
+    # a real libxbps-devel/gtk4-devel pair that actually matches what
+    # the app is built against on a real Void system.
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/void-linux/void-linux:latest-full-x86_64
 
     steps:
+    - name: Install build dependencies
+      run: |
+        xbps-install -Sy
+        # xbps refuses further actions until it has updated itself; a
+        # plain -Suy right after can still hit dependency-graph skew
+        # between an old snapshot's util-linux/libuuid/libblkid and a
+        # freshly-synced index, so update xbps itself first, then do
+        # the full system upgrade, then install the actual build deps.
+        xbps-install -uy xbps
+        xbps-install -Suy
+        # clang provides libclang, which xbps-sys's bindgen build script
+        # needs at build time to generate libxbps FFI bindings.
+        xbps-install -y base-devel libxbps-devel gtk4-devel pkg-config rust cargo git clang
     - uses: actions/checkout@v4
     - name: Build
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+    - name: Clippy
+      run: cargo clippy --workspace --all-targets -- -D warnings
+    - name: Formatting
+      run: cargo fmt --check

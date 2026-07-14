@@ -39,14 +39,17 @@ A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
   the full chain down to indirectly-affected ones
 - Transaction history log of every applied batch and maintenance action,
   viewable from the app menu
-- Full system upgrade, orphaned-package removal, cache cleanup, and package
-  database verification, from the app menu
+- Full system upgrade, orphaned-package removal, cache cleanup, package
+  database verification, and force-reconfiguring every installed package,
+  from the app menu
 - Find which package owns a file (`xbps-query -o`), and switch between
   packages providing the same files (`xbps-alternatives`)
 - Add/remove repositories, with an optional custom display name per
   repository
 - Keyboard shortcuts (Ctrl+F search, F5 reload, Delete to mark for removal,
   Ctrl+A select all, Escape to clear search, Ctrl+Q to quit)
+- "Sync Repositories at Launch" toggle in the app menu, for anyone who'd
+  rather not see an authentication prompt immediately on open
 
 <details>
 <summary>Every Caerus action and its underlying xbps command</summary>
@@ -73,6 +76,7 @@ A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
 | Remove Orphaned Packages | App menu | `xbps-remove -y -o` |
 | Clean Package Cache | App menu | `xbps-remove -O` |
 | Verify Package Database | App menu | `xbps-pkgdb -a --checks files,dependencies,alternatives,pkgdb` |
+| Reconfigure All Packages | App menu | `xbps-reconfigure -fa` |
 | Switch Alternative | Alternatives dialog | `xbps-alternatives -g <group> -s <pkg>` |
 | Add Repository | Repositories dialog | writes `/etc/xbps.d/90-caerus.conf` (no xbps CLI), then queues `xbps-install -S` |
 | Remove Repository | Repositories dialog | edits the same conf file, then `xbps-install -S` |
