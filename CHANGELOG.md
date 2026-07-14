@@ -29,6 +29,10 @@ not commit dates.
   prompt before they've seen a single package; the toggle in the app menu
   still turns it back on for anyone who wants it.
 
+### Documentation
+- Noted that only Void's glibc variant is built/tested/covered by CI —
+  musl is untested, not confirmed working.
+
 ## [0.3.1] - 2026-07-14
 
 ### Fixed
