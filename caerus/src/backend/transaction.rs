@@ -17,12 +17,12 @@
 //! indistinguishable from first use.
 //!
 //! Callbacks (all invoked on the main thread, mirroring the original's
-//! GObject signals):
+//! `GObject` signals):
 //!   `connect_log`          (line: &str)              -- every raw line
 //!   `connect_finished`     (success)                  -- after the
 //!                                                          queued batch
 //!                                                          has run
-//!   `connect_disconnected` (DisconnectReason)          -- helper exited
+//!   `connect_disconnected` (`DisconnectReason`)          -- helper exited
 
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -115,14 +115,14 @@ impl Transaction {
         // than one per spawn — same reasoning as PackageStore's reload
         // poll: only plain `String` data crosses the worker-thread
         // boundary, applied here on the main thread only.
-        let txn = Transaction { inner };
+        let txn = Self { inner };
         {
             let weak = Rc::downgrade(&txn.inner);
             glib::source::timeout_add_local(Duration::from_millis(20), move || {
                 let Some(inner) = weak.upgrade() else {
                     return glib::ControlFlow::Break;
                 };
-                let t = Transaction { inner };
+                let t = Self { inner };
                 t.poll_lines();
                 glib::ControlFlow::Continue
             });
@@ -238,8 +238,7 @@ impl Transaction {
     pub fn add_command(&self, command: &str) {
         if command.chars().any(|c| c.is_control()) {
             self.emit_log(&format!(
-                "refusing to queue malformed command (contains control characters): {:?}",
-                command
+                "refusing to queue malformed command (contains control characters): {command:?}"
             ));
             return;
         }
@@ -336,7 +335,7 @@ impl Transaction {
         let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
-                self.emit_log(&format!("ERROR failed to launch helper: {}", e));
+                self.emit_log(&format!("ERROR failed to launch helper: {e}"));
                 return false;
             }
         };
@@ -414,9 +413,9 @@ impl Transaction {
 
     fn write_line(&self, line: &str) {
         if let Some(stdin) = self.inner.stdin.borrow_mut().as_mut() {
-            let full = format!("{}\n", line);
+            let full = format!("{line}\n");
             if let Err(e) = stdin.write_all(full.as_bytes()) {
-                self.emit_log(&format!("write error: {}", e));
+                self.emit_log(&format!("write error: {e}"));
             }
         }
     }
@@ -502,7 +501,7 @@ impl Transaction {
         }
     }
 
-    /// Shared by both the idle-timeout and the explicit shutdown()
+    /// Shared by both the idle-timeout and the explicit `shutdown()`
     /// entry point: tell the helper to exit, then tear our own state
     /// down immediately rather than waiting on the process's own exit
     /// timing.
@@ -523,7 +522,7 @@ impl Transaction {
         let id = glib::source::timeout_add_local_once(IDLE_TIMEOUT, move || {
             let Some(inner) = weak.upgrade() else { return };
             *inner.idle_timeout_id.borrow_mut() = None;
-            let txn = Transaction { inner };
+            let txn = Self { inner };
             txn.initiate_shutdown(Some(
                 "Session idle — re-authentication will be required for the next action.",
             ));
@@ -540,9 +539,7 @@ impl Transaction {
 
 fn is_executable(p: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(p)
-        .map(|m| m.is_file() && (m.permissions().mode() & 0o111 != 0))
-        .unwrap_or(false)
+    std::fs::metadata(p).is_ok_and(|m| m.is_file() && (m.permissions().mode() & 0o111 != 0))
 }
 
 fn which(program: &str) -> Option<PathBuf> {

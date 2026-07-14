@@ -1,7 +1,7 @@
 //! `PackageStore` — loads the full package list (repository + installed)
 //! via direct `libxbps` calls and exposes it as a `gio::ListStore` the
 //! UI filters/sorts/searches live. Rust translation of backend/
-//! package_store.{h,c}.
+//! `package_store.{h,c}`.
 //!
 //! ## Concurrency model (the actual point of this rewrite)
 //!
@@ -234,7 +234,7 @@ impl PackageStore {
             });
         }
 
-        PackageStore { inner }
+        Self { inner }
     }
 
     pub fn list(&self) -> gio::ListStore {
@@ -471,9 +471,9 @@ impl PackageStore {
         rx.recv().unwrap_or(None)
     }
 
-    /// Resolves `pkgname`'s full run_depends closure (transitive,
+    /// Resolves `pkgname`'s full `run_depends` closure (transitive,
     /// cycle-safe) and returns the subset not currently installed.
-    /// Builds a name -> PkgState snapshot from the live list first (so
+    /// Builds a name -> `PkgState` snapshot from the live list first (so
     /// the worker thread never needs to touch GTK objects), then hands
     /// the whole recursive resolution to the worker in one message.
     pub fn get_missing_deps(&self, pkgname: &str) -> Option<Vec<String>> {
@@ -603,7 +603,7 @@ unsafe fn dict_str(d: xbps_sys::xbps_dictionary_t, key: &str) -> Option<String> 
 
 /// Some xbps properties (e.g. "tags") may be stored as either a single
 /// string or an array of strings depending on package metadata version.
-/// Mirrors `dict_str_or_array_joined` in the original package_store.c.
+/// Mirrors `dict_str_or_array_joined` in the original `package_store.c`.
 unsafe fn dict_str_or_array_joined(d: xbps_sys::xbps_dictionary_t, key: &str) -> Option<String> {
     if d.is_null() {
         return None;
@@ -667,7 +667,7 @@ unsafe extern "C" fn rpool_repo_cb(
     if repo.is_null() {
         return 0;
     }
-    let ht = &mut *(arg as *mut HashMap<String, Package>);
+    let ht = &mut *arg.cast::<HashMap<String, Package>>();
     let idx = (*repo).idx;
     if idx.is_null() {
         return 0;
@@ -765,12 +765,11 @@ unsafe extern "C" fn pkgdb_cb(
     arg: *mut c_void,
     _done: *mut bool,
 ) -> c_int {
-    let ht = &mut *(arg as *mut HashMap<String, Package>);
+    let ht = &mut *arg.cast::<HashMap<String, Package>>();
     let dict = obj as xbps_sys::xbps_dictionary_t;
 
-    let pkgname = match dict_str(dict, "pkgname") {
-        Some(s) => s,
-        None => return 0,
+    let Some(pkgname) = dict_str(dict, "pkgname") else {
+        return 0;
     };
     let pkgver = dict_str(dict, "pkgver");
     let ver = pkgver
@@ -819,7 +818,9 @@ unsafe extern "C" fn pkgdb_cb(
     }
 
     if let Some(avail) = p.version_available.clone() {
-        if ver != avail {
+        if ver == avail {
+            p.state = PkgState::Installed;
+        } else {
             let cver = cstr(&ver);
             let cavail = cstr(&avail);
             let cmp = xbps_sys::xbps_cmpver(cver.as_ptr(), cavail.as_ptr());
@@ -828,8 +829,6 @@ unsafe extern "C" fn pkgdb_cb(
             } else {
                 PkgState::Installed
             };
-        } else {
-            p.state = PkgState::Installed;
         }
     } else {
         p.state = PkgState::Installed;
@@ -858,12 +857,12 @@ fn do_reload(xh: &mut xbps_sys::xbps_handle, inited: &mut bool) -> LoadResult {
         let r = xbps_sys::xbps_init(xh);
         if r != 0 {
             *inited = false;
-            return LoadResult::Err(format!("xbps_init failed (errno {})", r));
+            return LoadResult::Err(format!("xbps_init failed (errno {r})"));
         }
         *inited = true;
 
         let mut ht: HashMap<String, Package> = HashMap::new();
-        let ht_ptr = &mut ht as *mut HashMap<String, Package> as *mut c_void;
+        let ht_ptr = (&mut ht as *mut HashMap<String, Package>).cast::<c_void>();
 
         // Both return 0 on success; our own callbacks always return 0
         // themselves, so a non-zero result here can only mean libxbps
@@ -1044,7 +1043,7 @@ fn get_files(xh: &mut xbps_sys::xbps_handle, inited: bool, pkgname: &str) -> Opt
                 let e = xbps_sys::xbps_array_get(links, i) as xbps_sys::xbps_dictionary_t;
                 if let Some(f) = dict_str(e, "file") {
                     let t = dict_str(e, "target").unwrap_or_else(|| "?".to_string());
-                    out.push(format!("{} -> {}", f, t));
+                    out.push(format!("{f} -> {t}"));
                 }
             }
         }
@@ -1055,7 +1054,7 @@ fn get_files(xh: &mut xbps_sys::xbps_handle, inited: bool, pkgname: &str) -> Opt
             for i in 0..n {
                 let e = xbps_sys::xbps_array_get(dirs, i) as xbps_sys::xbps_dictionary_t;
                 if let Some(f) = dict_str(e, "file") {
-                    out.push(format!("{}/", f));
+                    out.push(format!("{f}/"));
                 }
             }
         }
@@ -1133,7 +1132,7 @@ fn get_extra_info(
     }
 }
 
-/// Turns one run_depends entry (an xbps "pkgpattern" like "foo>=1.2_1",
+/// Turns one `run_depends` entry (an xbps "pkgpattern" like "`foo>=1.2_1`",
 /// or occasionally just a bare "foo") into the plain package name.
 fn bare_pkgname_from_dep(dep: &str) -> String {
     unsafe {
@@ -1151,7 +1150,7 @@ fn bare_pkgname_from_dep(dep: &str) -> String {
     }
 }
 
-/// Fetches pkgname's own run_depends and, for each dependency not
+/// Fetches pkgname's own `run_depends` and, for each dependency not
 /// already satisfied (per `by_name`), adds it to `missing` and
 /// recurses into that dependency's own deps too. Mirrors
 /// `process_deps_of` in the original.
@@ -1173,7 +1172,7 @@ fn process_deps_of(
         }
         let already_installed = matches!(
             by_name.get(&dep_name),
-            Some(PkgState::Installed) | Some(PkgState::Upgradable)
+            Some(PkgState::Installed | PkgState::Upgradable)
         );
         visited.insert(dep_name.clone());
         if !already_installed {

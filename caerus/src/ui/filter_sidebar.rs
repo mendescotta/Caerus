@@ -1,5 +1,5 @@
-//! Preset filter sidebar. Rust translation of ui/filter_sidebar.{h,c}
-//! (built directly in code here rather than from a GtkBuilder .ui file
+//! Preset filter sidebar. Rust translation of `ui/filter_sidebar.{h,c}`
+//! (built directly in code here rather than from a `GtkBuilder` .ui file
 //! — see the top-level README for why).
 //!
 //! Row order must stay in sync with `FilterMode::from_row_index` in
@@ -34,8 +34,7 @@ fn repo_display_text(inner: &Inner, url: &str) -> String {
         .display_names
         .borrow()
         .get(url)
-        .map(str::to_string)
-        .unwrap_or_else(|| display_repo(url).to_string())
+        .map_or_else(|| display_repo(url).to_string(), str::to_string)
 }
 
 #[derive(Clone)]
@@ -167,7 +166,6 @@ fn show_rename_dialog(
     }
     {
         let inner = inner.clone();
-        let url = url.clone();
         let label = label.clone();
         let entry = entry.clone();
         let dlg = dlg.clone();
@@ -297,7 +295,7 @@ impl FilterSidebar {
             repo_lb.select_row(Some(&row0));
         }
 
-        FilterSidebar { inner }
+        Self { inner }
     }
 
     pub fn widget(&self) -> &gtk::Box {
@@ -361,8 +359,7 @@ impl FilterSidebar {
                     .iter()
                     .position(|r| r == name)
             })
-            .map(|pos| pos as i32 + 1)
-            .unwrap_or(0);
+            .map_or(0, |pos| pos as i32 + 1);
 
         if let Some(row) = self.inner.repo_lb.row_at_index(restore_index) {
             // Every row was just recreated, so nothing is selected yet

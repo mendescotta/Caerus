@@ -1,8 +1,8 @@
 //! Detail pane: action buttons + Package Information / Size Statistics
 //! / Maintainer & Source frames + a Files expander + side-by-side
 //! Dependencies / Reverse Dependencies lists. Rust translation of
-//! ui/detail_pane.{h,c} (built directly in code here rather than from a
-//! GtkBuilder .ui file).
+//! `ui/detail_pane.{h,c}` (built directly in code here rather than from a
+//! `GtkBuilder` .ui file).
 
 use crate::backend::package::{Package, PkgMark, PkgState};
 use crate::backend::package_store::PackageStore;
@@ -72,7 +72,7 @@ struct Inner {
     /// install/upgrade/remove/purge, a hold toggle isn't queued as a
     /// pending mark — it needs its own privileged action right away (the
     /// `Transaction` this pane doesn't own), so the actual work is left
-    /// to whoever wires this up (see window.rs). Args: pkgname, want_hold.
+    /// to whoever wires this up (see window.rs). Args: pkgname, `want_hold`.
     on_hold_requested: HoldRequestedCbs,
     /// Fired when the user clicks Reinstall — same rationale as
     /// `on_hold_requested` (an immediate privileged action, not a queued
@@ -84,10 +84,10 @@ struct Inner {
     /// Fired when the user clicks Download Only. Arg: pkgname.
     on_download_requested: ActionRequestedCbs,
     /// Fired when the user clicks Repo-Lock/Release Repo-Lock. Args:
-    /// pkgname, want_locked.
+    /// pkgname, `want_locked`.
     on_repolock_requested: HoldRequestedCbs,
     /// Fired when the user clicks Mark as Manually/Automatically
-    /// Installed. Args: pkgname, want_automatic.
+    /// Installed. Args: pkgname, `want_automatic`.
     on_automatic_requested: HoldRequestedCbs,
 }
 
@@ -417,7 +417,7 @@ impl DetailPane {
         wire_buttons(&inner);
         wire_files_expander(&inner);
 
-        DetailPane { inner }
+        Self { inner }
     }
 
     pub fn widget(&self) -> &gtk::Box {
@@ -428,7 +428,7 @@ impl DetailPane {
         self.inner.on_mark_changed.borrow_mut().push(Box::new(f));
     }
 
-    /// pkgname, want_hold — fired when the user clicks Hold/Release Hold.
+    /// pkgname, `want_hold` — fired when the user clicks Hold/Release Hold.
     pub fn connect_hold_requested(&self, f: impl Fn(String, bool) + 'static) {
         self.inner.on_hold_requested.borrow_mut().push(Box::new(f));
     }
@@ -457,7 +457,7 @@ impl DetailPane {
             .push(Box::new(f));
     }
 
-    /// pkgname, want_locked — fired when the user clicks Repo-Lock/Release
+    /// pkgname, `want_locked` — fired when the user clicks Repo-Lock/Release
     /// Repo-Lock.
     pub fn connect_repolock_requested(&self, f: impl Fn(String, bool) + 'static) {
         self.inner
@@ -466,7 +466,7 @@ impl DetailPane {
             .push(Box::new(f));
     }
 
-    /// pkgname, want_automatic — fired when the user clicks Mark as
+    /// pkgname, `want_automatic` — fired when the user clicks Mark as
     /// Manually/Automatically Installed.
     pub fn connect_automatic_requested(&self, f: impl Fn(String, bool) + 'static) {
         self.inner
@@ -895,17 +895,14 @@ fn clear_box_children(b: &gtk::Box) {
 
 fn set_homepage_value(homepage_box: &gtk::Box, url: Option<&str>) {
     clear_box_children(homepage_box);
-    match url.filter(|u| !u.is_empty()) {
-        Some(url) => {
-            let link = gtk::LinkButton::new(url);
-            link.set_halign(gtk::Align::Start);
-            homepage_box.append(&link);
-        }
-        None => {
-            let lbl = gtk::Label::new(Some(DASH));
-            lbl.set_xalign(0.0);
-            homepage_box.append(&lbl);
-        }
+    if let Some(url) = url.filter(|u| !u.is_empty()) {
+        let link = gtk::LinkButton::new(url);
+        link.set_halign(gtk::Align::Start);
+        homepage_box.append(&link);
+    } else {
+        let lbl = gtk::Label::new(Some(DASH));
+        lbl.set_xalign(0.0);
+        homepage_box.append(&lbl);
     }
 }
 
@@ -946,18 +943,15 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
     l.name.set_text(&pkg.name);
 
     let ver = match (&pkg.version_installed, &pkg.version_available) {
-        (Some(inst), Some(avail)) if inst != avail => format!("{}  \u{2192}  {}", inst, avail),
+        (Some(inst), Some(avail)) if inst != avail => format!("{inst}  \u{2192}  {avail}"),
         (Some(inst), _) => inst.clone(),
         (None, Some(avail)) => avail.clone(),
         (None, None) => DASH.to_string(),
     };
     l.version.set_text(&ver);
 
-    l.tags.set_text(if !pkg.tags.is_empty() {
-        &pkg.tags
-    } else {
-        DASH
-    });
+    l.tags
+        .set_text(if pkg.tags.is_empty() { DASH } else { &pkg.tags });
 
     let state_text = match pkg.state {
         PkgState::NotInstalled => "Not installed",
@@ -999,10 +993,10 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
     }
     l.download_size.set_text(dsz.as_deref().unwrap_or(DASH));
 
-    l.maintainer.set_text(if !pkg.maintainer.is_empty() {
-        &pkg.maintainer
-    } else {
+    l.maintainer.set_text(if pkg.maintainer.is_empty() {
         DASH
+    } else {
+        &pkg.maintainer
     });
 
     set_homepage_value(
@@ -1020,8 +1014,7 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
         extra
             .as_ref()
             .and_then(|e| e.repository.as_deref())
-            .map(crate::backend::repo_names::display_repo)
-            .unwrap_or(DASH),
+            .map_or(DASH, crate::backend::repo_names::display_repo),
     );
     l.install_date.set_text(
         extra

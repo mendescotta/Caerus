@@ -18,16 +18,16 @@
 //!   UNHOLD  p1 p2    — release a previously-set hold
 //!   REINSTALL p1 p2  — force re-installation of already-installed package(s)
 //!   RECONFIGURE p1 p2 — re-run post-install configuration script(s)
-//!   RECONFIGURE_ALL  — force re-run every installed package's
+//!   `RECONFIGURE_ALL`  — force re-run every installed package's
 //!                      post-install configuration script (-fa)
 //!   DOWNLOAD p1 p2   — fetch and verify package(s), don't install
 //!   REPOLOCK p1 p2   — only ever upgrade from the currently-installed repo
 //!   REPOUNLOCK p1 p2 — release a previously-set repo-lock
 //!   MARKAUTO p1 p2   — mark package(s) as automatically installed
 //!   MARKMANUAL p1 p2 — mark package(s) as explicitly/manually installed
-//!   INSTALL_FORCE p1 p2 — install, ignoring detected file conflicts
-//!   REMOVE_FORCE p1 p2  — remove despite unresolved revdeps/shared libs
-//!   PURGE_FORCE p1 p2   — recursive removal, same override as REMOVE_FORCE
+//!   `INSTALL_FORCE` p1 p2 — install, ignoring detected file conflicts
+//!   `REMOVE_FORCE` p1 p2  — remove despite unresolved revdeps/shared libs
+//!   `PURGE_FORCE` p1 p2   — recursive removal, same override as `REMOVE_FORCE`
 //!   ORPHANS          — remove packages no longer required by anything
 //!   CLEANCACHE       — remove outdated files from the package cache
 //!   VERIFY           — run pkgdb consistency checks
@@ -124,17 +124,14 @@ fn run_xbps(argv: &[&str]) -> Option<i32> {
     // rx yields lines until both sender clones (tx_out, tx_err) have
     // been dropped, i.e. once both reader threads finish.
     for line in rx {
-        println!("LOG {}", line);
+        println!("LOG {line}");
         let _ = io::stdout().flush();
     }
 
     let _ = out_handle.join();
     let _ = err_handle.join();
 
-    match child.wait() {
-        Ok(status) => status.code(),
-        Err(_) => None,
-    }
+    child.wait().map_or(None, |status| status.code())
 }
 
 /// Splits whitespace-separated package names out of `rest` (everything
@@ -194,7 +191,7 @@ fn respond_ok_or(success: bool, err_msg: &str) {
     if success {
         println!("OK");
     } else {
-        println!("ERROR {}", err_msg);
+        println!("ERROR {err_msg}");
     }
     let _ = io::stdout().flush();
 }
@@ -214,7 +211,7 @@ const MANAGED_REPO_CONF: &str = "/etc/xbps.d/90-caerus.conf";
 /// keep an embedded newline from smuggling a second, unintended
 /// `repository=...` line into a file it writes as root.
 fn has_control_char(s: &str) -> bool {
-    s.chars().any(|c| c.is_control())
+    s.chars().any(char::is_control)
 }
 
 fn add_repo(url: &str) -> Result<(), String> {
@@ -222,7 +219,7 @@ fn add_repo(url: &str) -> Result<(), String> {
         return Err("refusing to add a repository URL with control characters".to_string());
     }
     let existing = std::fs::read_to_string(MANAGED_REPO_CONF).unwrap_or_default();
-    let line = format!("repository={}", url);
+    let line = format!("repository={url}");
     if existing.lines().any(|l| l == line) {
         return Ok(()); // already present, nothing to do
     }
@@ -242,12 +239,16 @@ fn remove_repo(url: &str) -> Result<(), String> {
     let Ok(existing) = std::fs::read_to_string(MANAGED_REPO_CONF) else {
         return Ok(()); // file doesn't exist, nothing to remove
     };
-    let line = format!("repository={}", url);
-    let updated: String = existing
-        .lines()
-        .filter(|l| *l != line)
-        .map(|l| format!("{}\n", l))
-        .collect();
+    use std::fmt::Write as _;
+    let line = format!("repository={url}");
+    let updated: String =
+        existing
+            .lines()
+            .filter(|l| *l != line)
+            .fold(String::new(), |mut acc, l| {
+                let _ = writeln!(acc, "{l}");
+                acc
+            });
     std::fs::write(MANAGED_REPO_CONF, updated).map_err(|e| e.to_string())
 }
 
@@ -259,10 +260,8 @@ fn main() {
 
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => break, // EOF/read error — same as the C loop's fgets() failing
-        };
+        // EOF/read error — same as the C loop's fgets() failing.
+        let Ok(line) = line else { break };
         let line = line.trim_end();
 
         if line == "QUIT" {
@@ -558,7 +557,7 @@ fn main() {
             continue;
         }
 
-        println!("ERROR unknown command: {}", line);
+        println!("ERROR unknown command: {line}");
         let _ = io::stdout().flush();
     }
 }

@@ -68,7 +68,7 @@ fn list_removable_kernels() -> Result<Vec<String>, String> {
     let output = Command::new("vkpurge")
         .arg("list")
         .output()
-        .map_err(|e| format!("failed to run vkpurge: {}", e))?;
+        .map_err(|e| format!("failed to run vkpurge: {e}"))?;
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
         return Err(if err.trim().is_empty() {
@@ -116,7 +116,7 @@ fn refresh(list_store: &gio::ListStore, status_label: &gtk::Label) {
             }
         }
         Err(e) => {
-            status_label.set_text(&format!("Could not list kernels: {}", e));
+            status_label.set_text(&format!("Could not list kernels: {e}"));
             status_label.set_visible(true);
         }
     }
@@ -237,10 +237,10 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
     }
 
     {
-        let list_store = list_store.clone();
+        let list_store = list_store;
         let session = session.clone();
         let dlg_for_purge = dlg.clone();
-        let status_label = status_label.clone();
+        let status_label = status_label;
         purge_btn.connect_clicked(move |_| {
             let mut versions = Vec::new();
             let n = list_store.n_items();

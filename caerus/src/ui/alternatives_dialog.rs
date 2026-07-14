@@ -48,7 +48,7 @@ fn fetch_overview() -> Vec<(String, String)> {
     out
 }
 
-/// (provider pkgname, is_current) for every candidate in `group`.
+/// (provider pkgname, `is_current`) for every candidate in `group`.
 fn fetch_candidates(group: &str) -> Vec<(String, bool)> {
     let Ok(output) = Command::new("xbps-alternatives")
         .arg("-g")
@@ -93,7 +93,7 @@ fn refresh_groups(inner: &Rc<Inner>) {
     let overview = fetch_overview();
     let mut restore_row: Option<gtk::ListBoxRow> = None;
     for (group, current) in &overview {
-        let l = gtk::Label::new(Some(&format!("{}  ({})", group, current)));
+        let l = gtk::Label::new(Some(&format!("{group}  ({current})")));
         l.set_xalign(0.0);
         l.set_ellipsize(gtk::pango::EllipsizeMode::End);
         l.set_margin_start(8);
@@ -114,12 +114,11 @@ fn refresh_groups(inner: &Rc<Inner>) {
         }
     }
 
-    match restore_row {
-        Some(row) => inner.groups_list.select_row(Some(&row)),
-        None => {
-            *inner.selected_group.borrow_mut() = None;
-            refresh_providers(inner);
-        }
+    if let Some(row) = restore_row {
+        inner.groups_list.select_row(Some(&row));
+    } else {
+        *inner.selected_group.borrow_mut() = None;
+        refresh_providers(inner);
     }
 }
 
@@ -135,7 +134,7 @@ fn refresh_providers(inner: &Rc<Inner>) {
     };
     inner
         .providers_header
-        .set_text(&format!("Providers for \u{201c}{}\u{201d}:", group));
+        .set_text(&format!("Providers for \u{201c}{group}\u{201d}:"));
 
     for (provider, is_current) in fetch_candidates(&group) {
         let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);

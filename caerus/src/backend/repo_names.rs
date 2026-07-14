@@ -35,7 +35,7 @@ impl RepoNames {
                 }
             }
         }
-        RepoNames { map }
+        Self { map }
     }
 
     fn save(&self) {

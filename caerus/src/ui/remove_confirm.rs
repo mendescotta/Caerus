@@ -83,7 +83,7 @@ pub fn confirm_remove_impact(
         let label = if via == pkgname {
             name.clone()
         } else {
-            format!("{} (via {})", name, via)
+            format!("{name} (via {via})")
         };
         list.append(&text_list_row(&label, false));
     }
