@@ -78,19 +78,29 @@ fn confirm_add_repo(parent: Option<&gtk::Window>, url: &str, cb: impl Fn(bool) +
     present_focused(&dlg, &cancel_btn);
 }
 
-/// Must match `MANAGED_REPO_CONF` in caerus-helper/src/main.rs — the
-/// one file ADDREPO/REMOVEREPO ever touch.
-const MANAGED_REPO_CONF: &str = "/etc/xbps.d/90-caerus.conf";
+/// Every URL configured in an xbps.d conf file, enabled or disabled —
+/// the sidebar uses this to mark package-origin repos that aren't
+/// configured anywhere as stale.
+pub(crate) fn configured_repo_urls() -> std::collections::HashSet<String> {
+    scan_configured_repos()
+        .into_iter()
+        .map(|(url, _, _)| url)
+        .collect()
+}
 
-/// (url, removable-by-us), deduplicated, sorted by URL.
+/// (url, in-/etc (⇒ removable), enabled), deduplicated, sorted by URL.
+/// Disabled means a `#repository=` line — only recognized under
+/// /etc/xbps.d, where caerus (or an admin) put it; vendor files aren't
+/// ours to comment, so their commented examples never count.
 ///
 /// Mirrors xbps.d(5)'s override rule: a file in `/etc/xbps.d` *replaces*
 /// the `/usr/share/xbps.d` file of the same name entirely — so a
 /// same-named vendor file's repositories must not be listed when an
 /// `/etc` override exists (the override may exist precisely to disable
 /// them).
-fn scan_configured_repos() -> Vec<(String, bool)> {
-    let mut map: std::collections::BTreeMap<String, bool> = std::collections::BTreeMap::new();
+fn scan_configured_repos() -> Vec<(String, bool, bool)> {
+    let mut map: std::collections::BTreeMap<String, (bool, bool)> =
+        std::collections::BTreeMap::new();
     let mut etc_names: std::collections::HashSet<std::ffi::OsString> =
         std::collections::HashSet::new();
     for dir in ["/etc/xbps.d", "/usr/share/xbps.d"] {
@@ -101,7 +111,12 @@ fn scan_configured_repos() -> Vec<(String, bool)> {
         let mut paths: Vec<_> = entries
             .filter_map(Result::ok)
             .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|e| e == "conf"))
+            .filter(|p| {
+                p.extension().is_some_and(|e| e == "conf")
+                    && p.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| !n.starts_with('.'))
+            })
             .collect();
         paths.sort();
         for path in paths {
@@ -115,19 +130,24 @@ fn scan_configured_repos() -> Vec<(String, bool)> {
             let Ok(contents) = std::fs::read_to_string(&path) else {
                 continue;
             };
-            let is_managed = path.to_str() == Some(MANAGED_REPO_CONF);
             for line in contents.lines() {
                 if let Some(url) = line.strip_prefix("repository=") {
                     let url = url.trim();
                     if !url.is_empty() {
-                        let entry = map.entry(url.to_string()).or_insert(false);
-                        *entry = *entry || is_managed;
+                        map.entry(url.to_string()).or_insert((is_etc, true));
+                    }
+                } else if is_etc {
+                    if let Some(url) = line.strip_prefix("#repository=") {
+                        let url = url.trim();
+                        if !url.is_empty() {
+                            map.entry(url.to_string()).or_insert((true, false));
+                        }
                     }
                 }
             }
         }
     }
-    map.into_iter().collect()
+    map.into_iter().map(|(u, (r, e))| (u, r, e)).collect()
 }
 
 struct Inner {
@@ -141,7 +161,7 @@ fn refresh(inner: &Rc<Inner>) {
     while let Some(child) = inner.repos_list.first_child() {
         inner.repos_list.remove(&child);
     }
-    for (url, removable) in scan_configured_repos() {
+    for (url, in_etc, enabled) in scan_configured_repos() {
         let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         row_box.set_margin_start(8);
         row_box.set_margin_end(8);
@@ -153,9 +173,63 @@ fn refresh(inner: &Rc<Inner>) {
         l.set_hexpand(true);
         l.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
         l.set_selectable(true);
+        if !enabled {
+            l.add_css_class("dim-label");
+        }
         row_box.append(&l);
 
-        if removable {
+        if !in_etc {
+            let badge = gtk::Label::new(Some("vendor"));
+            badge.add_css_class("dim-label");
+            badge.set_tooltip_text(Some(
+                "Void default repository — can be disabled, but not removed here",
+            ));
+            row_box.append(&badge);
+        }
+
+        let switch = gtk::Switch::new();
+        switch.set_state(enabled);
+        switch.set_active(enabled);
+        switch.set_valign(gtk::Align::Center);
+        switch.set_tooltip_text(Some("Enable/disable this repository"));
+        {
+            let inner = inner.clone();
+            let url = url.clone();
+            switch.connect_state_set(move |switch, want_enabled| {
+                let inner2 = inner.clone();
+                let switch = switch.clone();
+                let verb = if want_enabled {
+                    "ENABLEREPO"
+                } else {
+                    "DISABLEREPO"
+                };
+                let commands = vec![format!("{verb} {url}"), "SYNC".to_string()];
+                let commands_for_history = commands.clone();
+                let title = if want_enabled {
+                    "Enabling Repository"
+                } else {
+                    "Disabling Repository"
+                };
+                crate::ui::apply_dialog::run(
+                    Some(&inner.dlg),
+                    &inner.session,
+                    &commands,
+                    title,
+                    move |success| {
+                        crate::backend::history::record(&commands_for_history, success);
+                        if success {
+                            switch.set_state(want_enabled);
+                        }
+                        refresh(&inner2);
+                        (inner2.on_changed)();
+                    },
+                );
+                glib::Propagation::Stop
+            });
+        }
+        row_box.append(&switch);
+
+        if in_etc {
             let btn = gtk::Button::from_icon_name("user-trash-symbolic");
             btn.set_tooltip_text(Some("Remove this repository"));
             btn.add_css_class("flat");
@@ -178,11 +252,6 @@ fn refresh(inner: &Rc<Inner>) {
                 );
             });
             row_box.append(&btn);
-        } else {
-            let badge = gtk::Label::new(Some("system"));
-            badge.add_css_class("dim-label");
-            badge.set_tooltip_text(Some("Configured outside caerus — not removable here"));
-            row_box.append(&badge);
         }
 
         let row = gtk::ListBoxRow::new();

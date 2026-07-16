@@ -14,6 +14,7 @@ A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
   <img src="screenshots/package-details.png" width="49%">
 </p>
 <p float="left">
+  <img src="screenshots/custom-filters.png" width="49%">
   <img src="screenshots/repositories.png" width="49%">
 </p>
 
@@ -23,6 +24,8 @@ A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
   checkboxes for bulk marking
 - Filter by state (All / Installed / Not Installed / Upgradable / On Hold /
   Marked / Orphaned) and by repository
+- Custom filters: named sets of exclude patterns (`lib*`, `*-devel`, plain
+  text), shown as sidebar rows with a built-in editor
 - Detail pane: description, tags, size, maintainer, dependencies, reverse
   dependencies, provides/conflicts/replaces, shared-library requirements,
   and an on-demand file list
@@ -43,12 +46,12 @@ A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
   old kernel files/modules (`vkpurge`), from the app menu
 - Find which package owns a file (`xbps-query -o`), and switch between
   packages providing the same files (`xbps-alternatives`)
-- Add/remove repositories, with an optional custom display name each
+- Add, remove, and enable/disable repositories, with an optional custom
+  display name each
 - Keyboard shortcuts (Ctrl+F search, F5 reload, Delete to mark for removal,
   Ctrl+A select all, Escape to clear search, Ctrl+Q to quit)
-- Settings dialog: sync-at-launch toggle, and default search mode
-  (name-only vs. name + description)
-- Collapsible sidebar (header bar toggle) for a wider package table
+- App menu with View toggles and settings (sync-at-launch, default search
+  mode); sidebar sections collapse individually, F9 hides the sidebar
 - Optional libadwaita look (`--features adwaita` at build time — see
   [Build and install](#build-and-install))
 

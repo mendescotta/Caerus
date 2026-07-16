@@ -9,7 +9,7 @@
 # To use: copy or symlink this directory to <void-packages checkout>/srcpkgs/caerus,
 # then from inside that checkout: ./xbps-src pkg caerus
 pkgname=caerus
-version=0.4.1
+version=0.5.0
 revision=1
 build_style=cargo
 hostmakedepends="pkg-config clang git"

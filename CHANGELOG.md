@@ -4,6 +4,35 @@ All notable changes to Caerus are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); dates are release dates,
 not commit dates.
 
+## [0.5.0] - 2026-07-16
+
+Sidebar-first redesign, custom filters, repository toggles.
+
+### Added
+- Custom filters: named sets of exclude patterns (`lib*`, `*-devel`,
+  plain text), shown as sidebar rows with a dedicated editor.
+- Repository toggles: enable/disable any configured repository from the
+  Repositories window; remove any under `/etc/xbps.d`. Vendor repos can
+  be disabled (via an xbps.d override), not removed.
+- Stale repositories (package origins no longer configured) are marked
+  in the sidebar; a View switch hides them.
+- Bulk Remove/Purge asks once with a combined impact dialog.
+
+### Changed
+- Sidebar redesigned into collapsible sections: FILTERS, REPOSITORIES,
+  MAINTENANCE, TOOLS. Manage Repositories moved to TOOLS.
+- App menu slimmed into popover pages (View / Settings / Shortcuts).
+  The Settings dialog is gone; its options live in the menu.
+- Detail pane refactored: header with state/tag chips, grouped
+  key/value info, independent Provides / Requires / Exports /
+  Conflicts / Replaces sections. Missing data is omitted, not dashed.
+- Dialog subprocess calls no longer block the UI; queued command
+  batches no longer interfere with each other.
+- CI hardened: curated pedantic lints, cargo-audit job, build caching,
+  and a much larger unit-test suite.
+- `install.sh` gained `--user` and `--uninstall` modes, replacing
+  `dev-install.sh`.
+
 ## [0.4.1] - 2026-07-14
 
 Fresh-perspective audit pass: five correctness fixes, a responsiveness

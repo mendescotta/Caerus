@@ -1,8 +1,9 @@
-//! Detail pane: action buttons + Package Information / Size Statistics
-//! / Maintainer & Source frames + a Files expander + side-by-side
-//! Dependencies / Reverse Dependencies lists. Rust translation of
-//! `ui/detail_pane.{h,c}` (built directly in code here rather than from a
-//! `GtkBuilder` .ui file).
+//! Detail pane: action buttons, a header (name/version/state/tags) over
+//! an unframed SIZE/INSTALLATION/SOURCE key/value grid plus a Files
+//! expander, and — in the wider right-hand column — Dependencies /
+//! Reverse Dependencies side by side over a second Provides / Conflicts
+//! & Replaces row. Rust translation of `ui/detail_pane.{h,c}`, built
+//! directly in code here rather than from a `GtkBuilder` .ui file.
 
 use crate::backend::package::{Package, PkgMark, PkgState};
 use crate::backend::package_store::PackageStore;
@@ -80,12 +81,12 @@ struct Inner {
     /// async-rebuilt SOURCE group, so it's stashed here for the rebuild.
     current_maintainer: RefCell<String>,
     files_pill: gtk::Label,
-    provides_pill: gtk::Label,
     deps_pill: gtk::Label,
     rdeps_pill: gtk::Label,
     deps_col: gtk::Box,
     rdeps_col: gtk::Box,
-    provides_expander: gtk::Expander,
+    dependency_col: gtk::Box,
+    relation_rows: RefCell<Vec<gtk::Box>>,
     deps_list: gtk::ListBox,
     rdeps_list: gtk::ListBox,
     /// The two lists' placeholder labels, retargeted per state: "Select
@@ -95,7 +96,6 @@ struct Inner {
     rdeps_placeholder: gtk::Label,
     files_expander: gtk::Expander,
     files_list: gtk::ListBox,
-    provides_list: gtk::ListBox,
     on_mark_changed: MarkChangedCbs,
     /// Fired when the user clicks Hold/Release Hold. Unlike
     /// install/upgrade/remove/purge, a hold toggle isn't queued as a
@@ -418,27 +418,19 @@ impl DetailPane {
         files_expander.set_child(Some(&files_scroll));
         metadata_col.append(&files_expander);
 
-        let provides_pill = count_pill();
-        let provides_label_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        provides_label_box.append(&gtk::Label::new(Some("Provides / Conflicts / Replaces")));
-        provides_label_box.append(&provides_pill);
-        let provides_expander = gtk::Expander::new(None);
-        provides_expander.set_label_widget(Some(&provides_label_box));
-        provides_expander.set_margin_bottom(6);
-        // Hidden until the async extra-info reply reports something to
-        // show — an empty section is omitted, not placeholder-ed.
-        provides_expander.set_visible(false);
-        let provides_list = gtk::ListBox::new();
-        provides_list.set_selection_mode(gtk::SelectionMode::None);
-        provides_expander.set_child(Some(&provides_list));
-        metadata_col.append(&provides_expander);
-
         metadata_scroll.set_child(Some(&metadata_col));
         split.append(&metadata_scroll);
         split.append(&gtk::Separator::new(gtk::Orientation::Vertical));
 
-        let dependency_col = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        // Each section row takes its natural height (lists scroll when
+        // the pane is smaller than the content; leftover space collects
+        // at the bottom). Rows are homogeneous horizontally, so the
+        // column boundary (drawn by `.vsep`) sits at 50% in every row.
+        let dependency_col = gtk::Box::new(gtk::Orientation::Vertical, 8);
         dependency_col.set_hexpand(true);
+
+        let deps_rdeps_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        deps_rdeps_row.set_homogeneous(true);
 
         let deps_col = gtk::Box::new(gtk::Orientation::Vertical, 0);
         deps_col.set_hexpand(true);
@@ -451,7 +443,7 @@ impl DetailPane {
         deps_header_row.append(&deps_pill);
         deps_col.append(&deps_header_row);
         let deps_scroll = gtk::ScrolledWindow::new();
-        deps_scroll.set_vexpand(true);
+        deps_scroll.set_propagate_natural_height(true);
         let deps_list = gtk::ListBox::new();
         deps_list.set_selection_mode(gtk::SelectionMode::None);
         let deps_ph = gtk::Label::new(Some("Select a package"));
@@ -460,12 +452,11 @@ impl DetailPane {
         deps_list.set_placeholder(Some(&deps_ph));
         deps_scroll.set_child(Some(&deps_list));
         deps_col.append(&deps_scroll);
-        dependency_col.append(&deps_col);
-
-        dependency_col.append(&gtk::Separator::new(gtk::Orientation::Vertical));
+        deps_rdeps_row.append(&deps_col);
 
         let rdeps_col = gtk::Box::new(gtk::Orientation::Vertical, 0);
         rdeps_col.set_hexpand(true);
+        rdeps_col.add_css_class("vsep");
         let rdeps_header_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let rdeps_header = gtk::Label::new(Some("REVERSE DEPENDENCIES"));
         rdeps_header.set_xalign(0.0);
@@ -475,7 +466,7 @@ impl DetailPane {
         rdeps_header_row.append(&rdeps_pill);
         rdeps_col.append(&rdeps_header_row);
         let rdeps_scroll = gtk::ScrolledWindow::new();
-        rdeps_scroll.set_vexpand(true);
+        rdeps_scroll.set_propagate_natural_height(true);
         let rdeps_list = gtk::ListBox::new();
         rdeps_list.set_selection_mode(gtk::SelectionMode::None);
         let rdeps_ph = gtk::Label::new(Some("Select a package"));
@@ -484,8 +475,12 @@ impl DetailPane {
         rdeps_list.set_placeholder(Some(&rdeps_ph));
         rdeps_scroll.set_child(Some(&rdeps_list));
         rdeps_col.append(&rdeps_scroll);
-        dependency_col.append(&rdeps_col);
+        deps_rdeps_row.append(&rdeps_col);
 
+        dependency_col.append(&deps_rdeps_row);
+
+        // Provides/Requires/Exports/Conflicts/Replaces rows are appended
+        // here per selection; see `populate_provides_conflicts`.
         split.append(&dependency_col);
 
         // ── Empty state vs content ──
@@ -533,19 +528,18 @@ impl DetailPane {
             download_size: std::cell::Cell::new(0),
             current_maintainer: RefCell::new(String::new()),
             files_pill,
-            provides_pill,
             deps_pill,
             rdeps_pill,
             deps_col,
             rdeps_col,
-            provides_expander,
+            dependency_col,
+            relation_rows: RefCell::new(Vec::new()),
             deps_list,
             rdeps_list,
             deps_placeholder: deps_ph,
             rdeps_placeholder: rdeps_ph,
             files_expander,
             files_list,
-            provides_list,
             on_mark_changed: RefCell::new(Vec::new()),
             on_hold_requested: RefCell::new(Vec::new()),
             on_reinstall_requested: RefCell::new(Vec::new()),
@@ -942,46 +936,69 @@ fn populate(lb: &gtk::ListBox, items: Option<Vec<String>>) {
     }
 }
 
-/// One row per non-empty category — "Provides"/"Conflicts"/"Replaces"
-/// (plain package/virtual-package names) and "Requires"/"Exports"
-/// (shared-library sonames), each joined onto a single wrapped line
-/// since these lists are usually short and this is already a rarely-
-/// expanded, supplementary section.
+/// One independent field, styled like a Dependencies column: header +
+/// count pill + its own scrollable list, one row per item.
+fn relation_field(title: &str, items: &[String]) -> gtk::Box {
+    let col = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    col.set_hexpand(true);
+
+    let header_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let header = gtk::Label::new(Some(title));
+    header.set_xalign(0.0);
+    header.add_css_class("section-header");
+    let pill = count_pill();
+    set_count(&pill, Some(items.len()));
+    header_row.append(&header);
+    header_row.append(&pill);
+    col.append(&header_row);
+
+    let scroll = gtk::ScrolledWindow::new();
+    scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    scroll.set_propagate_natural_height(true);
+    let list = gtk::ListBox::new();
+    list.set_selection_mode(gtk::SelectionMode::None);
+    populate(&list, Some(items.to_vec()));
+    scroll.set_child(Some(&list));
+    col.append(&scroll);
+
+    col
+}
+
+/// Rebuilds the Provides/Requires/Exports/Conflicts/Replaces area:
+/// only non-empty fields, two per row, each fully independent.
 fn populate_provides_conflicts(
     inner: &Rc<Inner>,
     extra: Option<&crate::backend::package::PackageExtraInfo>,
 ) {
-    while let Some(c) = inner.provides_list.first_child() {
-        inner.provides_list.remove(&c);
+    for row in inner.relation_rows.borrow_mut().drain(..) {
+        inner.dependency_col.remove(&row);
     }
-    let Some(extra) = extra else {
-        inner.provides_expander.set_visible(false);
-        set_count(&inner.provides_pill, None);
-        return;
-    };
-    let sections: [(&str, &[String]); 5] = [
-        ("Provides", &extra.provides),
-        ("Conflicts", &extra.conflicts),
-        ("Replaces", &extra.replaces),
-        ("Requires", &extra.shlib_requires),
-        ("Exports", &extra.shlib_provides),
-    ];
-    let mut total = 0;
-    for (label, items) in sections {
-        if items.is_empty() {
-            continue;
+    let Some(extra) = extra else { return };
+
+    let fields: Vec<(&str, &[String])> = [
+        ("PROVIDES", extra.provides.as_slice()),
+        ("REQUIRES", extra.shlib_requires.as_slice()),
+        ("EXPORTS", extra.shlib_provides.as_slice()),
+        ("CONFLICTS", extra.conflicts.as_slice()),
+        ("REPLACES", extra.replaces.as_slice()),
+    ]
+    .into_iter()
+    .filter(|(_, items)| !items.is_empty())
+    .collect();
+
+    for pair in fields.chunks(2) {
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        row.set_homogeneous(true);
+        for (i, (title, items)) in pair.iter().enumerate() {
+            let field = relation_field(title, items);
+            if i > 0 {
+                field.add_css_class("vsep");
+            }
+            row.append(&field);
         }
-        total += items.len();
-        inner
-            .provides_list
-            .append(&crate::ui::dialog_util::text_list_row(
-                &format!("{}: {}", label, items.join(", ")),
-                true,
-            ));
+        inner.dependency_col.append(&row);
+        inner.relation_rows.borrow_mut().push(row);
     }
-    // An empty section is omitted, not placeholder-ed.
-    inner.provides_expander.set_visible(total > 0);
-    set_count(&inner.provides_pill, (total > 0).then_some(total));
 }
 
 /// Files lists are only fetched (a round-trip to the xbps worker

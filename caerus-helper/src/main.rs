@@ -34,7 +34,10 @@
 //!   ALTERNATIVE g p  — select pkg p as the provider for group g
 //!   ADDREPO url      — add a repository (persisted to a caerus-owned
 //!                      xbps.d conf file, never someone else's)
-//!   REMOVEREPO url   — remove a repository previously added by ADDREPO
+//!   REMOVEREPO url   — strip the repository's line from /etc/xbps.d
+//!   ENABLEREPO url   — uncomment a disabled repository in /etc/xbps.d
+//!   DISABLEREPO url  — comment out a repository (vendor repos get a
+//!                      same-name /etc/xbps.d override instead)
 //!   VKPURGE v1 v2    — remove old kernel files/modules for the given
 //!                      version(s), via `vkpurge rm` (not an xbps tool —
 //!                      the standalone Void kernel-cleanup script)
@@ -196,12 +199,15 @@ fn respond_ok_or(success: bool, err_msg: &str) {
     let _ = io::stdout().flush();
 }
 
-/// A dedicated xbps.d conf file this helper exclusively owns for
-/// repositories added through caerus — ADDREPO/REMOVEREPO only ever
-/// touch this one file, never anything a user or another tool set up
-/// under /etc/xbps.d/, so there's no risk of clobbering unrelated
-/// config or losing track of what caerus itself is responsible for.
+/// ADDREPO only ever appends to this caerus-owned file. REMOVEREPO/
+/// ENABLEREPO/DISABLEREPO operate on any `/etc/xbps.d/*.conf`, but only
+/// ever add/remove/comment exact `repository=<url>` lines — never other
+/// content. Vendor files under /usr/share/xbps.d are never edited; a
+/// vendor repo is disabled by writing a same-name override into
+/// /etc/xbps.d (the xbps.d(5) shadowing rule).
 const MANAGED_REPO_CONF: &str = "/etc/xbps.d/90-caerus.conf";
+const ETC_XBPS_D: &str = "/etc/xbps.d";
+const VENDOR_XBPS_D: &str = "/usr/share/xbps.d";
 
 /// Rejects control characters before either repo function ever touches
 /// the conf file. The GUI's own repo-manager dialog and `Transaction::
@@ -232,25 +238,115 @@ fn add_repo(url: &str) -> Result<(), String> {
     std::fs::write(MANAGED_REPO_CONF, updated).map_err(|e| e.to_string())
 }
 
-fn remove_repo(url: &str) -> Result<(), String> {
+// Hidden dotfiles are skipped — xbps itself ignores them.
+fn conf_paths(dir: &str) -> Vec<std::path::PathBuf> {
+    let mut paths: Vec<_> = std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.extension().is_some_and(|e| e == "conf")
+                        && p.file_name()
+                            .and_then(|n| n.to_str())
+                            .is_some_and(|n| !n.starts_with('.'))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    paths.sort();
+    paths
+}
+
+/// Rewrites `line` occurrences in the file via `map`; Ok(true) if the
+/// file contained the line and was rewritten.
+fn rewrite_conf(
+    path: &std::path::Path,
+    map: impl Fn(&str) -> Option<String>,
+) -> Result<bool, String> {
+    use std::fmt::Write as _;
+    let Ok(existing) = std::fs::read_to_string(path) else {
+        return Ok(false);
+    };
+    let mut hit = false;
+    let mut updated = String::new();
+    for l in existing.lines() {
+        match map(l) {
+            Some(replacement) => {
+                hit = true;
+                if !replacement.is_empty() {
+                    let _ = writeln!(updated, "{replacement}");
+                }
+            }
+            None => {
+                let _ = writeln!(updated, "{l}");
+            }
+        }
+    }
+    if hit {
+        std::fs::write(path, updated).map_err(|e| e.to_string())?;
+    }
+    Ok(hit)
+}
+
+fn toggle_repo(url: &str, enable: bool) -> Result<(), String> {
     use std::fmt::Write as _;
 
     if has_control_char(url) {
+        return Err("refusing to toggle a repository URL with control characters".to_string());
+    }
+    let active = format!("repository={url}");
+    let disabled = format!("#{active}");
+    let (from, to) = if enable {
+        (&disabled, &active)
+    } else {
+        (&active, &disabled)
+    };
+
+    for path in conf_paths(ETC_XBPS_D) {
+        if rewrite_conf(&path, |l| (l == *from).then(|| to.clone()))? {
+            return Ok(());
+        }
+    }
+    if enable {
+        return Ok(());
+    }
+
+    // Not in /etc — disable a vendor repo by shadowing its file with an
+    // /etc copy that has the line commented.
+    for path in conf_paths(VENDOR_XBPS_D) {
+        let Ok(contents) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if !contents.lines().any(|l| l == active) {
+            continue;
+        }
+        let mut copy = String::new();
+        for l in contents.lines() {
+            let _ = writeln!(copy, "{}", if l == active { &disabled } else { l });
+        }
+        let Some(name) = path.file_name() else {
+            continue;
+        };
+        let target = std::path::Path::new(ETC_XBPS_D).join(name);
+        return std::fs::write(target, copy).map_err(|e| e.to_string());
+    }
+    Ok(())
+}
+
+/// Strips the repo's line (active or disabled) from every /etc/xbps.d
+/// conf. Vendor files are left alone — vendor repos can't be removed,
+/// only disabled.
+fn remove_repo(url: &str) -> Result<(), String> {
+    if has_control_char(url) {
         return Err("refusing to remove a repository URL with control characters".to_string());
     }
-    let Ok(existing) = std::fs::read_to_string(MANAGED_REPO_CONF) else {
-        return Ok(()); // file doesn't exist, nothing to remove
-    };
-    let line = format!("repository={url}");
-    let updated: String =
-        existing
-            .lines()
-            .filter(|l| *l != line)
-            .fold(String::new(), |mut acc, l| {
-                let _ = writeln!(acc, "{l}");
-                acc
-            });
-    std::fs::write(MANAGED_REPO_CONF, updated).map_err(|e| e.to_string())
+    let active = format!("repository={url}");
+    let disabled = format!("#{active}");
+    for path in conf_paths(ETC_XBPS_D) {
+        rewrite_conf(&path, |l| (l == active || l == disabled).then(String::new))?;
+    }
+    Ok(())
 }
 
 fn main() {
@@ -564,6 +660,34 @@ fn main() {
                 continue;
             }
             match remove_repo(url) {
+                Ok(()) => respond_ok_or(true, ""),
+                Err(e) => respond_ok_or(false, &e),
+            }
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("ENABLEREPO ") {
+            let url = rest.trim();
+            if url.is_empty() {
+                println!("ERROR no url specified");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            match toggle_repo(url, true) {
+                Ok(()) => respond_ok_or(true, ""),
+                Err(e) => respond_ok_or(false, &e),
+            }
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("DISABLEREPO ") {
+            let url = rest.trim();
+            if url.is_empty() {
+                println!("ERROR no url specified");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            match toggle_repo(url, false) {
                 Ok(()) => respond_ok_or(true, ""),
                 Err(e) => respond_ok_or(false, &e),
             }
