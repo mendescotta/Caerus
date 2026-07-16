@@ -106,8 +106,13 @@ struct Inner {
     custom_filters: Rc<RefCell<CustomFilters>>,
     repo_lb: gtk::ListBox,
     /// Row `i + 1` of `repo_lb` corresponds to `repo_names[i]`; row 0
-    /// is always the fixed "All Repositories" row.
+    /// is always the fixed "All Repositories" row. Holds only the
+    /// currently *displayed* repos (stales excluded while hidden).
     repo_names: RefCell<Vec<String>>,
+    /// Every known repo as (url, stale). Stale = a package origin not
+    /// configured in any xbps.d conf file.
+    all_repos: RefCell<Vec<(String, bool)>>,
+    show_stale: std::cell::Cell<bool>,
     /// User-chosen display names, keyed by repository URL — right-click
     /// a repository row to set one.
     display_names: RefCell<RepoNames>,
@@ -224,7 +229,7 @@ fn make_text_row(label: &str) -> gtk::ListBoxRow {
 /// full URL (the visible text may be a custom name or the
 /// scheme-stripped URL, either of which can be a truncated/altered
 /// view of it).
-fn build_repo_row(inner: &Rc<Inner>, url: String) -> gtk::ListBoxRow {
+fn build_repo_row(inner: &Rc<Inner>, url: String, stale: bool) -> gtk::ListBoxRow {
     let l = gtk::Label::new(Some(&repo_display_text(inner, &url)));
     l.set_xalign(0.0);
     l.set_hexpand(true);
@@ -233,7 +238,14 @@ fn build_repo_row(inner: &Rc<Inner>, url: String) -> gtk::ListBoxRow {
     l.set_margin_end(8);
     l.set_margin_top(5);
     l.set_margin_bottom(5);
-    l.set_tooltip_text(Some(&url));
+    if stale {
+        l.add_css_class("dim-label");
+        l.set_tooltip_text(Some(&format!(
+            "{url}\nNot currently configured — packages were installed from it in the past"
+        )));
+    } else {
+        l.set_tooltip_text(Some(&url));
+    }
 
     let row = gtk::ListBoxRow::new();
     row.set_child(Some(&l));
@@ -433,29 +445,13 @@ impl FilterSidebar {
 
         // ── REPOSITORIES ──
         // Populated later via `set_available_repositories` once a load
-        // has actually happened — the set of repositories isn't known
-        // until then. Starts with just "All Repositories". The section
-        // content also carries the "Manage Repositories…" action row in
-        // its own single-row ListBox, kept separate from `repo_lb` so
-        // repo (filter) selection state never mixes with action rows.
+        // has actually happened — starts with just "All Repositories".
         let repo_lb = gtk::ListBox::new();
         repo_lb.set_selection_mode(gtk::SelectionMode::Single);
         repo_lb.add_css_class("navigation-sidebar");
         repo_lb.append(&make_text_row("All Repositories"));
 
-        let repo_manage_lb = gtk::ListBox::new();
-        repo_manage_lb.set_selection_mode(gtk::SelectionMode::None);
-        repo_manage_lb.add_css_class("navigation-sidebar");
-        repo_manage_lb.append(&make_action_row(
-            "applications-system-symbolic",
-            "Manage Repositories\u{2026}",
-        ));
-
-        let repo_content = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        repo_content.append(&repo_lb);
-        repo_content.append(&repo_manage_lb);
-
-        let repos_section = build_section(Section::Repositories.title(), &repo_content);
+        let repos_section = build_section(Section::Repositories.title(), &repo_lb);
         inner_box.append(&repos_section.container);
 
         // ── MAINTENANCE ── (icon rule: trash = remove, wrench-ish
@@ -518,6 +514,11 @@ impl FilterSidebar {
                 SidebarAction::Alternatives,
             ),
             (
+                "network-server-symbolic",
+                "Manage Repositories\u{2026}",
+                SidebarAction::ManageRepos,
+            ),
+            (
                 "document-open-recent-symbolic",
                 "Transaction History\u{2026}",
                 SidebarAction::History,
@@ -539,6 +540,8 @@ impl FilterSidebar {
             custom_filters,
             repo_lb: repo_lb.clone(),
             repo_names: RefCell::new(Vec::new()),
+            all_repos: RefCell::new(Vec::new()),
+            show_stale: std::cell::Cell::new(true),
             display_names: RefCell::new(RepoNames::load()),
             on_filter_changed: RefCell::new(Vec::new()),
             on_repository_changed: RefCell::new(Vec::new()),
@@ -577,18 +580,6 @@ impl FilterSidebar {
                 }
             });
         }
-        {
-            let inner_weak = Rc::downgrade(&inner);
-            repo_manage_lb.connect_row_activated(move |_, _| {
-                let Some(inner) = inner_weak.upgrade() else {
-                    return;
-                };
-                for cb in inner.on_action.borrow().iter() {
-                    cb(SidebarAction::ManageRepos);
-                }
-            });
-        }
-
         {
             let inner_weak = Rc::downgrade(&inner);
             edit_filters_lb.connect_row_activated(move |lb, _| {
@@ -711,59 +702,75 @@ impl FilterSidebar {
     }
 
     /// Rebuilds the repository rows from a freshly-loaded package set.
-    /// Mirrors `PackageStore`'s own mark-preservation-across-reload
-    /// approach: if the previously-selected repository is still present
-    /// in the new set, the selection (and therefore `PackageList`'s
-    /// filter) carries over instead of silently resetting to "All" on
-    /// every reload.
-    pub fn set_available_repositories(&self, mut repos: Vec<String>) {
+    /// `configured` = URLs present in xbps.d conf files; anything else
+    /// is marked stale. Selection carries over by name across the
+    /// rebuild instead of silently resetting to "All".
+    pub fn set_available_repositories(
+        &self,
+        mut repos: Vec<String>,
+        configured: &std::collections::HashSet<String>,
+    ) {
         repos.sort();
         repos.dedup();
-
-        let previously_selected = self
-            .inner
-            .repo_lb
-            .selected_row()
-            .map(|r| r.index())
-            .filter(|&i| i > 0)
-            .and_then(|i| {
-                self.inner
-                    .repo_names
-                    .borrow()
-                    .get((i - 1) as usize)
-                    .cloned()
-            });
-
-        while let Some(child) = self.inner.repo_lb.first_child() {
-            self.inner.repo_lb.remove(&child);
-        }
-        self.inner
-            .repo_lb
-            .append(&make_text_row("All Repositories"));
-        for r in &repos {
-            self.inner
-                .repo_lb
-                .append(&build_repo_row(&self.inner, r.clone()));
-        }
-        *self.inner.repo_names.borrow_mut() = repos;
-
-        let restore_index = previously_selected
-            .as_ref()
-            .and_then(|name| {
-                self.inner
-                    .repo_names
-                    .borrow()
-                    .iter()
-                    .position(|r| r == name)
+        *self.inner.all_repos.borrow_mut() = repos
+            .into_iter()
+            .map(|url| {
+                let stale = !configured.contains(&url);
+                (url, stale)
             })
-            .map_or(0, |pos| pos as i32 + 1);
+            .collect();
+        rebuild_repo_rows(&self.inner);
+    }
 
-        if let Some(row) = self.inner.repo_lb.row_at_index(restore_index) {
-            // Every row was just recreated, so nothing is selected yet
-            // at this point — this always fires "row-selected" (via the
-            // handler wired in `new()`), which notifies listeners with
-            // the correct value in every case (restored or reset).
-            self.inner.repo_lb.select_row(Some(&row));
+    pub fn show_stale_repositories(&self) -> bool {
+        self.inner.show_stale.get()
+    }
+
+    pub fn set_show_stale_repositories(&self, show: bool) {
+        if self.inner.show_stale.replace(show) != show {
+            rebuild_repo_rows(&self.inner);
         }
+    }
+}
+
+fn rebuild_repo_rows(inner: &Rc<Inner>) {
+    let previously_selected = inner
+        .repo_lb
+        .selected_row()
+        .map(|r| r.index())
+        .filter(|&i| i > 0)
+        .and_then(|i| inner.repo_names.borrow().get((i - 1) as usize).cloned());
+
+    while let Some(child) = inner.repo_lb.first_child() {
+        inner.repo_lb.remove(&child);
+    }
+    inner.repo_lb.append(&make_text_row("All Repositories"));
+
+    let show_stale = inner.show_stale.get();
+    let displayed: Vec<(String, bool)> = inner
+        .all_repos
+        .borrow()
+        .iter()
+        .filter(|(_, stale)| show_stale || !stale)
+        .cloned()
+        .collect();
+    for (url, stale) in &displayed {
+        inner
+            .repo_lb
+            .append(&build_repo_row(inner, url.clone(), *stale));
+    }
+    *inner.repo_names.borrow_mut() = displayed.into_iter().map(|(url, _)| url).collect();
+
+    let restore_index = previously_selected
+        .as_ref()
+        .and_then(|name| inner.repo_names.borrow().iter().position(|r| r == name))
+        .map_or(0, |pos| pos as i32 + 1);
+
+    if let Some(row) = inner.repo_lb.row_at_index(restore_index) {
+        // Every row was just recreated, so nothing is selected yet —
+        // this always fires "row-selected", which notifies listeners
+        // with the correct value (restored, or reset to "All", which
+        // also covers hiding the currently-selected stale repo).
+        inner.repo_lb.select_row(Some(&row));
     }
 }

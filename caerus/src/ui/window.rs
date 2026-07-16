@@ -98,6 +98,9 @@ struct WindowGeometry {
     section_visible: [bool; 4],
     detail_pane_visible: bool,
     status_bar_visible: bool,
+    /// Whether the sidebar shows stale repositories (package origins no
+    /// longer configured in xbps.d).
+    stale_repos_visible: bool,
 }
 
 /// Persistence keys for the per-section booleans, in `Section::ALL`
@@ -117,6 +120,7 @@ impl Default for WindowGeometry {
             section_visible: [true; 4],
             detail_pane_visible: true,
             status_bar_visible: true,
+            stale_repos_visible: true,
         }
     }
 }
@@ -178,6 +182,10 @@ impl WindowGeometry {
                             geometry.status_bar_visible = b;
                             continue;
                         }
+                        "stale_repos" => {
+                            geometry.stale_repos_visible = b;
+                            continue;
+                        }
                         _ => {}
                     }
                 }
@@ -223,9 +231,10 @@ impl WindowGeometry {
             ));
         }
         contents.push_str(&format!(
-            "visible_detail_pane={}\nvisible_status_bar={}\n",
+            "visible_detail_pane={}\nvisible_status_bar={}\nvisible_stale_repos={}\n",
             i32::from(self.detail_pane_visible),
-            i32::from(self.status_bar_visible)
+            i32::from(self.status_bar_visible),
+            i32::from(self.stale_repos_visible)
         ));
         let _ = std::fs::write(&path, contents);
     }
@@ -409,6 +418,9 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         .widget()
         .set_visible(geometry.detail_pane_visible);
     state.status_bar.set_visible(geometry.status_bar_visible);
+    state
+        .sidebar
+        .set_show_stale_repositories(geometry.stale_repos_visible);
 
     populate_menu_popover(&state);
 
@@ -453,6 +465,7 @@ fn install_css(window: &gtk::ApplicationWindow) {
   border-radius: 99px; padding: 0px 8px;
   font-size: 0.78em;
   background: alpha(currentColor, 0.13); }
+.vsep { border-left: 1px solid @borders; padding-left: 8px; }
 .pkg-marked   { font-weight: bold; }
 .pkg-installed  { color: @success_color; }
 .pkg-upgradable { color: @warning_color; }
@@ -498,6 +511,7 @@ const USED_SYMBOLIC_ICONS: &[&str] = &[
     "application-x-firmware-symbolic",
     "object-flip-horizontal-symbolic",
     "document-open-recent-symbolic",
+    "network-server-symbolic",
 ];
 
 /// GTK only resolves an icon name against the *active* icon theme (plus
@@ -718,6 +732,20 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
             .build();
         view.append(&row);
     }
+
+    let (stale_row, sw_stale) = switch_row("Stale Repositories", None);
+    stale_row.set_tooltip_text(Some(
+        "Show repositories that installed packages came from but that are no longer \
+         configured in xbps.d",
+    ));
+    sw_stale.set_active(state.sidebar.show_stale_repositories());
+    {
+        let state = state.clone();
+        sw_stale.connect_active_notify(move |sw| {
+            state.sidebar.set_show_stale_repositories(sw.is_active());
+        });
+    }
+    view.append(&stale_row);
 
     view.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     let (detail_row, sw_detail) = switch_row("Detail Pane", None);
@@ -992,9 +1020,10 @@ fn wire_up(state: &Rc<WindowState>) {
         store.connect_load_finished(move |_n| {
             set_loading(&state, false);
             update_status_bar(&state);
-            state
-                .sidebar
-                .set_available_repositories(state.pkg_list.available_repositories());
+            state.sidebar.set_available_repositories(
+                state.pkg_list.available_repositories(),
+                &crate::ui::repo_manager::configured_repo_urls(),
+            );
         });
     }
     {
@@ -1309,6 +1338,7 @@ fn wire_up(state: &Rc<WindowState>) {
                     .map(|s| state.sidebar.section_widget(s).get_visible()),
                 detail_pane_visible: state.detail_pane.widget().get_visible(),
                 status_bar_visible: state.status_bar.get_visible(),
+                stale_repos_visible: state.sidebar.show_stale_repositories(),
             }
             .save();
             state.session.shutdown();
