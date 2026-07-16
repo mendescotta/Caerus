@@ -2,9 +2,9 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "0.5-dev" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "0.5-dev" ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -37,8 +37,20 @@ jobs:
         # libadwaita-devel is only needed for the optional `adwaita`
         # feature build below, checked here too so it doesn't silently
         # bit-rot without CI ever compiling it.
-        xbps-install -y base-devel libxbps-devel gtk4-devel libadwaita-devel pkg-config rust cargo git clang
+        # zstd: actions/cache (inside Swatinem/rust-cache) compresses
+        # with zstd when the binary is present, falling back to the much
+        # slower gzip otherwise — worth guaranteeing for a multi-GB
+        # target/ directory.
+        xbps-install -y base-devel libxbps-devel gtk4-devel libadwaita-devel pkg-config rust cargo git clang zstd
     - uses: actions/checkout@v4
+    # Restores ~/.cargo and target/ between runs. The cache key includes
+    # `rustc -V`, and the full-system upgrade above tracks Void's rolling
+    # rust — so the cache self-invalidates whenever Void bumps the
+    # toolchain and is a pure win between bumps. One cache covers both
+    # the default and the adwaita-feature build (shared target/).
+    - uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
     - name: Build
       run: cargo build --verbose
     - name: Run tests
@@ -51,3 +63,18 @@ jobs:
       run: cargo build --verbose --features caerus/adwaita
     - name: Clippy with adwaita feature
       run: cargo clippy --workspace --all-targets --features caerus/adwaita -- -D warnings
+
+  # Checks Cargo.lock against the RustSec advisory database. Runs on a
+  # plain ubuntu runner — auditing only reads the lockfile, so none of
+  # the libxbps/GTK build machinery above is needed, and installing
+  # cargo-audit in the Void container would cost minutes per run for
+  # nothing. Deliberately blocking (no continue-on-error): this app
+  # spawns a pkexec-root helper, so a known-vulnerable dependency is a
+  # stop-the-line problem, not a footnote.
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

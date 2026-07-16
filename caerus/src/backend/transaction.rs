@@ -3,26 +3,31 @@
 //! Rust translation of backend/transaction.{h,c}.
 //!
 //! One instance lives for the whole app session: create it once, call
-//! `run_async()` each time there's a new batch of commands. The
+//! `run_batch()` each time there's a new batch of commands. The
 //! underlying helper process is spawned lazily on first use and then
 //! kept alive — repeated batches do NOT re-trigger authentication.
+//!
+//! Batches are first-class: each `run_batch()` call carries its own
+//! completion callback, batches queued while another is in flight wait
+//! their turn (they never merge), and a failed command aborts only the
+//! batch it belongs to — queued batches behind it still run.
 //!
 //! The helper is only ever told to exit (QUIT) in two situations:
 //!   - it has sat idle (no command in flight, none queued) for
 //!     `IDLE_TIMEOUT`, or
 //!   - `shutdown()` is called explicitly (app exit).
 //!
-//! Either way, the *next* call to `run_async()` after that transparently
+//! Either way, the *next* call to `run_batch()` after that transparently
 //! respawns the helper — a fresh `pkexec` prompt — since this is
 //! indistinguishable from first use.
 //!
 //! Callbacks (all invoked on the main thread, mirroring the original's
 //! `GObject` signals):
 //!   `connect_log`          (line: &str)              -- every raw line
-//!   `connect_finished`     (success)                  -- after the
-//!                                                          queued batch
-//!                                                          has run
 //!   `connect_disconnected` (`DisconnectReason`)          -- helper exited
+//! Batch completion is NOT a session-wide signal: it's the per-batch
+//! `on_finished` closure passed to `run_batch()`, which fires exactly
+//! once (success, a failed command, or a disconnect all resolve it).
 
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -45,11 +50,27 @@ enum TxnState {
 }
 
 type LogCb = Rc<dyn Fn(&str)>;
-type FinishedCb = Rc<dyn Fn(bool)>;
 type LogCbs = RefCell<Vec<(u64, LogCb)>>;
-type FinishedCbs = RefCell<Vec<(u64, FinishedCb)>>;
 type DisconnectedCb = Rc<dyn Fn(DisconnectReason)>;
 type DisconnectedCbs = RefCell<Vec<(u64, DisconnectedCb)>>;
+
+/// One `run_batch()` call: its still-unsent commands plus its
+/// completion callback. `on_finished` is an `Option` only so it can be
+/// taken out and invoked exactly once after the batch leaves the queue.
+struct Batch {
+    commands: VecDeque<String>,
+    on_finished: Option<Box<dyn FnOnce(bool)>>,
+}
+
+impl Batch {
+    /// Consumes the callback; safe to call more than once (later calls
+    /// are no-ops), which keeps the disconnect path reentrant-safe.
+    fn finish(mut self, success: bool) {
+        if let Some(cb) = self.on_finished.take() {
+            cb(success);
+        }
+    }
+}
 
 /// Why the helper connection ended, passed to `connect_disconnected`
 /// listeners — distinguishes "nothing to worry about" from "this will
@@ -80,14 +101,13 @@ pub enum DisconnectReason {
 struct Inner {
     stdin: RefCell<Option<ChildStdin>>,
     line_rx: RefCell<Option<mpsc::Receiver<String>>>,
-    pending: RefCell<VecDeque<String>>,
+    batches: RefCell<VecDeque<Batch>>,
     state: Cell<TxnState>,
     intentional_quit: Cell<bool>,
     idle_timeout_id: RefCell<Option<glib::SourceId>>,
 
     next_listener_id: Cell<u64>,
     on_log: LogCbs,
-    on_finished: FinishedCbs,
     on_disconnected: DisconnectedCbs,
 }
 
@@ -101,13 +121,12 @@ impl Transaction {
         let inner = Rc::new(Inner {
             stdin: RefCell::new(None),
             line_rx: RefCell::new(None),
-            pending: RefCell::new(VecDeque::new()),
+            batches: RefCell::new(VecDeque::new()),
             state: Cell::new(TxnState::NotRunning),
             intentional_quit: Cell::new(false),
             idle_timeout_id: RefCell::new(None),
             next_listener_id: Cell::new(0),
             on_log: RefCell::new(Vec::new()),
-            on_finished: RefCell::new(Vec::new()),
             on_disconnected: RefCell::new(Vec::new()),
         });
 
@@ -152,18 +171,6 @@ impl Transaction {
         self.inner.on_log.borrow_mut().retain(|(i, _)| *i != id);
     }
 
-    pub fn connect_finished(&self, f: impl Fn(bool) + 'static) -> u64 {
-        let id = self.next_id();
-        self.inner.on_finished.borrow_mut().push((id, Rc::new(f)));
-        id
-    }
-    pub fn disconnect_finished(&self, id: u64) {
-        self.inner
-            .on_finished
-            .borrow_mut()
-            .retain(|(i, _)| *i != id);
-    }
-
     pub fn connect_disconnected(&self, f: impl Fn(DisconnectReason) + 'static) -> u64 {
         let id = self.next_id();
         self.inner
@@ -196,18 +203,6 @@ impl Transaction {
             cb(line);
         }
     }
-    fn emit_finished(&self, success: bool) {
-        let cbs: Vec<FinishedCb> = self
-            .inner
-            .on_finished
-            .borrow()
-            .iter()
-            .map(|(_, f)| f.clone())
-            .collect();
-        for cb in cbs {
-            cb(success);
-        }
-    }
     fn emit_disconnected(&self, reason: DisconnectReason) {
         let cbs: Vec<DisconnectedCb> = self
             .inner
@@ -221,9 +216,16 @@ impl Transaction {
         }
     }
 
-    /// Queue a protocol command line (without trailing newline).
+    /// Queues `commands` (protocol lines, no trailing newline) as one
+    /// batch and ensures the helper is running (spawning/authenticating
+    /// if needed). `on_finished` fires exactly once, on the main
+    /// thread, when this batch — and only this batch — resolves:
+    /// `true` after every command answered OK, `false` on the first
+    /// ERROR, a helper disconnect, or a spawn failure. Batches queued
+    /// while another is in flight wait their turn; they never merge
+    /// into the running batch's outcome.
     ///
-    /// Refuses (and logs, rather than silently dropping) any line
+    /// Refuses (and logs, rather than silently dropping) any command
     /// containing a control character. Every caller builds these lines
     /// by joining package/repo names that ultimately come from repo
     /// index data, not literal user input — `write_line` below appends
@@ -235,45 +237,55 @@ impl Transaction {
     /// (via `apply_dialog::run`), so it covers every verb — including
     /// ones like `INSTALL`/`REMOVE` that don't do their own validation
     /// the way `repo_manager`'s URL entry does.
-    pub fn add_command(&self, command: &str) {
-        if command.chars().any(|c| c.is_control()) {
-            self.emit_log(&format!(
-                "refusing to queue malformed command (contains control characters): {command:?}"
-            ));
+    pub fn run_batch(&self, commands: Vec<String>, on_finished: impl FnOnce(bool) + 'static) {
+        let mut accepted: VecDeque<String> = VecDeque::with_capacity(commands.len());
+        for command in commands {
+            if !command_is_safe(&command) {
+                self.emit_log(&format!(
+                    "refusing to queue malformed command (contains control characters): {command:?}"
+                ));
+                continue;
+            }
+            accepted.push_back(command);
+        }
+        if accepted.is_empty() {
+            on_finished(true); // nothing to run — don't spawn (and prompt) for nothing
             return;
         }
-        self.inner
-            .pending
-            .borrow_mut()
-            .push_back(command.to_string());
-    }
+        self.inner.batches.borrow_mut().push_back(Batch {
+            commands: accepted,
+            on_finished: Some(Box::new(on_finished)),
+        });
 
-    /// Ensures the helper is running (spawning/authenticating if
-    /// needed) and runs every currently-queued command.
-    pub fn run_async(&self) {
         match self.inner.state.get() {
             TxnState::NotRunning => {
-                if self.inner.pending.borrow().is_empty() {
-                    return; // don't spawn (and prompt) for nothing
-                }
                 self.inner.state.set(TxnState::Spawning);
                 if !self.spawn_helper() {
                     self.inner.state.set(TxnState::NotRunning);
-                    self.emit_finished(false);
+                    self.fail_all_batches();
                 }
             }
             TxnState::Spawning | TxnState::Busy => {
-                // Already working through a batch — newly queued
-                // commands get picked up automatically as the existing
-                // poll loop drains the queue via send_next_command().
+                // Already working — this batch gets picked up once the
+                // in-flight one resolves, via send_next_command().
             }
             TxnState::Idle => {
-                if self.inner.pending.borrow().is_empty() {
-                    return;
-                }
                 self.cancel_idle_timer();
                 self.send_next_command();
             }
+        }
+    }
+
+    /// Drains the whole batch queue, resolving every callback with
+    /// failure — spawn failed or the helper disconnected, so none of
+    /// the queued work can run. The queue is snapshotted before any
+    /// callback runs, so a callback is free to call `run_batch` again
+    /// (respawning the helper) without its fresh batch being swept up
+    /// in this failure pass.
+    fn fail_all_batches(&self) {
+        let batches = std::mem::take(&mut *self.inner.batches.borrow_mut());
+        for batch in batches {
+            batch.finish(false);
         }
     }
 
@@ -288,6 +300,8 @@ impl Transaction {
     // ── Helper binary discovery ─────────────────────────────────────
 
     fn find_helper_path() -> Option<PathBuf> {
+        const INSTALL_PATH: &str = "/usr/libexec/caerus-helper";
+
         if let Ok(over) = std::env::var("CAERUS_HELPER_PATH") {
             let p = PathBuf::from(&over);
             if is_executable(&p) {
@@ -305,7 +319,6 @@ impl Transaction {
             }
         }
 
-        const INSTALL_PATH: &str = "/usr/libexec/caerus-helper";
         let p = PathBuf::from(INSTALL_PATH);
         if is_executable(&p) {
             return Some(p);
@@ -420,19 +433,42 @@ impl Transaction {
         }
     }
 
-    fn end_of_batch(&self, success: bool) {
-        self.inner.state.set(TxnState::Idle);
-        self.start_idle_timer();
-        self.emit_finished(success);
-    }
-
+    /// Advances the queue: sends the front batch's next command, or —
+    /// when the front batch has no commands left — resolves it as
+    /// successful and moves on to the next batch, going `Idle` only
+    /// once the queue is empty. Each completed batch's callback runs
+    /// with no queue borrow held (it may call `run_batch` itself; the
+    /// state is still `Busy` at that point, so the new batch just
+    /// queues and this loop picks it up).
     fn send_next_command(&self) {
-        let next = self.inner.pending.borrow_mut().pop_front();
-        match next {
-            None => self.end_of_batch(true),
-            Some(cmd) => {
-                self.inner.state.set(TxnState::Busy);
-                self.write_line(&cmd);
+        loop {
+            enum Step {
+                Send(String),
+                Completed(Batch),
+                QueueEmpty,
+            }
+            let step = {
+                let mut batches = self.inner.batches.borrow_mut();
+                match batches.front_mut() {
+                    None => Step::QueueEmpty,
+                    Some(front) => match front.commands.pop_front() {
+                        Some(cmd) => Step::Send(cmd),
+                        None => Step::Completed(batches.pop_front().expect("front batch exists")),
+                    },
+                }
+            };
+            match step {
+                Step::Send(cmd) => {
+                    self.inner.state.set(TxnState::Busy);
+                    self.write_line(&cmd);
+                    return;
+                }
+                Step::Completed(batch) => batch.finish(true),
+                Step::QueueEmpty => {
+                    self.inner.state.set(TxnState::Idle);
+                    self.start_idle_timer();
+                    return;
+                }
             }
         }
     }
@@ -455,8 +491,14 @@ impl Transaction {
             return;
         }
         if line.starts_with("ERROR") {
-            self.inner.pending.borrow_mut().clear();
-            self.end_of_batch(false);
+            // Abort only the batch the failed command belongs to —
+            // its remaining commands are dropped with it. Batches
+            // queued behind it are independent requests and still run.
+            let failed = self.inner.batches.borrow_mut().pop_front();
+            if let Some(batch) = failed {
+                batch.finish(false);
+            }
+            self.send_next_command();
         }
         // "LOG ..." or anything else — already emitted via emit_log above.
     }
@@ -479,10 +521,7 @@ impl Transaction {
         *self.inner.line_rx.borrow_mut() = None;
         self.cancel_idle_timer();
 
-        let was_mid_batch = matches!(self.inner.state.get(), TxnState::Busy | TxnState::Spawning);
-
         self.inner.state.set(TxnState::NotRunning);
-        self.inner.pending.borrow_mut().clear();
         self.inner.intentional_quit.set(false);
 
         let reason = if expected {
@@ -494,11 +533,11 @@ impl Transaction {
         };
         self.emit_disconnected(reason);
 
-        // Unexpected death mid-batch (crash, killed, etc.) — make sure
-        // whatever was waiting on "finished" doesn't hang forever.
-        if was_mid_batch && !expected {
-            self.emit_finished(false);
-        }
+        // Every unresolved batch — the one mid-flight and any queued
+        // behind it — resolves as failed, so nothing waiting on an
+        // `on_finished` hangs forever. State is already `NotRunning`,
+        // so a callback that retries via `run_batch` respawns cleanly.
+        self.fail_all_batches();
     }
 
     /// Shared by both the idle-timeout and the explicit `shutdown()`
@@ -551,4 +590,37 @@ fn which(program: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// A protocol command line is safe to queue iff it contains no control
+/// characters — see `run_batch`'s doc comment for why an embedded
+/// newline (or any other control character) in a package/repo name
+/// must never reach the already-authenticated helper.
+fn command_is_safe(command: &str) -> bool {
+    !command.chars().any(char::is_control)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plain_commands_are_safe() {
+        assert!(command_is_safe("SYNC"));
+        assert!(command_is_safe("INSTALL foo bar-2.0"));
+        assert!(command_is_safe("ADDREPO https://repo.example/current?a=b"));
+        assert!(command_is_safe("INSTALL p\u{e4}ckage")); // non-ASCII is fine
+        assert!(command_is_safe("")); // vacuously safe; run_batch drops it upstream anyway
+    }
+
+    #[test]
+    fn control_characters_are_rejected() {
+        // An embedded newline is the actual attack: it would smuggle a
+        // second command line into the pkexec-authenticated session.
+        assert!(!command_is_safe("INSTALL foo\nREMOVE bar"));
+        assert!(!command_is_safe("INSTALL foo\tbar"));
+        assert!(!command_is_safe("INSTALL foo\u{0}"));
+        assert!(!command_is_safe("INSTALL foo\u{1b}[31m")); // ESC
+        assert!(!command_is_safe("\rINSTALL foo"));
+    }
 }

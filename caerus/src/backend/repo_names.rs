@@ -79,3 +79,31 @@ pub fn display_repo(url: &str) -> &str {
         .or_else(|| url.strip_prefix("http://"))
         .unwrap_or(url)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_repo_strips_web_schemes_only() {
+        assert_eq!(
+            display_repo("https://repo-default.voidlinux.org/current"),
+            "repo-default.voidlinux.org/current"
+        );
+        assert_eq!(
+            display_repo("http://mirror.example/void"),
+            "mirror.example/void"
+        );
+        // Anything else passes through untouched — including schemes we
+        // don't recognize and bare paths.
+        assert_eq!(
+            display_repo("ftp://mirror.example/void"),
+            "ftp://mirror.example/void"
+        );
+        assert_eq!(
+            display_repo("/var/cache/local-repo"),
+            "/var/cache/local-repo"
+        );
+        assert_eq!(display_repo("repo.example/current"), "repo.example/current");
+    }
+}

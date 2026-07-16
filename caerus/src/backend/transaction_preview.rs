@@ -172,3 +172,110 @@ impl TransactionError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(name: &str, action: TransAction) -> TransactionPreviewItem {
+        TransactionPreviewItem {
+            pkgname: name.to_string(),
+            pkgver: format!("{name}-1.0_1"),
+            action,
+            arch: Some("x86_64".to_string()),
+            repository: Some("https://repo.example/current".to_string()),
+            installed_size: 2048,
+            download_size: 1024,
+        }
+    }
+
+    #[test]
+    fn plain_text_has_one_line_per_item_plus_totals() {
+        let preview = TransactionPreview {
+            items: vec![
+                item("foo", TransAction::Install),
+                item("bar", TransAction::Remove),
+            ],
+            total_download_size: 1024,
+            total_installed_size: 2048,
+            total_removed_size: 4096,
+            download_pkgs: 1,
+            install_pkgs: 1,
+            update_pkgs: 0,
+            remove_pkgs: 1,
+            hold_pkgs: 0,
+        };
+        let text = preview.to_plain_text();
+        assert!(text.contains(
+            "foo foo-1.0_1 install x86_64 https://repo.example/current installed=2.0 KiB download=1.0 KiB"
+        ));
+        assert!(text.contains("bar bar-1.0_1 remove"));
+        assert!(text.contains("1 to install, 0 to update, 1 to remove, 0 on hold, 1 to download"));
+        assert!(text.contains("Total download size: 1.0 KiB"));
+        assert!(text.contains("Total removed size: 4.0 KiB"));
+    }
+
+    #[test]
+    fn plain_text_shows_dashes_for_missing_arch_and_repo() {
+        let mut it = item("foo", TransAction::Update);
+        it.arch = None;
+        it.repository = None;
+        let preview = TransactionPreview {
+            items: vec![it],
+            ..Default::default()
+        };
+        assert!(preview.to_plain_text().contains("foo foo-1.0_1 update - -"));
+    }
+
+    #[test]
+    fn error_summaries_name_the_failure_class() {
+        assert!(TransactionError::MissingDeps(vec![])
+            .summary()
+            .contains("unresolved dependencies"));
+        assert!(TransactionError::MissingShlibs(vec![])
+            .summary()
+            .contains("shared libraries"));
+        assert!(TransactionError::Conflicts(vec![])
+            .summary()
+            .contains("conflicting packages"));
+        let space = TransactionError::NotEnoughSpace {
+            need: 2_147_483_648,
+            free: 1_048_576,
+        };
+        assert_eq!(
+            space.summary(),
+            "Transaction aborted due to insufficient disk space (need 2.0 GiB, got 1.0 MiB free)."
+        );
+        assert_eq!(
+            TransactionError::Other("boom".to_string()).summary(),
+            "boom"
+        );
+    }
+
+    #[test]
+    fn error_details_expose_lists_only_where_they_exist() {
+        let deps = vec!["libfoo>=1.0".to_string(), "libbar>=2.0".to_string()];
+        assert_eq!(
+            TransactionError::MissingDeps(deps.clone()).details(),
+            deps.as_slice()
+        );
+        assert!(TransactionError::NotEnoughSpace { need: 1, free: 0 }
+            .details()
+            .is_empty());
+        assert!(TransactionError::Other("x".to_string())
+            .details()
+            .is_empty());
+    }
+
+    #[test]
+    fn trans_action_raw_roundtrip() {
+        for v in 0u8..=8 {
+            let a = TransAction::from_raw(v);
+            match v {
+                1..=7 => assert_ne!(a, TransAction::Unknown),
+                _ => assert_eq!(a, TransAction::Unknown),
+            }
+        }
+        assert_eq!(TransAction::from_raw(5), TransAction::Remove);
+    }
+}

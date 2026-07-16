@@ -126,3 +126,35 @@ pub fn present_focused(dlg: &gtk::Window, widget: &impl IsA<gtk::Widget>) {
     dlg.present();
     widget.grab_focus();
 }
+
+/// Runs `cmd.output()` on a background thread and hands the result to
+/// `on_done` back on the GTK main thread — the same mpsc +
+/// `timeout_add_local` polling shape `PackageStore`'s worker replies
+/// use. For the read-only one-shot subprocess queries some dialogs make
+/// (`xbps-query -o`, `vkpurge list`, `xbps-alternatives -l`), which
+/// previously blocked the main thread for the subprocess's lifetime.
+pub fn run_command_async(
+    mut cmd: std::process::Command,
+    on_done: impl FnOnce(Result<std::process::Output, String>) + 'static,
+) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(cmd.output().map_err(|e| e.to_string()));
+    });
+
+    let mut on_done = Some(on_done);
+    glib::source::timeout_add_local(std::time::Duration::from_millis(15), move || {
+        match rx.try_recv() {
+            Ok(result) => {
+                if let Some(on_done) = on_done.take() {
+                    on_done(result);
+                }
+                glib::ControlFlow::Break
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+            // Sender dropped without sending — thread panicked; nothing
+            // to deliver.
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
+        }
+    });
+}
