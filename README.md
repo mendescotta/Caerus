@@ -97,12 +97,12 @@ A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
 curl -fsSL https://raw.githubusercontent.com/mendescotta/Caerus/main/get-caerus.sh | sh
 ```
 
-Clones the repo, offers to install any missing build dependencies via
+Clones the repo, offers to install missing build dependencies via
 `xbps-install`, builds with `cargo build --release`, then asks whether to
-run it straight from the build tree or install it system-wide. Read
-[get-caerus.sh](get-caerus.sh) before piping it to `sh`, same as you
-should for any installer script — it only builds from source on your own
-machine, there's no prebuilt binary involved.
+run it, register it for your user, or install it system-wide. Read
+[get-caerus.sh](get-caerus.sh) before piping it to `sh`, same as any
+installer script — it only builds from source, no prebuilt binary
+involved.
 
 ### Dependencies
 
@@ -138,15 +138,13 @@ sudo ./install.sh
 ```
 
 Add `--features caerus/adwaita` to the build command (needs
-`libadwaita-devel`) to swap in a handful of libadwaita widgets — an
-About window with proper GNOME-standard chrome, for now — where plain
-GTK4 is used otherwise. This is a build-time choice, not something a
-single binary detects per-machine at runtime.
+`libadwaita-devel`) for a handful of libadwaita widgets in place of plain
+GTK4 — a build-time choice, not a runtime one.
 
-`install.sh` installs `caerus` to `/usr/bin`, `caerus-helper` to
-`/usr/libexec`, and registers the `.desktop` launcher, polkit policy, and
-icon (set `PREFIX=/usr/local` or similar before running it to install
-somewhere else). Launch it from your application menu, or just run `caerus`.
+`install.sh` puts `caerus` in `/usr/bin`, `caerus-helper` in
+`/usr/libexec`, and registers the `.desktop` launcher, polkit policy,
+metainfo, and icons (`PREFIX=/usr/local` or similar to install
+elsewhere). Launch from your application menu, or just run `caerus`.
 
 ### Running without installing
 
@@ -155,39 +153,27 @@ cargo build --release
 ./target/release/caerus
 ```
 
-Caerus looks for `caerus-helper` next to its own binary first, so this
-works straight out of the build tree — no install step needed to try it
-out. The application icon needs `caerus/data/icons/` reachable relative to
-the binary, which it is as long as you run from inside the build tree
-(`target/debug/caerus` or `target/release/caerus`). This covers Caerus's
-own UI — window icon, headerbar, and About dialog.
-
-The desktop shell (GNOME's top bar, Alt-Tab, the Overview, etc.) is a
-separate matter: it identifies windows through an installed `.desktop`
-entry, not the window's own icon, so an uninstalled build shows up there
-with a generic icon and the raw `WM_CLASS` ("caerus") instead of "Caerus".
-To fix that without a full system install:
+Works straight out of the build tree — `caerus-helper` and the app icon
+are both found relative to the binary, no install needed. The desktop
+shell (Alt-Tab, Overview, top bar) won't know its real name/icon without
+an installed `.desktop` entry, though; fix that with no root at all:
 
 ```sh
-./dev-install.sh
+./install.sh --user
 ```
 
-This registers a `.desktop` entry and icon under `~/.local/share` pointing
-at whichever build (`release` preferred, else `debug`) exists in this
-checkout — no root needed. Re-run it after switching between debug and
-release builds.
+Registers under `~/.local/share`, pointing at whichever build (`release`
+preferred, else `debug`) exists in this checkout. Re-run after switching
+between debug and release builds.
 
 ### Uninstalling
 
 ```sh
-sudo rm /usr/bin/caerus /usr/libexec/caerus-helper \
-        /usr/share/applications/org.voidlinux.caerus.desktop \
-        /usr/share/metainfo/org.voidlinux.caerus.metainfo.xml \
-        /usr/share/polkit-1/actions/org.voidlinux.caerus.policy \
-        /usr/share/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg
+sudo ./install.sh --uninstall          # system-wide install
+./install.sh --user --uninstall        # --user registration
 ```
 
-(adjust the prefix if you installed with a custom `PREFIX`).
+(add `PREFIX=...` before the first if you installed with a custom one).
 
 ## License
 
