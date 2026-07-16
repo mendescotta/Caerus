@@ -61,14 +61,10 @@ fn kernel_of(obj: &glib::Object) -> KernelObject {
     obj.clone().downcast::<KernelObject>().unwrap()
 }
 
-/// Same read-only-local-query tradeoff `file_owner_dialog` makes for
-/// `xbps-query -o`: a brief synchronous block for an explicit, one-shot
-/// user action is simpler than a background-thread pipeline here.
-fn list_removable_kernels() -> Result<Vec<String>, String> {
-    let output = Command::new("vkpurge")
-        .arg("list")
-        .output()
-        .map_err(|e| format!("failed to run vkpurge: {e}"))?;
+/// Parses `vkpurge list` output; the subprocess itself runs off the
+/// main thread via `run_command_async` (see `refresh`).
+fn parse_kernel_list(result: Result<std::process::Output, String>) -> Result<Vec<String>, String> {
+    let output = result.map_err(|e| format!("failed to run vkpurge: {e}"))?;
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
         return Err(if err.trim().is_empty() {
@@ -104,7 +100,14 @@ fn make_col(
 
 fn refresh(list_store: &gio::ListStore, status_label: &gtk::Label) {
     list_store.remove_all();
-    match list_removable_kernels() {
+    status_label.set_text("Listing removable kernels\u{2026}");
+    status_label.set_visible(true);
+
+    let mut cmd = Command::new("vkpurge");
+    cmd.arg("list");
+    let list_store = list_store.clone();
+    let status_label = status_label.clone();
+    crate::ui::dialog_util::run_command_async(cmd, move |result| match parse_kernel_list(result) {
         Ok(versions) if versions.is_empty() => {
             status_label.set_text("No removable kernel versions found.");
             status_label.set_visible(true);
@@ -119,7 +122,7 @@ fn refresh(list_store: &gio::ListStore, status_label: &gtk::Label) {
             status_label.set_text(&format!("Could not list kernels: {e}"));
             status_label.set_visible(true);
         }
-    }
+    });
 }
 
 pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {

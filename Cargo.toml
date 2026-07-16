@@ -18,6 +18,28 @@ repository = "https://github.com/mendescotta/Caerus"
 # on remembering to pass `--all-targets` by hand.
 [workspace.lints.clippy]
 all = "warn"
+# Curated clippy::pedantic subset — pedantic lints are NOT part of
+# `all`, so each one we want enforced is opted into by name (which also
+# means no `priority` juggling). Selection criteria: mechanical,
+# low-churn lints that match this codebase's existing style; noisy ones
+# (doc_markdown, needless_pass_by_value, module_name_repetitions,
+# too_many_lines, similar_names) are deliberately absent — see the
+# 2026-07-14 pedantic cleanup for the reasoning. CI promotes all of
+# these to errors via `-D warnings`.
+semicolon_if_nothing_returned = "warn"
+redundant_closure_for_method_calls = "warn"
+explicit_iter_loop = "warn"
+manual_let_else = "warn"
+match_same_arms = "warn"
+map_unwrap_or = "warn"
+implicit_clone = "warn"
+cloned_instead_of_copied = "warn"
+inefficient_to_string = "warn"
+unnecessary_wraps = "warn"
+ignored_unit_patterns = "warn"
+items_after_statements = "warn"
+manual_string_new = "warn"
+uninlined_format_args = "warn"
 
 [profile.release]
 opt-level = 2

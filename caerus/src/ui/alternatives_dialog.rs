@@ -21,10 +21,7 @@ use std::rc::Rc;
 /// for the same group). So this overview is only good for building the
 /// left-hand group list; `fetch_candidates` below does the per-group
 /// follow-up query, lazily, once a group is actually selected.
-fn fetch_overview() -> Vec<(String, String)> {
-    let Ok(output) = Command::new("xbps-alternatives").arg("-l").output() else {
-        return Vec::new();
-    };
+fn parse_overview(output: &std::process::Output) -> Vec<(String, String)> {
     let text = String::from_utf8_lossy(&output.stdout);
     let mut out = Vec::new();
     let mut current_group: Option<String> = None;
@@ -49,15 +46,7 @@ fn fetch_overview() -> Vec<(String, String)> {
 }
 
 /// (provider pkgname, `is_current`) for every candidate in `group`.
-fn fetch_candidates(group: &str) -> Vec<(String, bool)> {
-    let Ok(output) = Command::new("xbps-alternatives")
-        .arg("-g")
-        .arg(group)
-        .arg("-l")
-        .output()
-    else {
-        return Vec::new();
-    };
+fn parse_candidates(output: &std::process::Output) -> Vec<(String, bool)> {
     let text = String::from_utf8_lossy(&output.stdout);
     let mut out = Vec::new();
     for line in text.lines() {
@@ -85,14 +74,27 @@ struct Inner {
 }
 
 fn refresh_groups(inner: &Rc<Inner>) {
+    while let Some(child) = inner.groups_list.first_child() {
+        inner.groups_list.remove(&child);
+    }
+
+    let mut cmd = Command::new("xbps-alternatives");
+    cmd.arg("-l");
+    let inner = inner.clone();
+    crate::ui::dialog_util::run_command_async(cmd, move |result| {
+        let overview = result.as_ref().map(parse_overview).unwrap_or_default();
+        populate_groups(&inner, &overview);
+    });
+}
+
+fn populate_groups(inner: &Rc<Inner>, overview: &[(String, String)]) {
     let previously_selected = inner.selected_group.borrow().clone();
 
     while let Some(child) = inner.groups_list.first_child() {
         inner.groups_list.remove(&child);
     }
-    let overview = fetch_overview();
     let mut restore_row: Option<gtk::ListBoxRow> = None;
-    for (group, current) in &overview {
+    for (group, current) in overview {
         let l = gtk::Label::new(Some(&format!("{group}  ({current})")));
         l.set_xalign(0.0);
         l.set_ellipsize(gtk::pango::EllipsizeMode::End);
@@ -132,22 +134,44 @@ fn refresh_providers(inner: &Rc<Inner>) {
             .set_text("Select a group on the left.");
         return;
     };
+    inner.providers_header.set_text(&format!(
+        "Providers for \u{201c}{group}\u{201d}: loading\u{2026}"
+    ));
+
+    let mut cmd = Command::new("xbps-alternatives");
+    cmd.arg("-g").arg(&group).arg("-l");
+    let inner = inner.clone();
+    crate::ui::dialog_util::run_command_async(cmd, move |result| {
+        // Stale-reply guard: the selection may have moved on while the
+        // query ran.
+        if inner.selected_group.borrow().as_deref() != Some(group.as_str()) {
+            return;
+        }
+        let candidates = result.as_ref().map(parse_candidates).unwrap_or_default();
+        populate_providers(&inner, &group, &candidates);
+    });
+}
+
+fn populate_providers(inner: &Rc<Inner>, group: &str, candidates: &[(String, bool)]) {
     inner
         .providers_header
         .set_text(&format!("Providers for \u{201c}{group}\u{201d}:"));
+    while let Some(child) = inner.providers_list.first_child() {
+        inner.providers_list.remove(&child);
+    }
 
-    for (provider, is_current) in fetch_candidates(&group) {
+    for (provider, is_current) in candidates {
         let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         row_box.set_margin_start(8);
         row_box.set_margin_end(8);
         row_box.set_margin_top(4);
         row_box.set_margin_bottom(4);
-        let l = gtk::Label::new(Some(&provider));
+        let l = gtk::Label::new(Some(provider.as_str()));
         l.set_xalign(0.0);
         l.set_hexpand(true);
         row_box.append(&l);
 
-        if is_current {
+        if *is_current {
             let badge = gtk::Label::new(Some("current"));
             badge.add_css_class("dim-label");
             row_box.append(&badge);
@@ -155,7 +179,7 @@ fn refresh_providers(inner: &Rc<Inner>) {
             let btn = gtk::Button::with_label("Set Active");
             btn.add_css_class("suggested-action");
             let inner2 = inner.clone();
-            let group2 = group.clone();
+            let group2 = group.to_string();
             let provider2 = provider.clone();
             btn.connect_clicked(move |_| {
                 let commands = vec![format!("ALTERNATIVE {} {}", group2, provider2)];

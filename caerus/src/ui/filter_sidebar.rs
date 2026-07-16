@@ -6,18 +6,104 @@
 //! backend/package.rs, exactly like the original's comment about
 //! `on_preset_selected()`'s use of `gtk_list_box_row_get_index()`.
 
+use crate::backend::custom_filters::{ActiveFilter, CustomFilters};
 use crate::backend::package::FilterMode;
 use crate::backend::repo_names::{display_repo, RepoNames};
+use crate::ui::custom_filters_dialog;
 use crate::ui::dialog_util::{modal_window, present_focused};
 use gtk::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-type FilterChangedCbs = RefCell<Vec<Box<dyn Fn(FilterMode)>>>;
+type FilterChangedCbs = RefCell<Vec<Box<dyn Fn(ActiveFilter)>>>;
 type RepositoryChangedCbs = RefCell<Vec<Box<dyn Fn(Option<String>)>>>;
+type ActionCbs = RefCell<Vec<Box<dyn Fn(SidebarAction)>>>;
+
+/// Row count of the fixed preset filters (All … Orphaned) at the top of
+/// `preset_lb`, before any custom filter rows. Must match the number of
+/// `preset_lb.append(&make_row(...))` calls in `FilterSidebar::new` and
+/// `FilterMode::from_row_index`'s range.
+const NUM_PRESET_ROWS: i32 = 7;
+
+/// An operational command living in the sidebar's MAINTENANCE / TOOLS
+/// sections (or the REPOSITORIES section's manage row). The sidebar only
+/// emits these; `window.rs` routes each to the same handler the old app
+/// menu used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarAction {
+    FullUpgrade,
+    RemoveOrphans,
+    CleanCache,
+    VerifyDb,
+    Reconfigure,
+    PurgeKernels,
+    FindOwner,
+    Alternatives,
+    History,
+    ManageRepos,
+}
+
+/// The four collapsible sidebar sections, in display order. Used both
+/// for the View-menu visibility toggles and expanded-state persistence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Section {
+    Filters,
+    Repositories,
+    Maintenance,
+    Tools,
+}
+
+impl Section {
+    pub const ALL: [Self; 4] = [
+        Self::Filters,
+        Self::Repositories,
+        Self::Maintenance,
+        Self::Tools,
+    ];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Filters => "FILTERS",
+            Self::Repositories => "REPOSITORIES",
+            Self::Maintenance => "MAINTENANCE",
+            Self::Tools => "TOOLS",
+        }
+    }
+
+    /// Human name for the View menu's switch rows.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Filters => "Filters",
+            Self::Repositories => "Repositories",
+            Self::Maintenance => "Maintenance",
+            Self::Tools => "Tools",
+        }
+    }
+
+    fn index(self) -> usize {
+        match self {
+            Self::Filters => 0,
+            Self::Repositories => 1,
+            Self::Maintenance => 2,
+            Self::Tools => 3,
+        }
+    }
+}
+
+/// One collapsible section: a clickable header (disclosure triangle +
+/// uppercase title) over a `gtk::Revealer` holding the content. The
+/// whole thing is one `gtk::Box` so View-menu toggles can hide a section
+/// wholesale via `visible`, independent of its expanded state.
+struct SectionWidgets {
+    container: gtk::Box,
+    revealer: gtk::Revealer,
+    triangle: gtk::Label,
+}
 
 struct Inner {
     widget: gtk::Box,
+    preset_lb: gtk::ListBox,
+    custom_filters: Rc<RefCell<CustomFilters>>,
     repo_lb: gtk::ListBox,
     /// Row `i + 1` of `repo_lb` corresponds to `repo_names[i]`; row 0
     /// is always the fixed "All Repositories" row.
@@ -27,6 +113,8 @@ struct Inner {
     display_names: RefCell<RepoNames>,
     on_filter_changed: FilterChangedCbs,
     on_repository_changed: RepositoryChangedCbs,
+    on_action: ActionCbs,
+    sections: [SectionWidgets; 4],
 }
 
 fn repo_display_text(inner: &Inner, url: &str) -> String {
@@ -40,6 +128,60 @@ fn repo_display_text(inner: &Inner, url: &str) -> String {
 #[derive(Clone)]
 pub struct FilterSidebar {
     inner: Rc<Inner>,
+}
+
+/// Builds one collapsible section shell. Clicking the header flips the
+/// revealer and the disclosure triangle. Content is appended by the
+/// caller via the returned revealer's child box.
+fn build_section(title: &str, content: &impl IsA<gtk::Widget>) -> SectionWidgets {
+    let container = gtk::Box::new(gtk::Orientation::Vertical, 0);
+
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    header.set_margin_top(8);
+    header.set_margin_bottom(2);
+    header.add_css_class("section-header");
+
+    let triangle = gtk::Label::new(Some("\u{25be}")); // ▾
+    triangle.set_width_chars(2);
+    header.append(&triangle);
+
+    let title_label = gtk::Label::new(Some(title));
+    title_label.set_xalign(0.0);
+    title_label.set_hexpand(true);
+    header.append(&title_label);
+
+    let revealer = gtk::Revealer::new();
+    revealer.set_transition_type(gtk::RevealerTransitionType::SlideDown);
+    revealer.set_reveal_child(true);
+    revealer.set_child(Some(content));
+
+    {
+        let gesture = gtk::GestureClick::new();
+        let revealer = revealer.clone();
+        let triangle = triangle.clone();
+        gesture.connect_released(move |_, _, _, _| {
+            let expand = !revealer.reveals_child();
+            revealer.set_reveal_child(expand);
+            triangle.set_text(if expand { "\u{25be}" } else { "\u{25b8}" });
+        });
+        header.add_controller(gesture);
+    }
+
+    container.append(&header);
+    container.append(&revealer);
+
+    SectionWidgets {
+        container,
+        revealer,
+        triangle,
+    }
+}
+
+/// An action row for the MAINTENANCE / TOOLS sections. Reuses the filter
+/// rows' icon+label look; activation is handled by the enclosing
+/// ListBox's `row-activated`.
+fn make_action_row(icon: &str, label: &str) -> gtk::ListBoxRow {
+    make_row(icon, label)
 }
 
 fn make_row(icon: &str, label: &str) -> gtk::ListBoxRow {
@@ -179,6 +321,58 @@ fn show_rename_dialog(
     present_focused(&dlg, &entry);
 }
 
+/// Rebuilds the custom-filter rows below the fixed presets after an add/
+/// rename/remove in the "Edit Custom Filters…" dialog. Mirrors
+/// `set_available_repositories`'s snapshot-reselect approach: if the
+/// previously-selected custom filter still exists (by name — indices
+/// shift on add/remove), the selection carries over; otherwise falls
+/// back to "All" (also covers the deleted-while-active case, and the
+/// renaming-the-active-filter wart called out in the plan).
+fn refresh_custom_rows(inner: &Rc<Inner>) {
+    let previously_selected = inner
+        .preset_lb
+        .selected_row()
+        .map(|r| r.index())
+        .filter(|&i| i >= NUM_PRESET_ROWS)
+        .and_then(|i| {
+            inner
+                .custom_filters
+                .borrow()
+                .list()
+                .get((i - NUM_PRESET_ROWS) as usize)
+                .map(|f| f.name.clone())
+        });
+
+    while let Some(row) = inner.preset_lb.row_at_index(NUM_PRESET_ROWS) {
+        inner.preset_lb.remove(&row);
+    }
+    for f in inner.custom_filters.borrow().list() {
+        inner.preset_lb.append(&make_text_row(&f.name));
+    }
+    inner.preset_lb.invalidate_headers();
+
+    let restore_index = previously_selected
+        .as_ref()
+        .and_then(|name| {
+            inner
+                .custom_filters
+                .borrow()
+                .list()
+                .iter()
+                .position(|f| &f.name == name)
+        })
+        .map_or(0, |pos| pos as i32 + NUM_PRESET_ROWS);
+
+    if let Some(row) = inner.preset_lb.row_at_index(restore_index) {
+        // A restored custom row is always a freshly-recreated widget, so
+        // this reliably fires "row-selected" even when the logical
+        // selection (by name) didn't change. Falling back to row 0
+        // ("All") when it was already selected is a harmless no-op —
+        // nothing about the active filter changed either way.
+        inner.preset_lb.select_row(Some(&row));
+    }
+}
+
 impl FilterSidebar {
     pub fn new() -> Self {
         let widget = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -190,14 +384,7 @@ impl FilterSidebar {
 
         let inner_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
-        let filter_header = gtk::Label::new(Some("FILTER"));
-        filter_header.set_xalign(0.0);
-        filter_header.set_margin_top(8);
-        filter_header.set_margin_start(6);
-        filter_header.set_margin_bottom(2);
-        filter_header.add_css_class("section-header");
-        inner_box.append(&filter_header);
-
+        // ── FILTERS ──
         let preset_lb = gtk::ListBox::new();
         preset_lb.set_selection_mode(gtk::SelectionMode::Single);
         preset_lb.add_css_class("navigation-sidebar");
@@ -213,36 +400,208 @@ impl FilterSidebar {
         preset_lb.append(&make_row("starred-symbolic", "Marked"));
         preset_lb.append(&make_row("edit-clear-symbolic", "Orphaned"));
 
-        inner_box.append(&preset_lb);
+        // Separator above the first custom-filter row, if any — cleared
+        // for every other row so it doesn't linger on stale rows after a
+        // `refresh_custom_rows` shrinks the list.
+        preset_lb.set_header_func(move |row, _before| {
+            if row.index() == NUM_PRESET_ROWS {
+                row.set_header(Some(&gtk::Separator::new(gtk::Orientation::Horizontal)));
+            } else {
+                row.set_header(None::<&gtk::Widget>);
+            }
+        });
 
-        let repo_header = gtk::Label::new(Some("REPOSITORY"));
-        repo_header.set_xalign(0.0);
-        repo_header.set_margin_top(10);
-        repo_header.set_margin_start(6);
-        repo_header.set_margin_bottom(2);
-        repo_header.add_css_class("section-header");
-        inner_box.append(&repo_header);
+        let custom_filters = Rc::new(RefCell::new(CustomFilters::load()));
+        for f in custom_filters.borrow().list() {
+            preset_lb.append(&make_text_row(&f.name));
+        }
 
+        let edit_filters_lb = gtk::ListBox::new();
+        edit_filters_lb.set_selection_mode(gtk::SelectionMode::None);
+        edit_filters_lb.add_css_class("navigation-sidebar");
+        edit_filters_lb.append(&make_action_row(
+            "applications-system-symbolic",
+            "Edit Custom Filters\u{2026}",
+        ));
+
+        let filters_content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        filters_content.append(&preset_lb);
+        filters_content.append(&edit_filters_lb);
+
+        let filters_section = build_section(Section::Filters.title(), &filters_content);
+        inner_box.append(&filters_section.container);
+
+        // ── REPOSITORIES ──
         // Populated later via `set_available_repositories` once a load
         // has actually happened — the set of repositories isn't known
-        // until then. Starts with just "All Repositories".
+        // until then. Starts with just "All Repositories". The section
+        // content also carries the "Manage Repositories…" action row in
+        // its own single-row ListBox, kept separate from `repo_lb` so
+        // repo (filter) selection state never mixes with action rows.
         let repo_lb = gtk::ListBox::new();
         repo_lb.set_selection_mode(gtk::SelectionMode::Single);
         repo_lb.add_css_class("navigation-sidebar");
         repo_lb.append(&make_text_row("All Repositories"));
-        inner_box.append(&repo_lb);
+
+        let repo_manage_lb = gtk::ListBox::new();
+        repo_manage_lb.set_selection_mode(gtk::SelectionMode::None);
+        repo_manage_lb.add_css_class("navigation-sidebar");
+        repo_manage_lb.append(&make_action_row(
+            "applications-system-symbolic",
+            "Manage Repositories\u{2026}",
+        ));
+
+        let repo_content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        repo_content.append(&repo_lb);
+        repo_content.append(&repo_manage_lb);
+
+        let repos_section = build_section(Section::Repositories.title(), &repo_content);
+        inner_box.append(&repos_section.container);
+
+        // ── MAINTENANCE ── (icon rule: trash = remove, wrench-ish
+        // utilities = reconfigure; the gear stays reserved for "manage")
+        let maint_lb = gtk::ListBox::new();
+        maint_lb.set_selection_mode(gtk::SelectionMode::None);
+        maint_lb.add_css_class("navigation-sidebar");
+        let maint_actions: &[(&str, &str, SidebarAction)] = &[
+            (
+                "software-update-available-symbolic",
+                "Full System Upgrade\u{2026}",
+                SidebarAction::FullUpgrade,
+            ),
+            (
+                "user-trash-symbolic",
+                "Remove Orphans\u{2026}",
+                SidebarAction::RemoveOrphans,
+            ),
+            (
+                "edit-clear-all-symbolic",
+                "Clean Package Cache",
+                SidebarAction::CleanCache,
+            ),
+            (
+                "security-high-symbolic",
+                "Verify Package Database",
+                SidebarAction::VerifyDb,
+            ),
+            (
+                "applications-utilities-symbolic",
+                "Reconfigure Packages\u{2026}",
+                SidebarAction::Reconfigure,
+            ),
+            (
+                "application-x-firmware-symbolic",
+                "Purge Old Kernels\u{2026}",
+                SidebarAction::PurgeKernels,
+            ),
+        ];
+        for (icon, label, _) in maint_actions {
+            maint_lb.append(&make_action_row(icon, label));
+        }
+
+        let maint_section = build_section(Section::Maintenance.title(), &maint_lb);
+        inner_box.append(&maint_section.container);
+
+        // ── TOOLS ──
+        let tools_lb = gtk::ListBox::new();
+        tools_lb.set_selection_mode(gtk::SelectionMode::None);
+        tools_lb.add_css_class("navigation-sidebar");
+        let tools_actions: &[(&str, &str, SidebarAction)] = &[
+            (
+                "edit-find-symbolic",
+                "Find Owning Package\u{2026}",
+                SidebarAction::FindOwner,
+            ),
+            (
+                "object-flip-horizontal-symbolic",
+                "Alternatives\u{2026}",
+                SidebarAction::Alternatives,
+            ),
+            (
+                "document-open-recent-symbolic",
+                "Transaction History\u{2026}",
+                SidebarAction::History,
+            ),
+        ];
+        for (icon, label, _) in tools_actions {
+            tools_lb.append(&make_action_row(icon, label));
+        }
+
+        let tools_section = build_section(Section::Tools.title(), &tools_lb);
+        inner_box.append(&tools_section.container);
 
         scroll.set_child(Some(&inner_box));
         widget.append(&scroll);
 
         let inner = Rc::new(Inner {
             widget,
+            preset_lb: preset_lb.clone(),
+            custom_filters,
             repo_lb: repo_lb.clone(),
             repo_names: RefCell::new(Vec::new()),
             display_names: RefCell::new(RepoNames::load()),
             on_filter_changed: RefCell::new(Vec::new()),
             on_repository_changed: RefCell::new(Vec::new()),
+            on_action: RefCell::new(Vec::new()),
+            sections: [filters_section, repos_section, maint_section, tools_section],
         });
+
+        // Action row dispatch: each action ListBox row maps by index to
+        // its section's action table (same index-mapping approach the
+        // preset list already uses with FilterMode::from_row_index).
+        {
+            let actions: Vec<SidebarAction> = maint_actions.iter().map(|&(_, _, a)| a).collect();
+            let inner_weak = Rc::downgrade(&inner);
+            maint_lb.connect_row_activated(move |_, row| {
+                let Some(inner) = inner_weak.upgrade() else {
+                    return;
+                };
+                if let Some(&action) = actions.get(row.index().max(0) as usize) {
+                    for cb in inner.on_action.borrow().iter() {
+                        cb(action);
+                    }
+                }
+            });
+        }
+        {
+            let actions: Vec<SidebarAction> = tools_actions.iter().map(|&(_, _, a)| a).collect();
+            let inner_weak = Rc::downgrade(&inner);
+            tools_lb.connect_row_activated(move |_, row| {
+                let Some(inner) = inner_weak.upgrade() else {
+                    return;
+                };
+                if let Some(&action) = actions.get(row.index().max(0) as usize) {
+                    for cb in inner.on_action.borrow().iter() {
+                        cb(action);
+                    }
+                }
+            });
+        }
+        {
+            let inner_weak = Rc::downgrade(&inner);
+            repo_manage_lb.connect_row_activated(move |_, _| {
+                let Some(inner) = inner_weak.upgrade() else {
+                    return;
+                };
+                for cb in inner.on_action.borrow().iter() {
+                    cb(SidebarAction::ManageRepos);
+                }
+            });
+        }
+
+        {
+            let inner_weak = Rc::downgrade(&inner);
+            edit_filters_lb.connect_row_activated(move |lb, _| {
+                let Some(inner) = inner_weak.upgrade() else {
+                    return;
+                };
+                let root = lb.root().and_downcast::<gtk::Window>();
+                let inner_for_refresh = inner.clone();
+                custom_filters_dialog::show(root, inner.custom_filters.clone(), move || {
+                    refresh_custom_rows(&inner_for_refresh);
+                });
+            });
+        }
 
         {
             let inner_weak = Rc::downgrade(&inner);
@@ -251,9 +610,21 @@ impl FilterSidebar {
                 let Some(inner) = inner_weak.upgrade() else {
                     return;
                 };
-                let mode = FilterMode::from_row_index(row.index());
+                let idx = row.index();
+                let filter = if idx < NUM_PRESET_ROWS {
+                    ActiveFilter::Preset(FilterMode::from_row_index(idx))
+                } else {
+                    let custom_idx = (idx - NUM_PRESET_ROWS) as usize;
+                    match inner.custom_filters.borrow().list().get(custom_idx) {
+                        Some(f) => ActiveFilter::Custom {
+                            name: f.name.clone(),
+                            patterns: f.patterns.clone(),
+                        },
+                        None => ActiveFilter::Preset(FilterMode::All),
+                    }
+                };
                 for cb in inner.on_filter_changed.borrow().iter() {
-                    cb(mode);
+                    cb(filter.clone());
                 }
             });
         }
@@ -302,7 +673,7 @@ impl FilterSidebar {
         &self.inner.widget
     }
 
-    pub fn connect_filter_changed(&self, f: impl Fn(FilterMode) + 'static) {
+    pub fn connect_filter_changed(&self, f: impl Fn(ActiveFilter) + 'static) {
         self.inner.on_filter_changed.borrow_mut().push(Box::new(f));
     }
 
@@ -311,6 +682,32 @@ impl FilterSidebar {
             .on_repository_changed
             .borrow_mut()
             .push(Box::new(f));
+    }
+
+    /// Fires when an action row (MAINTENANCE / TOOLS / Manage
+    /// Repositories) is activated.
+    pub fn connect_action(&self, f: impl Fn(SidebarAction) + 'static) {
+        self.inner.on_action.borrow_mut().push(Box::new(f));
+    }
+
+    /// The whole section (header + content) — hidden/shown by the View
+    /// menu's switches, independent of collapse state.
+    pub fn section_widget(&self, section: Section) -> &gtk::Box {
+        &self.inner.sections[section.index()].container
+    }
+
+    pub fn is_expanded(&self, section: Section) -> bool {
+        self.inner.sections[section.index()]
+            .revealer
+            .reveals_child()
+    }
+
+    pub fn set_expanded(&self, section: Section, expanded: bool) {
+        let widgets = &self.inner.sections[section.index()];
+        widgets.revealer.set_reveal_child(expanded);
+        widgets
+            .triangle
+            .set_text(if expanded { "\u{25be}" } else { "\u{25b8}" });
     }
 
     /// Rebuilds the repository rows from a freshly-loaded package set.

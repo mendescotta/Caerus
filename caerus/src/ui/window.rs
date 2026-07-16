@@ -32,7 +32,12 @@ struct WindowState {
     btn_unmark_all: gtk::Button,
     btn_apply: gtk::Button,
     menu_button: gtk::MenuButton,
-    menu_buttons: AppMenuButtons,
+    /// The hamburger popover's page stack (root / view / settings /
+    /// shortcuts) — created empty before `WindowState` exists, populated
+    /// by `populate_menu_popover` right after.
+    menu_stack: gtk::Stack,
+    btn_toggle_sidebar: gtk::ToggleButton,
+    status_bar: gtk::Box,
     search_entry: gtk::SearchEntry,
     btn_search_name_only: gtk::ToggleButton,
     status_label: gtk::Label,
@@ -83,9 +88,21 @@ struct WindowGeometry {
     sync_at_launch: bool,
     /// Whether the header's "search by name only" toggle starts active.
     /// Defaults to `false` (name + description, the original behavior);
-    /// exposed as a checkbox in the Settings dialog.
+    /// exposed as a switch in the hamburger's Settings page.
     search_name_only_default: bool,
+    /// Collapsed/expanded state of the four sidebar sections, in
+    /// `Section::ALL` order.
+    section_expanded: [bool; 4],
+    /// Shown/hidden state of the four sidebar sections (the View page's
+    /// switches), in `Section::ALL` order.
+    section_visible: [bool; 4],
+    detail_pane_visible: bool,
+    status_bar_visible: bool,
 }
+
+/// Persistence keys for the per-section booleans, in `Section::ALL`
+/// order (must stay in sync with it).
+const SECTION_KEYS: [&str; 4] = ["filters", "repositories", "maintenance", "tools"];
 
 impl Default for WindowGeometry {
     fn default() -> Self {
@@ -96,6 +113,10 @@ impl Default for WindowGeometry {
             detail_pos: 420,
             sync_at_launch: false,
             search_name_only_default: false,
+            section_expanded: [true; 4],
+            section_visible: [true; 4],
+            detail_pane_visible: true,
+            status_bar_visible: true,
         }
     }
 }
@@ -136,6 +157,31 @@ impl WindowGeometry {
                 }
                 continue;
             }
+            if let Ok(b) = value.parse::<i32>().map(|b| b != 0) {
+                if let Some(name) = key.strip_prefix("expanded_") {
+                    if let Some(i) = SECTION_KEYS.iter().position(|k| *k == name) {
+                        geometry.section_expanded[i] = b;
+                        continue;
+                    }
+                }
+                if let Some(name) = key.strip_prefix("visible_") {
+                    if let Some(i) = SECTION_KEYS.iter().position(|k| *k == name) {
+                        geometry.section_visible[i] = b;
+                        continue;
+                    }
+                    match name {
+                        "detail_pane" => {
+                            geometry.detail_pane_visible = b;
+                            continue;
+                        }
+                        "status_bar" => {
+                            geometry.status_bar_visible = b;
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+            }
             let Ok(n) = value.parse::<i32>() else {
                 continue;
             };
@@ -160,7 +206,7 @@ impl WindowGeometry {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let contents = format!(
+        let mut contents = format!(
             "width={}\nheight={}\nsidebar_pos={}\ndetail_pos={}\nsync_at_launch={}\nsearch_name_only_default={}\n",
             self.width,
             self.height,
@@ -169,6 +215,18 @@ impl WindowGeometry {
             i32::from(self.sync_at_launch),
             i32::from(self.search_name_only_default)
         );
+        for (i, key) in SECTION_KEYS.iter().enumerate() {
+            contents.push_str(&format!(
+                "expanded_{key}={}\nvisible_{key}={}\n",
+                i32::from(self.section_expanded[i]),
+                i32::from(self.section_visible[i])
+            ));
+        }
+        contents.push_str(&format!(
+            "visible_detail_pane={}\nvisible_status_bar={}\n",
+            i32::from(self.detail_pane_visible),
+            i32::from(self.status_bar_visible)
+        ));
         let _ = std::fs::write(&path, contents);
     }
 }
@@ -235,7 +293,10 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     header.pack_end(&btn_search_name_only);
     header.pack_end(&btn_apply);
 
-    let (menu_button, menu_buttons) = build_app_menu(&window);
+    let menu_button = gtk::MenuButton::new();
+    menu_button.set_icon_name("open-menu-symbolic");
+    menu_button.set_tooltip_text(Some("Main Menu"));
+    let menu_stack = gtk::Stack::new();
     header.pack_end(&menu_button);
 
     window.set_titlebar(Some(&header));
@@ -312,7 +373,9 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         btn_unmark_all,
         btn_apply,
         menu_button,
-        menu_buttons,
+        menu_stack,
+        btn_toggle_sidebar: btn_toggle_sidebar.clone(),
+        status_bar: status_bar.clone(),
         search_entry,
         btn_search_name_only,
         status_label,
@@ -325,6 +388,29 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
 
     wire_up(&state);
     wire_keyboard_shortcuts(&state);
+
+    // Restore persisted section collapse/visibility BEFORE building the
+    // menu popover — its View switches bind to the live `visible`
+    // properties with sync_create, so they pick these values up.
+    for (i, section) in crate::ui::filter_sidebar::Section::ALL
+        .into_iter()
+        .enumerate()
+    {
+        state
+            .sidebar
+            .set_expanded(section, geometry.section_expanded[i]);
+        state
+            .sidebar
+            .section_widget(section)
+            .set_visible(geometry.section_visible[i]);
+    }
+    state
+        .detail_pane
+        .widget()
+        .set_visible(geometry.detail_pane_visible);
+    state.status_bar.set_visible(geometry.status_bar_visible);
+
+    populate_menu_popover(&state);
 
     // After wire_up, so the toggled handler (which also updates
     // pkg_list's actual search mode, the tooltip, and the status bar)
@@ -355,6 +441,18 @@ fn install_css(window: &gtk::ApplicationWindow) {
   font-weight: bold; padding: 4px 6px;
   opacity: 0.55; font-size: 0.78em;
   letter-spacing: 0.06em; }
+.detail-name { font-size: 1.35em; font-weight: 800; }
+.chip {
+  border-radius: 99px; padding: 1px 10px;
+  font-size: 0.82em; font-weight: 600;
+  background: alpha(currentColor, 0.13); }
+.chip-ok   { color: @success_color; }
+.chip-warn { color: @warning_color; }
+.chip-err  { color: @error_color; }
+.count-pill {
+  border-radius: 99px; padding: 0px 8px;
+  font-size: 0.78em;
+  background: alpha(currentColor, 0.13); }
 .pkg-marked   { font-weight: bold; }
 .pkg-installed  { color: @success_color; }
 .pkg-upgradable { color: @warning_color; }
@@ -393,6 +491,13 @@ const USED_SYMBOLIC_ICONS: &[&str] = &[
     "view-list-symbolic",
     "starred-symbolic",
     "edit-clear-symbolic",
+    "edit-clear-all-symbolic",
+    "security-high-symbolic",
+    "applications-utilities-symbolic",
+    "applications-system-symbolic",
+    "application-x-firmware-symbolic",
+    "object-flip-horizontal-symbolic",
+    "document-open-recent-symbolic",
 ];
 
 /// GTK only resolves an icon name against the *active* icon theme (plus
@@ -459,175 +564,249 @@ fn flat_menu_button(label: &str) -> gtk::Button {
     btn
 }
 
-/// The action buttons the app menu contains beyond Keyboard
-/// Shortcuts/About/Quit (which `build_app_menu` wires up entirely on
-/// its own since they don't need `WindowState`). Everything here does,
-/// so `build_window` stashes these on `WindowState` and `wire_up`
-/// attaches their click handlers once it exists.
-struct AppMenuButtons {
-    full_upgrade: gtk::Button,
-    remove_orphans: gtk::Button,
-    clean_cache: gtk::Button,
-    verify_db: gtk::Button,
-    reconfigure_all: gtk::Button,
-    vkpurge: gtk::Button,
-    find_owner: gtk::Button,
-    alternatives: gtk::Button,
-    repositories: gtk::Button,
-    history: gtk::Button,
-    settings: gtk::Button,
+/// A page header for the popover's slide-in pages: a back chevron +
+/// bold title, separated from the page content below.
+fn menu_page_header(stack: &gtk::Stack, title: &str) -> gtk::Box {
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let back = gtk::Button::with_label("\u{2039}"); // ‹
+    back.set_has_frame(false);
+    {
+        let stack = stack.clone();
+        back.connect_clicked(move |_| stack.set_visible_child_name("root"));
+    }
+    let title_label = gtk::Label::new(Some(title));
+    title_label.add_css_class("heading");
+    title_label.set_xalign(0.0);
+    title_label.set_hexpand(true);
+    header.append(&back);
+    header.append(&title_label);
+    header
 }
 
-fn build_app_menu(window: &gtk::ApplicationWindow) -> (gtk::MenuButton, AppMenuButtons) {
-    let menu_button = gtk::MenuButton::new();
-    menu_button.set_icon_name("open-menu-symbolic");
-    menu_button.set_tooltip_text(Some("Main Menu"));
+/// A switch row for the View/Settings pages: label, optional keycap
+/// hint, switch. Returns the row and its switch for binding.
+fn switch_row(label: &str, accel: Option<&str>) -> (gtk::Box, gtk::Switch) {
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    row.set_margin_start(8);
+    row.set_margin_end(8);
+    row.set_margin_top(3);
+    row.set_margin_bottom(3);
+
+    let l = gtk::Label::new(Some(label));
+    l.set_xalign(0.0);
+    l.set_hexpand(true);
+    row.append(&l);
+
+    if let Some(accel) = accel {
+        let kbd = gtk::Label::new(Some(accel));
+        kbd.add_css_class("keycap");
+        row.append(&kbd);
+    }
+
+    let switch = gtk::Switch::new();
+    switch.set_valign(gtk::Align::Center);
+    row.append(&switch);
+    (row, switch)
+}
+
+/// Builds the slim hamburger popover per the 0.5 redesign: a
+/// `gtk::Stack` of pages — root (View ▸ / Settings ▸ / Keyboard
+/// Shortcuts ▸ / About / Quit) plus three slide-in pages whose boolean
+/// controls are all switches. The operational commands the old 15-item
+/// menu carried now live in the sidebar's MAINTENANCE/TOOLS sections;
+/// the Settings page here replaces the former Settings dialog.
+fn populate_menu_popover(state: &Rc<WindowState>) {
+    let stack = &state.menu_stack;
+    stack.set_transition_type(gtk::StackTransitionType::SlideLeftRight);
+    stack.set_hhomogeneous(false);
+    stack.set_vhomogeneous(false);
 
     let popover = gtk::Popover::new();
-    let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    vbox.set_margin_start(4);
-    vbox.set_margin_end(4);
-    vbox.set_margin_top(4);
-    vbox.set_margin_bottom(4);
-    vbox.set_width_request(240);
+    popover.set_child(Some(stack));
+    state.menu_button.set_popover(Some(&popover));
 
-    let maintenance_header = gtk::Label::new(Some("MAINTENANCE"));
-    maintenance_header.set_xalign(0.0);
-    maintenance_header.add_css_class("section-header");
-    let full_upgrade = flat_menu_button("Full System Upgrade\u{2026}");
-    full_upgrade.set_tooltip_text(Some(
-        "xbps-install -Su — upgrade every installed package immediately, independent of \
-         (and without touching) anything currently marked. For queuing upgrades alongside \
-         other pending changes instead, use Mark All Upgrades + Apply.",
-    ));
-    // "…" marks entries that open a further dialog (confirmation or
-    // otherwise) before anything runs; entries without it act
-    // immediately (progress dialog only).
-    let remove_orphans = flat_menu_button("Remove Orphaned Packages\u{2026}");
-    remove_orphans.set_tooltip_text(Some(
-        "xbps-remove -o — drop packages nothing else depends on anymore",
-    ));
-    let clean_cache = flat_menu_button("Clean Package Cache");
-    clean_cache.set_tooltip_text(Some(
-        "xbps-remove -O — delete cached package files superseded by a newer version",
-    ));
-    let verify_db = flat_menu_button("Verify Package Database");
-    verify_db.set_tooltip_text(Some(
-        "xbps-pkgdb -a --checks files,dependencies,alternatives,pkgdb",
-    ));
-    let reconfigure_all = flat_menu_button("Reconfigure All Packages\u{2026}");
-    reconfigure_all.set_tooltip_text(Some(
-        "xbps-reconfigure -fa — force re-run every installed package's post-install \
-         configuration script. Useful after an interrupted transaction or a libc/shared \
-         library upgrade left some packages unconfigured.",
-    ));
-    let vkpurge = flat_menu_button("Purge Old Kernels\u{2026}");
-    vkpurge.set_tooltip_text(Some(
-        "vkpurge — remove kernel files/modules left behind by an upgrade, once nothing \
-         installed still needs them (not an xbps tool)",
-    ));
+    // Never reopen mid-navigation.
+    {
+        let stack = stack.clone();
+        popover.connect_closed(move |_| stack.set_visible_child_name("root"));
+    }
 
-    let settings = flat_menu_button("Settings\u{2026}");
+    // ── root page ──
+    let root = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    root.set_width_request(230);
 
-    let tools_header = gtk::Label::new(Some("TOOLS"));
-    tools_header.set_xalign(0.0);
-    tools_header.add_css_class("section-header");
-    tools_header.set_margin_top(6);
-    let find_owner = flat_menu_button("Find Owning Package\u{2026}");
-    find_owner.set_tooltip_text(Some("xbps-query -o — which package owns a given file"));
-    let alternatives = flat_menu_button("Alternatives\u{2026}");
-    alternatives.set_tooltip_text(Some("Switch between packages providing the same files"));
-    let repositories = flat_menu_button("Repositories\u{2026}");
-    repositories.set_tooltip_text(Some("Add or remove xbps repositories"));
-    let history = flat_menu_button("Transaction History\u{2026}");
-    history.set_tooltip_text(Some(
-        "Past Apply batches and maintenance actions, newest first",
-    ));
-
-    let btn_shortcuts = flat_menu_button("Keyboard Shortcuts");
-    let btn_about = flat_menu_button("About Caerus");
-    let btn_quit = flat_menu_button("Quit");
-
-    vbox.append(&maintenance_header);
-    vbox.append(&full_upgrade);
-    vbox.append(&remove_orphans);
-    vbox.append(&clean_cache);
-    vbox.append(&verify_db);
-    vbox.append(&reconfigure_all);
-    vbox.append(&vkpurge);
-    vbox.append(&tools_header);
-    vbox.append(&find_owner);
-    vbox.append(&alternatives);
-    vbox.append(&repositories);
-    vbox.append(&history);
-    vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-    vbox.append(&settings);
-    vbox.append(&btn_shortcuts);
-    vbox.append(&btn_about);
-    vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-    vbox.append(&btn_quit);
-    popover.set_child(Some(&vbox));
-    menu_button.set_popover(Some(&popover));
-
-    // These all need `WindowState`, wired later; every click should
-    // still close the popover regardless of which button.
-    let buttons = AppMenuButtons {
-        full_upgrade,
-        remove_orphans,
-        clean_cache,
-        verify_db,
-        reconfigure_all,
-        vkpurge,
-        find_owner,
-        alternatives,
-        repositories,
-        history,
-        settings,
+    let nav_row = |label: &str, target: &'static str| -> gtk::Button {
+        let btn = gtk::Button::new();
+        btn.set_has_frame(false);
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        let l = gtk::Label::new(Some(label));
+        l.set_xalign(0.0);
+        l.set_hexpand(true);
+        let chevron = gtk::Label::new(Some("\u{25b8}")); // ▸
+        chevron.add_css_class("dim-label");
+        row.append(&l);
+        row.append(&chevron);
+        btn.set_child(Some(&row));
+        let stack = stack.clone();
+        btn.connect_clicked(move |_| stack.set_visible_child_name(target));
+        btn
     };
-    for btn in [
-        &buttons.full_upgrade,
-        &buttons.remove_orphans,
-        &buttons.clean_cache,
-        &buttons.verify_db,
-        &buttons.reconfigure_all,
-        &buttons.vkpurge,
-        &buttons.find_owner,
-        &buttons.alternatives,
-        &buttons.repositories,
-        &buttons.history,
-        &buttons.settings,
-    ] {
-        let popover = popover.clone();
-        btn.connect_clicked(move |_| popover.popdown());
-    }
 
+    root.append(&nav_row("View", "view"));
+    root.append(&nav_row("Settings", "settings"));
+    root.append(&nav_row("Keyboard Shortcuts", "shortcuts"));
+    root.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+
+    let btn_about = flat_menu_button("About Caerus");
     {
-        let window = window.clone();
+        let window = state.window.clone();
         let popover = popover.clone();
-        btn_shortcuts.connect_clicked(move |_| {
-            popover.popdown();
-            show_shortcuts_dialog(&window);
-        });
-    }
-    {
-        let window = window.clone();
-        let popover = popover;
         btn_about.connect_clicked(move |_| {
             popover.popdown();
             show_about_dialog(&window);
         });
     }
+    root.append(&btn_about);
+    root.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+
+    let btn_quit = gtk::Button::new();
+    btn_quit.set_has_frame(false);
     {
-        let window = window.clone();
-        btn_quit.connect_clicked(move |_| {
-            // Goes through the window's own close_request handler, so
-            // the layout gets saved and the helper session shut down
-            // the same as any other way of closing — one code path.
-            window.close();
-        });
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        let l = gtk::Label::new(Some("Quit"));
+        l.set_xalign(0.0);
+        l.set_hexpand(true);
+        let kbd = gtk::Label::new(Some("Ctrl+Q"));
+        kbd.add_css_class("keycap");
+        row.append(&l);
+        row.append(&kbd);
+        btn_quit.set_child(Some(&row));
+    }
+    {
+        // Goes through the window's own close_request handler, so the
+        // layout gets saved and the helper session shut down the same
+        // as any other way of closing — one code path.
+        let window = state.window.clone();
+        btn_quit.connect_clicked(move |_| window.close());
+    }
+    root.append(&btn_quit);
+    stack.add_named(&root, Some("root"));
+
+    // ── View page ──
+    let view = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    view.set_width_request(250);
+    view.append(&menu_page_header(stack, "View"));
+
+    let (sidebar_row, sw_sidebar) = switch_row("Sidebar", Some("F9"));
+    state
+        .btn_toggle_sidebar
+        .bind_property("active", &sw_sidebar, "active")
+        .bidirectional()
+        .sync_create()
+        .build();
+    view.append(&sidebar_row);
+    view.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+
+    for section in crate::ui::filter_sidebar::Section::ALL {
+        let (row, sw) = switch_row(section.label(), None);
+        state
+            .sidebar
+            .section_widget(section)
+            .bind_property("visible", &sw, "active")
+            .bidirectional()
+            .sync_create()
+            .build();
+        view.append(&row);
     }
 
-    (menu_button, buttons)
+    view.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    let (detail_row, sw_detail) = switch_row("Detail Pane", None);
+    state
+        .detail_pane
+        .widget()
+        .bind_property("visible", &sw_detail, "active")
+        .bidirectional()
+        .sync_create()
+        .build();
+    view.append(&detail_row);
+
+    let (status_row, sw_status) = switch_row("Status Bar", None);
+    state
+        .status_bar
+        .bind_property("visible", &sw_status, "active")
+        .bidirectional()
+        .sync_create()
+        .build();
+    view.append(&status_row);
+    stack.add_named(&view, Some("view"));
+
+    // ── Settings page ── (replaces the former Settings dialog)
+    let settings = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    settings.set_width_request(290);
+    settings.append(&menu_page_header(stack, "Settings"));
+
+    let (sync_row, sw_sync) = switch_row("Sync repositories at launch", None);
+    sync_row.set_tooltip_text(Some(
+        "When enabled, Caerus syncs repository indexes (a privileged action, prompting for \
+         your password) automatically every time it starts. Disable this to skip that prompt \
+         at launch — you can still sync manually any time via the header bar's sync button.",
+    ));
+    sw_sync.set_active(state.sync_at_launch.get());
+    {
+        let state = state.clone();
+        sw_sync.connect_active_notify(move |sw| state.sync_at_launch.set(sw.is_active()));
+    }
+    settings.append(&sync_row);
+
+    let (search_row, sw_search) = switch_row("Search names only by default", None);
+    search_row.set_tooltip_text(Some(
+        "Controls what the header bar's name-only search toggle starts as the next time \
+         Caerus launches — doesn't change the current session's search mode.",
+    ));
+    sw_search.set_active(state.search_name_only_default.get());
+    {
+        let state = state.clone();
+        sw_search.connect_active_notify(move |sw| {
+            state.search_name_only_default.set(sw.is_active());
+        });
+    }
+    settings.append(&search_row);
+    stack.add_named(&settings, Some("settings"));
+
+    // ── Keyboard Shortcuts page ── (essentials; Ctrl+? opens the full
+    // overlay dialog)
+    let shortcuts = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    shortcuts.set_width_request(260);
+    shortcuts.append(&menu_page_header(stack, "Keyboard Shortcuts"));
+
+    let essentials: &[(&str, &str)] = &[
+        ("Search", "Ctrl+F"),
+        ("Reload Package List", "F5"),
+        ("Select All", "Ctrl+A"),
+        ("Toggle Sidebar", "F9"),
+        ("Settings", "Ctrl+,"),
+        ("Quit", "Ctrl+Q"),
+    ];
+    for (desc, key) in essentials {
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        row.set_margin_start(8);
+        row.set_margin_end(8);
+        row.set_margin_top(2);
+        row.set_margin_bottom(2);
+        let l = gtk::Label::new(Some(desc));
+        l.set_xalign(0.0);
+        l.set_hexpand(true);
+        let kbd = gtk::Label::new(Some(key));
+        kbd.add_css_class("keycap");
+        row.append(&l);
+        row.append(&kbd);
+        shortcuts.append(&row);
+    }
+    let caption = gtk::Label::new(Some("Essentials only — press Ctrl+? for the full overlay"));
+    caption.add_css_class("dim-label");
+    caption.set_margin_top(4);
+    shortcuts.append(&caption);
+    stack.add_named(&shortcuts, Some("shortcuts"));
 }
 
 // libadwaita's AboutWindow gets a proper CSD titlebar matching every
@@ -675,52 +854,6 @@ fn show_about_dialog(parent: &gtk::ApplicationWindow) {
     // instead; `AboutDialog` exposes no such button to target, so just
     // clear focus outright.
     gtk::prelude::GtkWindowExt::set_focus(&about, None::<&gtk::Widget>);
-}
-
-/// Defined here rather than as its own `ui` module, unlike most other
-/// dialogs — it needs direct access to `WindowState`'s persisted-setting
-/// `Cell`s, which are private to this module (same reasoning
-/// `show_about_dialog`/`show_shortcuts_dialog` already follow).
-fn show_settings_dialog(state: &Rc<WindowState>) {
-    let (dlg, outer) = crate::ui::dialog_util::modal_window(
-        "Settings",
-        Some(state.window.upcast_ref()),
-        false,
-        (420, -1),
-        10,
-    );
-
-    let sync_cb = gtk::CheckButton::with_label("Sync Repositories at Launch");
-    sync_cb.set_active(state.sync_at_launch.get());
-    sync_cb.set_tooltip_text(Some(
-        "When enabled, Caerus syncs repository indexes (a privileged action, prompting for \
-         your password) automatically every time it starts. Disable this to skip that prompt \
-         at launch — you can still sync manually any time via the header bar's sync button.",
-    ));
-    {
-        let state = state.clone();
-        sync_cb.connect_toggled(move |cb| {
-            state.sync_at_launch.set(cb.is_active());
-        });
-    }
-    outer.append(&sync_cb);
-
-    let search_cb = gtk::CheckButton::with_label("Search by Name Only by Default");
-    search_cb.set_active(state.search_name_only_default.get());
-    search_cb.set_tooltip_text(Some(
-        "Controls what the header bar's name-only search toggle starts as the next time \
-         Caerus launches — doesn't change the current session's search mode.",
-    ));
-    {
-        let state = state.clone();
-        search_cb.connect_toggled(move |cb| {
-            state.search_name_only_default.set(cb.is_active());
-        });
-    }
-    outer.append(&search_cb);
-
-    let close_btn = crate::ui::dialog_util::close_button(&outer, &dlg, 8);
-    crate::ui::dialog_util::present_focused(&dlg, &close_btn);
 }
 
 fn show_shortcuts_dialog(parent: &gtk::ApplicationWindow) {
@@ -801,6 +934,24 @@ fn wire_keyboard_shortcuts(state: &Rc<WindowState>) {
             }
             gtk::gdk::Key::F5 => {
                 trigger_update(&state, false, false);
+                glib::Propagation::Stop
+            }
+            gtk::gdk::Key::F9 => {
+                state
+                    .btn_toggle_sidebar
+                    .set_active(!state.btn_toggle_sidebar.is_active());
+                glib::Propagation::Stop
+            }
+            // Ctrl+? — the full shortcuts overlay (the hamburger's
+            // Keyboard Shortcuts page lists only the essentials).
+            gtk::gdk::Key::question if ctrl => {
+                show_shortcuts_dialog(&state.window);
+                glib::Propagation::Stop
+            }
+            // Ctrl+, — open the hamburger directly on its Settings page.
+            gtk::gdk::Key::comma if ctrl => {
+                state.menu_stack.set_visible_child_name("settings");
+                state.menu_button.popup();
                 glib::Propagation::Stop
             }
             // Same guard as Ctrl+A above — otherwise editing the search
@@ -988,89 +1139,53 @@ fn wire_up(state: &Rc<WindowState>) {
             run_maintenance_command(&state, &cmd, title);
         });
     }
+
+    // ── Sidebar action rows (MAINTENANCE / TOOLS / Manage
+    // Repositories) — the same handlers the old app menu's buttons
+    // used, routed through one dispatch. ──
     {
-        let btn = state.menu_buttons.full_upgrade.clone();
+        use crate::ui::filter_sidebar::SidebarAction;
         let state = state.clone();
-        btn.connect_clicked(move |_| {
-            on_full_upgrade_clicked(&state);
-        });
-    }
-    {
-        let btn = state.menu_buttons.remove_orphans.clone();
-        let state = state.clone();
-        btn.connect_clicked(move |_| {
-            on_remove_orphans_clicked(&state);
-        });
-    }
-    {
-        let btn = state.menu_buttons.clean_cache.clone();
-        let state = state.clone();
-        btn.connect_clicked(move |_| {
-            run_maintenance_command(&state, "CLEANCACHE", "Cleaning Package Cache");
-        });
-    }
-    {
-        let btn = state.menu_buttons.verify_db.clone();
-        let state = state.clone();
-        btn.connect_clicked(move |_| {
-            run_maintenance_command(&state, "VERIFY", "Verifying Package Database");
-        });
-    }
-    {
-        let btn = state.menu_buttons.reconfigure_all.clone();
-        let state = state.clone();
-        btn.connect_clicked(move |_| {
-            on_reconfigure_all_clicked(&state);
-        });
-    }
-    {
-        let btn = state.menu_buttons.vkpurge.clone();
-        let window = state.window.clone();
-        let session = state.session.clone();
-        btn.connect_clicked(move |_| {
-            crate::ui::vkpurge_dialog::show(Some(window.upcast_ref()), &session);
-        });
-    }
-    {
-        let btn = state.menu_buttons.settings.clone();
-        let state = state.clone();
-        btn.connect_clicked(move |_| {
-            show_settings_dialog(&state);
-        });
-    }
-    {
-        let btn = state.menu_buttons.find_owner.clone();
-        let window = state.window.clone();
-        btn.connect_clicked(move |_| {
-            crate::ui::file_owner_dialog::show(Some(window.upcast_ref()));
-        });
-    }
-    {
-        let btn = state.menu_buttons.alternatives.clone();
-        let window = state.window.clone();
-        let session = state.session.clone();
-        btn.connect_clicked(move |_| {
-            crate::ui::alternatives_dialog::show(Some(window.upcast_ref()), &session);
-        });
-    }
-    {
-        let btn = state.menu_buttons.repositories.clone();
-        let window = state.window.clone();
-        let session = state.session.clone();
-        let state_for_reload = state.clone();
-        btn.connect_clicked(move |_| {
-            let state_for_reload = state_for_reload.clone();
-            crate::ui::repo_manager::show(Some(window.upcast_ref()), &session, move || {
-                do_reload(&state_for_reload);
+        state
+            .clone()
+            .sidebar
+            .connect_action(move |action| match action {
+                SidebarAction::FullUpgrade => on_full_upgrade_clicked(&state),
+                SidebarAction::RemoveOrphans => on_remove_orphans_clicked(&state),
+                SidebarAction::CleanCache => {
+                    run_maintenance_command(&state, "CLEANCACHE", "Cleaning Package Cache");
+                }
+                SidebarAction::VerifyDb => {
+                    run_maintenance_command(&state, "VERIFY", "Verifying Package Database");
+                }
+                SidebarAction::Reconfigure => on_reconfigure_all_clicked(&state),
+                SidebarAction::PurgeKernels => {
+                    crate::ui::vkpurge_dialog::show(
+                        Some(state.window.upcast_ref()),
+                        &state.session,
+                    );
+                }
+                SidebarAction::FindOwner => {
+                    crate::ui::file_owner_dialog::show(Some(state.window.upcast_ref()));
+                }
+                SidebarAction::Alternatives => {
+                    crate::ui::alternatives_dialog::show(
+                        Some(state.window.upcast_ref()),
+                        &state.session,
+                    );
+                }
+                SidebarAction::History => {
+                    crate::ui::history_dialog::show(Some(state.window.upcast_ref()));
+                }
+                SidebarAction::ManageRepos => {
+                    let state_for_reload = state.clone();
+                    crate::ui::repo_manager::show(
+                        Some(state.window.upcast_ref()),
+                        &state.session,
+                        move || do_reload(&state_for_reload),
+                    );
+                }
             });
-        });
-    }
-    {
-        let btn = state.menu_buttons.history.clone();
-        let window = state.window.clone();
-        btn.connect_clicked(move |_| {
-            crate::ui::history_dialog::show(Some(window.upcast_ref()));
-        });
     }
 
     // ── Session disconnect ──
@@ -1181,6 +1296,7 @@ fn wire_up(state: &Rc<WindowState>) {
         let window = state.window.clone();
         let state = state.clone();
         window.connect_close_request(move |win| {
+            use crate::ui::filter_sidebar::Section;
             WindowGeometry {
                 width: win.width(),
                 height: win.height(),
@@ -1188,6 +1304,11 @@ fn wire_up(state: &Rc<WindowState>) {
                 detail_pos: state.right_paned.position(),
                 sync_at_launch: state.sync_at_launch.get(),
                 search_name_only_default: state.search_name_only_default.get(),
+                section_expanded: Section::ALL.map(|s| state.sidebar.is_expanded(s)),
+                section_visible: Section::ALL
+                    .map(|s| state.sidebar.section_widget(s).get_visible()),
+                detail_pane_visible: state.detail_pane.widget().get_visible(),
+                status_bar_visible: state.status_bar.get_visible(),
             }
             .save();
             state.session.shutdown();
@@ -1241,19 +1362,12 @@ fn trigger_update(state: &Rc<WindowState>, sync_first: bool, silent: bool) {
         });
         let commands = vec!["SYNC".to_string()];
         if silent {
-            // At-launch: queue SYNC and run it without a dialog, via a
-            // one-shot "finished" listener that detaches itself the
-            // moment it fires.
-            for c in &commands {
-                state.session.add_command(c);
-            }
+            // At-launch: run SYNC without a dialog; the batch's own
+            // one-shot completion callback replaces the old detach-
+            // yourself "finished" listener dance.
             let state2 = state.clone();
-            let session = state.session.clone();
-            let finished_id_cell = Rc::new(std::cell::Cell::new(0u64));
-            let finished_id_cell2 = finished_id_cell.clone();
-            let commands_for_history = commands;
-            let finished_id = state.session.connect_finished(move |success| {
-                session.disconnect_finished(finished_id_cell2.get());
+            let commands_for_history = commands.clone();
+            state.session.run_batch(commands, move |success| {
                 crate::backend::history::record(&commands_for_history, success);
                 if success {
                     show_toast(&state2, "Repositories synced. Loading package list\u{2026}");
@@ -1262,8 +1376,6 @@ fn trigger_update(state: &Rc<WindowState>, sync_first: bool, silent: bool) {
                 }
                 do_reload(&state2);
             });
-            finished_id_cell.set(finished_id);
-            state.session.run_async();
         } else {
             let state2 = state.clone();
             let commands_for_history = commands.clone();
@@ -1739,8 +1851,7 @@ fn update_status_bar(state: &Rc<WindowState>) {
         // actually on screen instead (installed vs. not, among them).
         let (total, installed, not_installed) = state.pkg_list.visible_counts();
         state.status_label.set_text(&format!(
-            "{} shown — {} installed, {} not installed.  {} marked.",
-            total, installed, not_installed, marked
+            "{total} shown — {installed} installed, {not_installed} not installed.  {marked} marked."
         ));
     } else {
         let total = state.store.list().n_items();

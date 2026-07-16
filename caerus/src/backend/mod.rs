@@ -1,3 +1,4 @@
+pub mod custom_filters;
 pub mod history;
 pub mod package;
 pub mod package_store;

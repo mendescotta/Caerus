@@ -90,7 +90,7 @@ enum Cmd {
         HashMap<String, PkgState>,
         mpsc::Sender<Option<Vec<String>>>,
     ),
-    GetRdepsTransitive(String, mpsc::Sender<Option<Vec<(String, String)>>>),
+    GetRdepsTransitiveMany(Vec<String>, mpsc::Sender<Option<Vec<(String, String)>>>),
     PreviewTransaction(
         Vec<PreviewOp>,
         mpsc::Sender<Result<TransactionPreview, TransactionError>>,
@@ -315,6 +315,19 @@ impl PackageStore {
         out
     }
 
+    /// (state, mark) for every package in the store, keyed by name — the
+    /// bulk counterpart to `state_and_mark`. Used to check reverse-
+    /// dependency impact for a whole batch of removals in one pass
+    /// rather than one `for_each` scan per affected name.
+    pub fn state_and_mark_snapshot(&self) -> HashMap<String, (PkgState, PkgMark)> {
+        let mut out = HashMap::new();
+        self.for_each(|o| {
+            let p = o.pkg();
+            out.insert(p.name.clone(), (p.state, p.mark));
+        });
+        out
+    }
+
     /// Names of every package currently in `PkgState::Upgradable`,
     /// regardless of mark — used to preview a full system upgrade
     /// before running it (the actual `xbps-install -Su` computes its
@@ -458,21 +471,19 @@ impl PackageStore {
             return;
         }
         let cb = Cell::new(Some(Box::new(on_reply) as Box<dyn FnOnce(Option<T>)>));
-        glib::source::timeout_add_local(Duration::from_millis(15), move || {
-            match rx.try_recv() {
-                Ok(v) => {
-                    if let Some(f) = cb.take() {
-                        f(Some(v));
-                    }
-                    glib::ControlFlow::Break
+        glib::source::timeout_add_local(Duration::from_millis(15), move || match rx.try_recv() {
+            Ok(v) => {
+                if let Some(f) = cb.take() {
+                    f(Some(v));
                 }
-                Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    if let Some(f) = cb.take() {
-                        f(None);
-                    }
-                    glib::ControlFlow::Break
+                glib::ControlFlow::Break
+            }
+            Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                if let Some(f) = cb.take() {
+                    f(None);
                 }
+                glib::ControlFlow::Break
             }
         });
     }
@@ -528,15 +539,31 @@ impl PackageStore {
     /// were removed, directly or through a chain of other removals.
     /// Each entry is `(affected_pkgname, direct_parent_that_pulled_it_in)`
     /// so the UI can show *why* a transitively-reached package is
-    /// affected, not just that it is.
+    /// affected, not just that it is. Thin single-root wrapper over
+    /// `get_rdeps_transitive_many_async`.
     pub fn get_rdeps_transitive_async(
         &self,
         pkgname: &str,
         f: impl FnOnce(Option<Vec<(String, String)>>) + 'static,
     ) {
-        let name = pkgname.to_string();
+        self.get_rdeps_transitive_many_async(vec![pkgname.to_string()], f);
+    }
+
+    /// Multi-root version of `get_rdeps_transitive_async`: every
+    /// currently-installed package that would break if *all* of
+    /// `pkgnames` were removed together, in one BFS regardless of how
+    /// many roots there are. Roots are seeded into the visited set
+    /// together, so a package that's itself one of the roots (e.g. B
+    /// depends on A, and both A and B are in the selection) never
+    /// self-reports as "affected" — it's already accounted for by being
+    /// in the removal set.
+    pub fn get_rdeps_transitive_many_async(
+        &self,
+        pkgnames: Vec<String>,
+        f: impl FnOnce(Option<Vec<(String, String)>>) + 'static,
+    ) {
         self.request(
-            |tx| Cmd::GetRdepsTransitive(name, tx),
+            |tx| Cmd::GetRdepsTransitiveMany(pkgnames, tx),
             move |r| f(r.flatten()),
         );
     }
@@ -566,20 +593,6 @@ pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
     let ca = cstr(a);
     let cb = cstr(b);
     unsafe { xbps_sys::xbps_cmpver(ca.as_ptr(), cb.as_ptr()) }.cmp(&0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn version_comparison_is_numeric_not_lexicographic() {
-        use std::cmp::Ordering;
-        assert_eq!(compare_versions("1.9_1", "1.10_1"), Ordering::Less);
-        assert_eq!(compare_versions("1.10_1", "1.9_1"), Ordering::Greater);
-        assert_eq!(compare_versions("2.0_1", "2.0_1"), Ordering::Equal);
-        assert_eq!(compare_versions("1.0_2", "1.0_10"), Ordering::Less);
-    }
 }
 
 // ── Worker thread ────────────────────────────────────────────────────
@@ -618,8 +631,8 @@ fn worker_main(cmd_rx: mpsc::Receiver<Cmd>, result_tx: mpsc::Sender<LoadResult>)
             Cmd::GetMissingDeps(name, snapshot, reply) => {
                 let _ = reply.send(get_missing_deps(&mut xh, inited, &name, &snapshot));
             }
-            Cmd::GetRdepsTransitive(name, reply) => {
-                let _ = reply.send(get_rdeps_transitive(&mut xh, inited, &name));
+            Cmd::GetRdepsTransitiveMany(names, reply) => {
+                let _ = reply.send(get_rdeps_transitive_many(&mut xh, inited, &names));
             }
             Cmd::PreviewTransaction(ops, reply) => {
                 let _ = reply.send(preview_transaction(&ops));
@@ -1034,22 +1047,25 @@ fn get_rdeps(xh: &mut xbps_sys::xbps_handle, inited: bool, pkgname: &str) -> Opt
     }
 }
 
-/// Walks `pkgname`'s reverse-dependency closure breadth-first, recording
-/// which direct parent pulled each newly-discovered name in. Mirrors the
-/// shape of `process_deps_of`/`get_missing_deps` below, just walking
-/// `get_rdeps` (reverse deps) instead of `get_deps` (forward deps).
-fn get_rdeps_transitive(
+/// Walks the reverse-dependency closure of every name in `pkgnames`
+/// breadth-first (one BFS regardless of how many roots), recording which
+/// direct parent pulled each newly-discovered name in. Mirrors the shape
+/// of `process_deps_of`/`get_missing_deps` below, just walking
+/// `get_rdeps` (reverse deps) instead of `get_deps` (forward deps). All
+/// roots are seeded into `visited` together, so a root that's also
+/// reachable from another root (or from itself via a cycle) never
+/// reports itself as affected.
+fn get_rdeps_transitive_many(
     xh: &mut xbps_sys::xbps_handle,
     inited: bool,
-    pkgname: &str,
+    pkgnames: &[String],
 ) -> Option<Vec<(String, String)>> {
-    if !inited || pkgname.is_empty() {
+    if !inited || pkgnames.is_empty() {
         return None;
     }
-    let mut visited: HashSet<String> = HashSet::new();
-    visited.insert(pkgname.to_string()); // never report itself, even via a cycle
+    let mut visited: HashSet<String> = pkgnames.iter().cloned().collect();
     let mut out: Vec<(String, String)> = Vec::new();
-    let mut frontier = vec![pkgname.to_string()];
+    let mut frontier: Vec<String> = pkgnames.to_vec();
 
     while let Some(current) = frontier.pop() {
         let Some(rdeps) = get_rdeps(xh, inited, &current) else {
@@ -1475,4 +1491,18 @@ unsafe fn run_preview_ops(
     }
 
     Ok(preview)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_comparison_is_numeric_not_lexicographic() {
+        use std::cmp::Ordering;
+        assert_eq!(compare_versions("1.9_1", "1.10_1"), Ordering::Less);
+        assert_eq!(compare_versions("1.10_1", "1.9_1"), Ordering::Greater);
+        assert_eq!(compare_versions("2.0_1", "2.0_1"), Ordering::Equal);
+        assert_eq!(compare_versions("1.0_2", "1.0_10"), Ordering::Less);
+    }
 }

@@ -4,23 +4,17 @@
 //! those) it runs directly from the unprivileged GUI process — no
 //! `caerus-helper`/pkexec involved.
 
-use crate::ui::dialog_util::{close_button, modal_window, present_focused, text_list_row};
+use crate::ui::dialog_util::{
+    close_button, modal_window, present_focused, run_command_async, text_list_row,
+};
 use gtk::prelude::*;
 use std::process::Command;
 
-/// `xbps-query -o` is a fast local pkgdb scan (comparable to the FFI
-/// detail-pane lookups `PackageStore` does on its worker thread) and
-/// this dialog is a rare, explicit user action rather than something on
-/// a hot path, so a brief synchronous block here — same tradeoff the
-/// rest of the app already makes for local xbps queries — is simpler
-/// than standing up a background-thread/channel/poll pipeline for a
-/// single one-shot subprocess call.
-fn query_owner(path: &str) -> Result<String, String> {
-    let output = Command::new("xbps-query")
-        .arg("-o")
-        .arg(path)
-        .output()
-        .map_err(|e| format!("failed to run xbps-query: {e}"))?;
+/// Flattens an `xbps-query -o` result into displayable text (stdout,
+/// plus stderr when the query failed). The subprocess itself runs off
+/// the main thread via `run_command_async` — `xbps-query -o` scans the
+/// whole pkgdb and can take long enough to visibly freeze the UI.
+fn owner_output_text(output: &std::process::Output) -> String {
     let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
@@ -28,7 +22,18 @@ fn query_owner(path: &str) -> Result<String, String> {
             text.push_str(err.trim());
         }
     }
-    Ok(text)
+    text
+}
+
+fn message_row(text: &str, css_class: &str) -> gtk::ListBoxRow {
+    let l = gtk::Label::new(Some(text));
+    l.add_css_class(css_class);
+    l.set_margin_top(24);
+    let row = gtk::ListBoxRow::new();
+    row.set_selectable(false);
+    row.set_activatable(false);
+    row.set_child(Some(&l));
+    row
 }
 
 pub fn show(parent: Option<&gtk::Window>) {
@@ -73,7 +78,13 @@ pub fn show(parent: Option<&gtk::Window>) {
     let run_search = {
         let entry = entry.clone();
         let results_list = results_list;
+        let search_btn = search_btn.clone();
         move || {
+            // One search at a time — the button is re-enabled when the
+            // async reply lands.
+            if !search_btn.is_sensitive() {
+                return;
+            }
             let query = entry.text().trim().to_string();
             while let Some(child) = results_list.first_child() {
                 results_list.remove(&child);
@@ -81,33 +92,41 @@ pub fn show(parent: Option<&gtk::Window>) {
             if query.is_empty() {
                 return;
             }
-            match query_owner(&query) {
-                Ok(text) if !text.trim().is_empty() => {
-                    for line in text.lines().filter(|l| !l.trim().is_empty()) {
-                        results_list.append(&text_list_row(line, true));
+            search_btn.set_sensitive(false);
+            results_list.append(&message_row("Searching\u{2026}", "dim-label"));
+
+            let mut cmd = Command::new("xbps-query");
+            cmd.arg("-o").arg(&query);
+
+            let results_list = results_list.clone();
+            let search_btn = search_btn.clone();
+            run_command_async(cmd, move |result| {
+                search_btn.set_sensitive(true);
+                while let Some(child) = results_list.first_child() {
+                    results_list.remove(&child);
+                }
+                match result {
+                    Ok(output) => {
+                        let text = owner_output_text(&output);
+                        if text.trim().is_empty() {
+                            results_list.append(&message_row(
+                                "No package owns a file matching that.",
+                                "dim-label",
+                            ));
+                        } else {
+                            for line in text.lines().filter(|l| !l.trim().is_empty()) {
+                                results_list.append(&text_list_row(line, true));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        results_list.append(&message_row(
+                            &format!("failed to run xbps-query: {e}"),
+                            "error",
+                        ));
                     }
                 }
-                Ok(_) => {
-                    let l = gtk::Label::new(Some("No package owns a file matching that."));
-                    l.add_css_class("dim-label");
-                    l.set_margin_top(24);
-                    let row = gtk::ListBoxRow::new();
-                    row.set_selectable(false);
-                    row.set_activatable(false);
-                    row.set_child(Some(&l));
-                    results_list.append(&row);
-                }
-                Err(e) => {
-                    let l = gtk::Label::new(Some(&e));
-                    l.add_css_class("error");
-                    l.set_margin_top(24);
-                    let row = gtk::ListBoxRow::new();
-                    row.set_selectable(false);
-                    row.set_activatable(false);
-                    row.set_child(Some(&l));
-                    results_list.append(&row);
-                }
-            }
+            });
         }
     };
 

@@ -2,6 +2,7 @@
 //! chain, plus a checkbox column for marking several packages at once.
 //! Rust translation of `ui/package_list.{h,c}`.
 
+use crate::backend::custom_filters::{filter_excludes, ActiveFilter};
 use crate::backend::package::{
     pkg_format_size, pkg_state_icon, pkg_state_tooltip, FilterMode, Package, PackageObject,
     PkgMark, PkgState,
@@ -22,7 +23,7 @@ struct Inner {
     widget: gtk::Box,
     store: PackageStore,
     custom_filter: gtk::CustomFilter,
-    current_filter: Cell<FilterMode>,
+    current_filter: RefCell<ActiveFilter>,
     current_search: RefCell<String>,
     search_name_only: Cell<bool>,
     /// `None` = no repository restriction ("All Repositories").
@@ -132,7 +133,7 @@ impl PackageList {
             widget: gtk::Box::new(gtk::Orientation::Vertical, 0),
             store,
             custom_filter,
-            current_filter: Cell::new(FilterMode::All),
+            current_filter: RefCell::new(ActiveFilter::Preset(FilterMode::All)),
             current_search: RefCell::new(String::new()),
             search_name_only: Cell::new(false),
             current_repo_filter: RefCell::new(None),
@@ -192,11 +193,10 @@ impl PackageList {
     }
 
     /// Delete-key entry point: acts on the current selection. A single
-    /// selected row goes through `request_remove`'s confirmation path;
-    /// a multi-row selection applies a bulk Remove mark to every
-    /// applicable package, exactly like the right-click context menu's
-    /// bulk action (and, like it, skips the per-package confirmation
-    /// chain — the pre-Apply review covers it).
+    /// selected row goes through `request_remove`'s confirmation path; a
+    /// multi-row selection goes through `request_bulk_remove_with_confirm`
+    /// — one aggregate reverse-dependency confirmation for the whole
+    /// batch, exactly like the right-click context menu's bulk action.
     pub fn delete_selected(&self, root: Option<gtk::Window>) {
         let pkgs = {
             let selection = self.inner.selection.borrow();
@@ -208,12 +208,25 @@ impl PackageList {
         match pkgs.as_slice() {
             [] => {}
             [pkg] => self.request_remove(root, pkg),
-            _ => apply_bulk_mark(&self.inner.store, &self.inner, &pkgs, PkgMark::Remove),
+            _ => request_bulk_remove_with_confirm(
+                root,
+                &self.inner.store,
+                &self.inner,
+                &pkgs,
+                PkgMark::Remove,
+            ),
         }
     }
 
-    pub fn set_filter(&self, mode: FilterMode) {
-        self.inner.current_filter.set(mode);
+    pub fn set_filter(&self, filter: ActiveFilter) {
+        let filter = match filter {
+            ActiveFilter::Custom { name, patterns } => ActiveFilter::Custom {
+                name,
+                patterns: patterns.into_iter().map(|p| p.to_lowercase()).collect(),
+            },
+            preset => preset,
+        };
+        *self.inner.current_filter.borrow_mut() = filter;
         self.inner
             .custom_filter
             .changed(gtk::FilterChange::Different);
@@ -247,7 +260,10 @@ impl PackageList {
     /// describe what's actually on screen.
     pub fn has_active_filters(&self) -> bool {
         self.has_active_search()
-            || self.inner.current_filter.get() != FilterMode::All
+            || !matches!(
+                &*self.inner.current_filter.borrow(),
+                ActiveFilter::Preset(FilterMode::All)
+            )
             || self.inner.current_repo_filter.borrow().is_some()
     }
 
@@ -321,16 +337,17 @@ fn build(inner: Rc<Inner>) {
                     return false;
                 }
             }
-            match inner_f.current_filter.get() {
-                FilterMode::All => true,
-                FilterMode::Installed => {
+            match &*inner_f.current_filter.borrow() {
+                ActiveFilter::Preset(FilterMode::All) => true,
+                ActiveFilter::Preset(FilterMode::Installed) => {
                     matches!(p.state, PkgState::Installed | PkgState::Upgradable)
                 }
-                FilterMode::NotInstalled => p.state == PkgState::NotInstalled,
-                FilterMode::Upgradable => p.state == PkgState::Upgradable,
-                FilterMode::OnHold => p.state == PkgState::OnHold,
-                FilterMode::Marked => p.mark != PkgMark::None,
-                FilterMode::Orphaned => p.is_orphan,
+                ActiveFilter::Preset(FilterMode::NotInstalled) => p.state == PkgState::NotInstalled,
+                ActiveFilter::Preset(FilterMode::Upgradable) => p.state == PkgState::Upgradable,
+                ActiveFilter::Preset(FilterMode::OnHold) => p.state == PkgState::OnHold,
+                ActiveFilter::Preset(FilterMode::Marked) => p.mark != PkgMark::None,
+                ActiveFilter::Preset(FilterMode::Orphaned) => p.is_orphan,
+                ActiveFilter::Custom { patterns, .. } => !filter_excludes(patterns, &p.name),
             }
         });
     }
@@ -603,7 +620,10 @@ fn build(inner: Rc<Inner>) {
         }
     });
     set_column_sorter(&col_inst, |a, b| {
-        cmp_opt_version(a.version_installed.as_deref(), b.version_installed.as_deref())
+        cmp_opt_version(
+            a.version_installed.as_deref(),
+            b.version_installed.as_deref(),
+        )
     });
     column_view.append_column(&col_inst);
 
@@ -622,7 +642,10 @@ fn build(inner: Rc<Inner>) {
         }
     });
     set_column_sorter(&col_avail, |a, b| {
-        cmp_opt_version(a.version_available.as_deref(), b.version_available.as_deref())
+        cmp_opt_version(
+            a.version_available.as_deref(),
+            b.version_available.as_deref(),
+        )
     });
     column_view.append_column(&col_avail);
 
@@ -858,13 +881,53 @@ fn context_menu_items(pkgs: &[Package]) -> Vec<(String, PkgMark)> {
     items
 }
 
+/// Multi-row counterpart to `request_remove_with_confirm`: Remove/Purge
+/// applied to several packages at once first shows one aggregate
+/// reverse-dependency confirmation covering the whole batch (see
+/// `remove_confirm::confirm_bulk_remove_impact`), then applies the mark
+/// via `apply_bulk_mark` — same as every other bulk mark — only if the
+/// user proceeds. The only bulk-mark path with a confirmation step;
+/// Install/Upgrade/Unmark bulk marks go straight through `apply_bulk_mark`.
+fn request_bulk_remove_with_confirm(
+    root: Option<gtk::Window>,
+    store: &PackageStore,
+    inner: &Rc<Inner>,
+    pkgs: &[Package],
+    mark: PkgMark,
+) {
+    let names: Vec<String> = pkgs
+        .iter()
+        .filter(|p| mark_applies_to(p, mark))
+        .map(|p| p.name.clone())
+        .collect();
+    if names.is_empty() {
+        return;
+    }
+    let store_for_call = store.clone();
+    let store = store.clone();
+    let inner = inner.clone();
+    let pkgs = pkgs.to_vec();
+    remove_confirm::confirm_bulk_remove_impact(
+        root.as_ref(),
+        &store_for_call,
+        names,
+        move |proceed| {
+            if proceed {
+                apply_bulk_mark(&store, &inner, &pkgs, mark);
+            }
+        },
+    );
+}
+
 /// Applies `mark` to every package in `pkgs` it's actually applicable
 /// to (see `mark_applies_to`) and fires `on_marks_changed` once. Used
-/// for multi-row selections — unlike the single-package paths, this
-/// skips the deps/reverse-deps confirmation dialogs entirely (asking
-/// once per selected package would mean a chain of N modal dialogs),
-/// relying on the pre-Apply summary and xbps's own dependency
-/// resolution to catch anything that actually matters.
+/// for multi-row selections. Doesn't confirm anything itself — Install/
+/// Upgrade/Unmark bulk marks call this directly and rely on the
+/// pre-Apply summary and xbps's own dependency resolution to catch
+/// anything that matters (asking once per selected package would mean a
+/// chain of N modal dialogs); Remove/Purge instead go through
+/// `request_bulk_remove_with_confirm`, which confirms once for the
+/// whole batch before calling this.
 fn apply_bulk_mark(store: &PackageStore, inner: &Rc<Inner>, pkgs: &[Package], mark: PkgMark) {
     let names: std::collections::HashSet<String> = pkgs
         .iter()
@@ -959,7 +1022,18 @@ fn show_context_menu(
                     _ => set_mark_and_notify(&store, &inner, &name, mark),
                 }
             } else {
-                apply_bulk_mark(&store, &inner, &selected, mark);
+                match mark {
+                    PkgMark::Remove | PkgMark::Purge => {
+                        request_bulk_remove_with_confirm(
+                            root.clone(),
+                            &store,
+                            &inner,
+                            &selected,
+                            mark,
+                        );
+                    }
+                    _ => apply_bulk_mark(&store, &inner, &selected, mark),
+                }
             }
         });
         vbox.append(&btn);
@@ -1034,5 +1108,131 @@ fn on_checkbox_toggled(
         request_install_with_confirm(root, store, inner, &name, on_result);
     } else {
         request_remove_with_confirm(root, store, inner, &name, PkgMark::Remove, on_result);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pkg(name: &str, state: PkgState, mark: PkgMark, essential: bool) -> Package {
+        Package {
+            name: name.to_string(),
+            state,
+            mark,
+            essential,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn install_applies_only_to_unmarked_not_installed() {
+        let p = pkg("a", PkgState::NotInstalled, PkgMark::None, false);
+        assert!(mark_applies_to(&p, PkgMark::Install));
+        let installed = pkg("a", PkgState::Installed, PkgMark::None, false);
+        assert!(!mark_applies_to(&installed, PkgMark::Install));
+        let already = pkg("a", PkgState::NotInstalled, PkgMark::Install, false);
+        assert!(!mark_applies_to(&already, PkgMark::Install));
+    }
+
+    #[test]
+    fn upgrade_applies_only_to_unmarked_upgradable() {
+        assert!(mark_applies_to(
+            &pkg("a", PkgState::Upgradable, PkgMark::None, false),
+            PkgMark::Upgrade
+        ));
+        assert!(!mark_applies_to(
+            &pkg("a", PkgState::Installed, PkgMark::None, false),
+            PkgMark::Upgrade
+        ));
+        assert!(!mark_applies_to(
+            &pkg("a", PkgState::Upgradable, PkgMark::Upgrade, false),
+            PkgMark::Upgrade
+        ));
+    }
+
+    #[test]
+    fn remove_and_purge_spare_essential_and_not_installed() {
+        for mark in [PkgMark::Remove, PkgMark::Purge] {
+            assert!(mark_applies_to(
+                &pkg("a", PkgState::Installed, PkgMark::None, false),
+                mark
+            ));
+            // Every installed-ish state qualifies, not just Installed.
+            for state in [PkgState::Upgradable, PkgState::OnHold, PkgState::Broken] {
+                assert!(mark_applies_to(
+                    &pkg("a", state, PkgMark::None, false),
+                    mark
+                ));
+            }
+            assert!(!mark_applies_to(
+                &pkg("a", PkgState::NotInstalled, PkgMark::None, false),
+                mark
+            ));
+            assert!(!mark_applies_to(
+                &pkg("a", PkgState::Installed, PkgMark::None, true), // essential
+                mark
+            ));
+            assert!(!mark_applies_to(
+                &pkg("a", PkgState::Installed, PkgMark::Remove, false), // already marked
+                mark
+            ));
+        }
+    }
+
+    #[test]
+    fn unmark_applies_only_to_marked() {
+        assert!(mark_applies_to(
+            &pkg("a", PkgState::Installed, PkgMark::Remove, false),
+            PkgMark::None
+        ));
+        assert!(!mark_applies_to(
+            &pkg("a", PkgState::Installed, PkgMark::None, false),
+            PkgMark::None
+        ));
+    }
+
+    #[test]
+    fn single_selection_menu_uses_singular_labels() {
+        let items = context_menu_items(&[pkg("a", PkgState::Installed, PkgMark::None, false)]);
+        let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
+        // An unmarked installed package offers removal/purge, nothing else.
+        assert_eq!(labels, ["Mark for Removal", "Mark for Purge"]);
+    }
+
+    #[test]
+    fn multi_selection_menu_counts_only_applicable_packages() {
+        let sel = [
+            pkg("a", PkgState::NotInstalled, PkgMark::None, false),
+            pkg("b", PkgState::NotInstalled, PkgMark::None, false),
+            pkg("c", PkgState::Installed, PkgMark::None, false),
+        ];
+        let items = context_menu_items(&sel);
+        let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
+        // Counts are per-mark; a mark applying to a single package still
+        // gets the counted wording because the *selection* is multi.
+        assert_eq!(
+            labels,
+            [
+                "Mark 2 for Installation",
+                "Mark 1 for Removal",
+                "Mark 1 for Purge"
+            ]
+        );
+    }
+
+    #[test]
+    fn menu_omits_marks_that_apply_to_nothing() {
+        // Essential-only selection: no removal offered at all.
+        let items = context_menu_items(&[pkg("a", PkgState::Installed, PkgMark::None, true)]);
+        assert!(items.is_empty());
+
+        // Marked-only selection: unmark is the only entry.
+        let items = context_menu_items(&[
+            pkg("a", PkgState::Installed, PkgMark::Remove, false),
+            pkg("b", PkgState::NotInstalled, PkgMark::Install, false),
+        ]);
+        let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
+        assert_eq!(labels, ["Unmark 2"]);
     }
 }

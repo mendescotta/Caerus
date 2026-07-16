@@ -233,13 +233,14 @@ fn add_repo(url: &str) -> Result<(), String> {
 }
 
 fn remove_repo(url: &str) -> Result<(), String> {
+    use std::fmt::Write as _;
+
     if has_control_char(url) {
         return Err("refusing to remove a repository URL with control characters".to_string());
     }
     let Ok(existing) = std::fs::read_to_string(MANAGED_REPO_CONF) else {
         return Ok(()); // file doesn't exist, nothing to remove
     };
-    use std::fmt::Write as _;
     let line = format!("repository={url}");
     let updated: String =
         existing
@@ -277,7 +278,6 @@ fn main() {
         }
 
         if line == "UPGRADE" {
-            let mut code = run_xbps(&["xbps-install", "-y", "-Su"]);
             // When the `xbps` package itself has an update pending,
             // `xbps-install -Su` deliberately updates only xbps and
             // exits EBUSY (16), expecting to be re-run for the rest of
@@ -285,6 +285,7 @@ fn main() {
             // hand; do that one re-run here instead of surfacing a
             // baffling "upgrade failed" for documented behavior.
             const EBUSY: i32 = 16;
+            let mut code = run_xbps(&["xbps-install", "-y", "-Su"]);
             if code == Some(EBUSY) {
                 println!("LOG xbps updated itself; re-running the system upgrade\u{2026}");
                 let _ = io::stdout().flush();

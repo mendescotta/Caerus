@@ -13,28 +13,34 @@ use gtk::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-const DASH: &str = "\u{2014}";
-
 /// Files lists can run into the thousands of entries for large
 /// packages; a plain (non-virtualized) `gtk::ListBox` materializes one
 /// widget per row, so this caps how many are actually shown to keep the
 /// expander responsive.
 const MAX_FILES_SHOWN: usize = 300;
 
-struct Labels {
+/// A value cell in the metadata grid — plain selectable text or a
+/// clickable homepage link.
+enum KvValue {
+    Text(String),
+    Link(String),
+}
+
+/// 0.5 redesign (see the locked mockup): the old framed boxes became a
+/// header row (name + version + state chip + tag chips) over one
+/// unframed key/value grid grouped under SIZE / INSTALLATION / SOURCE
+/// micro-headers. **A row or group without data is simply not built** —
+/// no "—" dashes, no placeholder text; the state chip always shows
+/// because install state is data, not absence.
+struct Header {
     name: gtk::Label,
     version: gtk::Label,
-    tags: gtk::Label,
-    state: gtk::Label,
+    state_chip: gtk::Label,
+    tags_box: gtk::Box,
     desc: gtk::Label,
-    installed_size: gtk::Label,
-    download_size: gtk::Label,
-    maintainer: gtk::Label,
-    homepage_box: gtk::Box,
-    license: gtk::Label,
-    repository: gtk::Label,
-    install_date: gtk::Label,
-    auto_install: gtk::Label,
+    size_group: gtk::Box,
+    install_group: gtk::Box,
+    source_group: gtk::Box,
 }
 
 type MarkChangedCbs = RefCell<Vec<Box<dyn Fn()>>>;
@@ -61,7 +67,25 @@ struct Inner {
     btn_unmark: gtk::Button,
     more_button: gtk::MenuButton,
     more_popover: gtk::Popover,
-    labels: Labels,
+    header: Header,
+    /// Switches between a centered "Select a package…" empty page and
+    /// the real content — with no selection nothing else renders at all.
+    content_stack: gtk::Stack,
+    /// Sizes are known synchronously but the download size can be
+    /// corrected by the async extra-info reply, which rebuilds the SIZE
+    /// group from these.
+    install_size: std::cell::Cell<u64>,
+    download_size: std::cell::Cell<u64>,
+    /// Maintainer comes from the sync package data but lives in the
+    /// async-rebuilt SOURCE group, so it's stashed here for the rebuild.
+    current_maintainer: RefCell<String>,
+    files_pill: gtk::Label,
+    provides_pill: gtk::Label,
+    deps_pill: gtk::Label,
+    rdeps_pill: gtk::Label,
+    deps_col: gtk::Box,
+    rdeps_col: gtk::Box,
+    provides_expander: gtk::Expander,
     deps_list: gtk::ListBox,
     rdeps_list: gtk::ListBox,
     /// The two lists' placeholder labels, retargeted per state: "Select
@@ -112,35 +136,102 @@ fn more_menu_button(label: &str) -> gtk::Button {
     btn
 }
 
-fn info_row(container: &gtk::Box, label: &str) -> gtk::Label {
-    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    let key = gtk::Label::new(Some(label));
-    key.set_width_chars(13);
-    key.set_xalign(1.0);
-    key.add_css_class("dim-label");
-    row.append(&key);
-
-    let val = gtk::Label::new(Some(DASH));
-    val.set_xalign(0.0);
-    val.set_selectable(true);
-    val.set_wrap(true);
-    val.set_hexpand(true);
-    row.append(&val);
-
-    container.append(&row);
-    val
+/// A pill-styled chip label (state chip, tag chips, count pills share
+/// the same shape; CSS classes differentiate the coloring).
+fn chip(text: &str, extra_class: Option<&str>) -> gtk::Label {
+    let l = gtk::Label::new(Some(text));
+    l.add_css_class("chip");
+    if let Some(class) = extra_class {
+        l.add_css_class(class);
+    }
+    l.set_valign(gtk::Align::Center);
+    l
 }
 
-fn framed(title: &str) -> (gtk::Frame, gtk::Box) {
-    let frame = gtk::Frame::new(Some(title));
-    frame.set_margin_bottom(6);
-    let inner_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    inner_box.set_margin_start(8);
-    inner_box.set_margin_end(8);
-    inner_box.set_margin_top(6);
-    inner_box.set_margin_bottom(8);
-    frame.set_child(Some(&inner_box));
-    (frame, inner_box)
+/// A count pill for section headers/expanders; starts hidden until a
+/// count is known.
+fn count_pill() -> gtk::Label {
+    let l = gtk::Label::new(None);
+    l.add_css_class("count-pill");
+    l.set_visible(false);
+    l.set_valign(gtk::Align::Center);
+    l
+}
+
+fn set_count(pill: &gtk::Label, count: Option<usize>) {
+    match count {
+        Some(n) => {
+            pill.set_text(&n.to_string());
+            pill.set_visible(true);
+        }
+        None => pill.set_visible(false),
+    }
+}
+
+/// Rebuilds one metadata group (SIZE / INSTALLATION / SOURCE): a
+/// micro-header plus one key/value row per entry. An empty `rows`
+/// hides the group entirely — omission, not placeholders.
+fn rebuild_kv_group(group: &gtk::Box, title: &str, rows: Vec<(&str, KvValue)>) {
+    clear_box_children(group);
+    if rows.is_empty() {
+        group.set_visible(false);
+        return;
+    }
+    group.set_visible(true);
+
+    let header = gtk::Label::new(Some(title));
+    header.set_xalign(0.0);
+    header.add_css_class("section-header");
+    group.append(&header);
+
+    for (key, value) in rows {
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        let key_label = gtk::Label::new(Some(key));
+        key_label.set_width_chars(12);
+        key_label.set_xalign(0.0);
+        key_label.add_css_class("dim-label");
+        row.append(&key_label);
+        match value {
+            KvValue::Text(text) => {
+                let val = gtk::Label::new(Some(&text));
+                val.set_xalign(0.0);
+                val.set_selectable(true);
+                val.set_wrap(true);
+                val.set_hexpand(true);
+                row.append(&val);
+            }
+            KvValue::Link(url) => {
+                let link = gtk::LinkButton::new(&url);
+                link.set_halign(gtk::Align::Start);
+                link.set_hexpand(true);
+                row.append(&link);
+            }
+        }
+        group.append(&row);
+    }
+}
+
+/// Rebuilds the SIZE group from the currently-known sizes (the async
+/// extra-info reply can correct the download size after the fact).
+fn rebuild_size_group(inner: &Inner) {
+    let mut rows = Vec::new();
+    if inner.install_size.get() > 0 {
+        rows.push((
+            "Installed",
+            KvValue::Text(crate::backend::package::pkg_format_size(
+                inner.install_size.get(),
+            )),
+        ));
+    }
+    if inner.download_size.get() > 0 {
+        rows.push((
+            "Download",
+            KvValue::Text(crate::backend::package::pkg_format_size(
+                inner.download_size.get(),
+            )),
+        ));
+    }
+    rebuild_kv_group(&inner.header.size_group, "SIZE", rows);
 }
 
 impl DetailPane {
@@ -254,54 +345,71 @@ impl DetailPane {
         let metadata_col = gtk::Box::new(gtk::Orientation::Vertical, 0);
         metadata_col.set_width_request(320);
 
-        let (frame_info, box_info) = framed("Package Information");
-        let name = info_row(&box_info, "Name:");
-        let version = info_row(&box_info, "Version:");
-        let tags = info_row(&box_info, "Tags:");
-        let state = info_row(&box_info, "State:");
-        box_info.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-        let desc = gtk::Label::new(Some("Select a package to view details."));
+        // ── Header: name + version + state chip + tag chips, over the
+        // description ──
+        let header_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        let name = gtk::Label::new(None);
+        name.set_xalign(0.0);
+        name.set_selectable(true);
+        name.add_css_class("detail-name");
+        header_row.append(&name);
+
+        let version = gtk::Label::new(None);
+        version.set_xalign(0.0);
+        version.set_selectable(true);
+        version.add_css_class("dim-label");
+        version.set_valign(gtk::Align::Baseline);
+        header_row.append(&version);
+
+        let state_chip = chip("", None);
+        header_row.append(&state_chip);
+
+        let tags_box = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        header_row.append(&tags_box);
+        metadata_col.append(&header_row);
+
+        let desc = gtk::Label::new(None);
         desc.set_xalign(0.0);
         desc.set_wrap(true);
         desc.set_wrap_mode(gtk::pango::WrapMode::Word);
         desc.set_selectable(true);
-        box_info.append(&desc);
-        metadata_col.append(&frame_info);
+        desc.add_css_class("dim-label");
+        desc.set_margin_top(2);
+        desc.set_margin_bottom(6);
+        metadata_col.append(&desc);
 
-        let (frame_sizes, box_sizes) = framed("Size Statistics");
-        let installed_size = info_row(&box_sizes, "Installed:");
-        let download_size = info_row(&box_sizes, "Download:");
-        metadata_col.append(&frame_sizes);
+        // ── Unframed key/value grid: SIZE + INSTALLATION on the left,
+        // SOURCE on the right — groups without data stay hidden ──
+        let kv_split = gtk::Box::new(gtk::Orientation::Horizontal, 24);
+        let kv_left = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        kv_left.set_hexpand(true);
+        let kv_right = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        kv_right.set_hexpand(true);
 
-        let (frame_maint, box_maint) = framed("Maintainer & Source");
-        let maintainer = info_row(&box_maint, "Maintainer:");
+        let size_group = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        size_group.set_visible(false);
+        let install_group = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        install_group.set_visible(false);
+        let source_group = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        source_group.set_visible(false);
+        kv_left.append(&size_group);
+        kv_left.append(&install_group);
+        kv_right.append(&source_group);
+        kv_split.append(&kv_left);
+        kv_split.append(&kv_right);
+        metadata_col.append(&kv_split);
 
-        let homepage_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        let homepage_key = gtk::Label::new(Some("Homepage:"));
-        homepage_key.set_width_chars(13);
-        homepage_key.set_xalign(1.0);
-        homepage_key.add_css_class("dim-label");
-        homepage_row.append(&homepage_key);
-        let homepage_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        homepage_box.set_hexpand(true);
-        homepage_row.append(&homepage_box);
-        box_maint.append(&homepage_row);
-
-        let license = info_row(&box_maint, "License:");
-        let repository = info_row(&box_maint, "Repository:");
-        let install_date = info_row(&box_maint, "Installed on:");
-        let auto_install = info_row(&box_maint, "Auto-installed:");
-        metadata_col.append(&frame_maint);
-
-        let files_expander = gtk::Expander::new(Some("Files"));
+        // ── Files / Provides disclosure rows with count pills ──
+        let files_pill = count_pill();
+        let files_label_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        files_label_box.append(&gtk::Label::new(Some("Files")));
+        files_label_box.append(&files_pill);
+        let files_expander = gtk::Expander::new(None);
+        files_expander.set_label_widget(Some(&files_label_box));
+        files_expander.set_margin_top(6);
         files_expander.set_margin_bottom(6);
         let files_list = gtk::ListBox::new();
         files_list.set_selection_mode(gtk::SelectionMode::None);
-        let files_ph = gtk::Label::new(Some("Not installed"));
-        files_ph.add_css_class("dim-label");
-        files_ph.set_margin_top(8);
-        files_ph.set_margin_bottom(8);
-        files_list.set_placeholder(Some(&files_ph));
         let files_scroll = gtk::ScrolledWindow::new();
         files_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
         files_scroll.set_max_content_height(260);
@@ -310,15 +418,18 @@ impl DetailPane {
         files_expander.set_child(Some(&files_scroll));
         metadata_col.append(&files_expander);
 
-        let provides_expander = gtk::Expander::new(Some("Provides / Conflicts / Replaces"));
+        let provides_pill = count_pill();
+        let provides_label_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        provides_label_box.append(&gtk::Label::new(Some("Provides / Conflicts / Replaces")));
+        provides_label_box.append(&provides_pill);
+        let provides_expander = gtk::Expander::new(None);
+        provides_expander.set_label_widget(Some(&provides_label_box));
         provides_expander.set_margin_bottom(6);
+        // Hidden until the async extra-info reply reports something to
+        // show — an empty section is omitted, not placeholder-ed.
+        provides_expander.set_visible(false);
         let provides_list = gtk::ListBox::new();
         provides_list.set_selection_mode(gtk::SelectionMode::None);
-        let provides_ph = gtk::Label::new(Some("None"));
-        provides_ph.add_css_class("dim-label");
-        provides_ph.set_margin_top(8);
-        provides_ph.set_margin_bottom(8);
-        provides_list.set_placeholder(Some(&provides_ph));
         provides_expander.set_child(Some(&provides_list));
         metadata_col.append(&provides_expander);
 
@@ -331,10 +442,14 @@ impl DetailPane {
 
         let deps_col = gtk::Box::new(gtk::Orientation::Vertical, 0);
         deps_col.set_hexpand(true);
+        let deps_header_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let deps_header = gtk::Label::new(Some("DEPENDENCIES"));
         deps_header.set_xalign(0.0);
         deps_header.add_css_class("section-header");
-        deps_col.append(&deps_header);
+        let deps_pill = count_pill();
+        deps_header_row.append(&deps_header);
+        deps_header_row.append(&deps_pill);
+        deps_col.append(&deps_header_row);
         let deps_scroll = gtk::ScrolledWindow::new();
         deps_scroll.set_vexpand(true);
         let deps_list = gtk::ListBox::new();
@@ -351,10 +466,14 @@ impl DetailPane {
 
         let rdeps_col = gtk::Box::new(gtk::Orientation::Vertical, 0);
         rdeps_col.set_hexpand(true);
+        let rdeps_header_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let rdeps_header = gtk::Label::new(Some("REVERSE DEPENDENCIES"));
         rdeps_header.set_xalign(0.0);
         rdeps_header.add_css_class("section-header");
-        rdeps_col.append(&rdeps_header);
+        let rdeps_pill = count_pill();
+        rdeps_header_row.append(&rdeps_header);
+        rdeps_header_row.append(&rdeps_pill);
+        rdeps_col.append(&rdeps_header_row);
         let rdeps_scroll = gtk::ScrolledWindow::new();
         rdeps_scroll.set_vexpand(true);
         let rdeps_list = gtk::ListBox::new();
@@ -368,7 +487,16 @@ impl DetailPane {
         dependency_col.append(&rdeps_col);
 
         split.append(&dependency_col);
-        widget.append(&split);
+
+        // ── Empty state vs content ──
+        let content_stack = gtk::Stack::new();
+        content_stack.set_vexpand(true);
+        let empty_label = gtk::Label::new(Some("Select a package to view details."));
+        empty_label.add_css_class("dim-label");
+        content_stack.add_named(&empty_label, Some("empty"));
+        content_stack.add_named(&split, Some("content"));
+        content_stack.set_visible_child_name("empty");
+        widget.append(&content_stack);
 
         let inner = Rc::new(Inner {
             widget,
@@ -390,21 +518,27 @@ impl DetailPane {
             btn_unmark,
             more_button,
             more_popover,
-            labels: Labels {
+            header: Header {
                 name,
                 version,
-                tags,
-                state,
+                state_chip,
+                tags_box,
                 desc,
-                installed_size,
-                download_size,
-                maintainer,
-                homepage_box,
-                license,
-                repository,
-                install_date,
-                auto_install,
+                size_group,
+                install_group,
+                source_group,
             },
+            content_stack,
+            install_size: std::cell::Cell::new(0),
+            download_size: std::cell::Cell::new(0),
+            current_maintainer: RefCell::new(String::new()),
+            files_pill,
+            provides_pill,
+            deps_pill,
+            rdeps_pill,
+            deps_col,
+            rdeps_col,
+            provides_expander,
             deps_list,
             rdeps_list,
             deps_placeholder: deps_ph,
@@ -820,7 +954,11 @@ fn populate_provides_conflicts(
     while let Some(c) = inner.provides_list.first_child() {
         inner.provides_list.remove(&c);
     }
-    let Some(extra) = extra else { return };
+    let Some(extra) = extra else {
+        inner.provides_expander.set_visible(false);
+        set_count(&inner.provides_pill, None);
+        return;
+    };
     let sections: [(&str, &[String]); 5] = [
         ("Provides", &extra.provides),
         ("Conflicts", &extra.conflicts),
@@ -828,10 +966,12 @@ fn populate_provides_conflicts(
         ("Requires", &extra.shlib_requires),
         ("Exports", &extra.shlib_provides),
     ];
+    let mut total = 0;
     for (label, items) in sections {
         if items.is_empty() {
             continue;
         }
+        total += items.len();
         inner
             .provides_list
             .append(&crate::ui::dialog_util::text_list_row(
@@ -839,6 +979,9 @@ fn populate_provides_conflicts(
                 true,
             ));
     }
+    // An empty section is omitted, not placeholder-ed.
+    inner.provides_expander.set_visible(total > 0);
+    set_count(&inner.provides_pill, (total > 0).then_some(total));
 }
 
 /// Files lists are only fetched (a round-trip to the xbps worker
@@ -863,17 +1006,22 @@ fn wire_files_expander(inner: &Rc<Inner>) {
             // the worker was busy — a stale reply must not overwrite the
             // now-current package's (empty) list.
             if inner2.current_pkgname.borrow().as_deref() == Some(name.as_str()) {
-                populate_files(&inner2.files_list, files);
+                populate_files(&inner2, files);
             }
         });
     });
 }
 
-fn populate_files(lb: &gtk::ListBox, files: Option<Vec<String>>) {
+fn populate_files(inner: &Inner, files: Option<Vec<String>>) {
+    let lb = &inner.files_list;
     while let Some(c) = lb.first_child() {
         lb.remove(&c);
     }
-    let Some(mut files) = files else { return };
+    let Some(mut files) = files else {
+        set_count(&inner.files_pill, None);
+        return;
+    };
+    set_count(&inner.files_pill, Some(files.len()));
     files.sort();
     let total = files.len();
     let shown = total.min(MAX_FILES_SHOWN);
@@ -910,19 +1058,6 @@ fn clear_box_children(b: &gtk::Box) {
     }
 }
 
-fn set_homepage_value(homepage_box: &gtk::Box, url: Option<&str>) {
-    clear_box_children(homepage_box);
-    if let Some(url) = url.filter(|u| !u.is_empty()) {
-        let link = gtk::LinkButton::new(url);
-        link.set_halign(gtk::Align::Start);
-        homepage_box.append(&link);
-    } else {
-        let lbl = gtk::Label::new(Some(DASH));
-        lbl.set_xalign(0.0);
-        homepage_box.append(&lbl);
-    }
-}
-
 fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
     *inner.current_pkgname.borrow_mut() = pkg.map(|p| p.name.clone());
 
@@ -931,57 +1066,58 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
     // the newly-selected package rather than showing the old one's list
     // (or nothing, if it wasn't installed).
     inner.files_expander.set_expanded(false);
-    populate_files(&inner.files_list, None);
+    populate_files(inner, None);
 
-    let l = &inner.labels;
+    let h = &inner.header;
 
     let Some(pkg) = pkg else {
-        l.name.set_text(DASH);
-        l.version.set_text(DASH);
-        l.tags.set_text(DASH);
-        l.state.set_text(DASH);
-        l.desc.set_text("Select a package to view details.");
-        l.installed_size.set_text(DASH);
-        l.download_size.set_text(DASH);
-        l.maintainer.set_text(DASH);
-        set_homepage_value(&l.homepage_box, None);
-        l.license.set_text(DASH);
-        l.repository.set_text(DASH);
-        l.install_date.set_text(DASH);
-        l.auto_install.set_text(DASH);
-        inner.deps_placeholder.set_text("Select a package");
-        inner.rdeps_placeholder.set_text("Select a package");
-        populate(&inner.deps_list, None);
-        populate(&inner.rdeps_list, None);
-        populate_provides_conflicts(inner, None);
+        // No selection: nothing to describe, so nothing renders — the
+        // stack's empty page carries the one line of guidance.
+        inner.content_stack.set_visible_child_name("empty");
         update_action_buttons(inner, None);
         return;
     };
+    inner.content_stack.set_visible_child_name("content");
 
-    // ── Package Information ──
-    l.name.set_text(&pkg.name);
+    // ── Header ──
+    h.name.set_text(&pkg.name);
 
     let ver = match (&pkg.version_installed, &pkg.version_available) {
-        (Some(inst), Some(avail)) if inst != avail => format!("{inst}  \u{2192}  {avail}"),
-        (Some(inst), _) => inst.clone(),
-        (None, Some(avail)) => avail.clone(),
-        (None, None) => DASH.to_string(),
+        (Some(inst), Some(avail)) if inst != avail => Some(format!("{inst}  \u{2192}  {avail}")),
+        (Some(inst), _) => Some(inst.clone()),
+        (None, Some(avail)) => Some(avail.clone()),
+        (None, None) => None,
     };
-    l.version.set_text(&ver);
+    h.version.set_visible(ver.is_some());
+    h.version.set_text(ver.as_deref().unwrap_or(""));
 
-    l.tags
-        .set_text(if pkg.tags.is_empty() { DASH } else { &pkg.tags });
-
-    let state_text = match pkg.state {
-        PkgState::NotInstalled => "Not installed",
-        PkgState::Installed => "Installed",
-        PkgState::Upgradable => "Upgrade available",
-        PkgState::OnHold => "On hold",
-        PkgState::Broken => "Broken",
+    // The state chip always shows: install state is data, not absence.
+    let (state_text, state_class) = match pkg.state {
+        PkgState::NotInstalled => ("Not installed", None),
+        PkgState::Installed => ("Installed", Some("chip-ok")),
+        PkgState::Upgradable => ("Upgrade available", Some("chip-warn")),
+        PkgState::OnHold => ("On hold", Some("chip-warn")),
+        PkgState::Broken => ("Broken", Some("chip-err")),
     };
-    l.state.set_text(state_text);
+    for class in ["chip-ok", "chip-warn", "chip-err"] {
+        h.state_chip.remove_css_class(class);
+    }
+    if let Some(class) = state_class {
+        h.state_chip.add_css_class(class);
+    }
+    h.state_chip.set_text(state_text);
 
-    l.desc.set_text(
+    clear_box_children(&h.tags_box);
+    for tag in pkg
+        .tags
+        .split([',', ' '])
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+    {
+        h.tags_box.append(&chip(tag, None));
+    }
+
+    h.desc.set_text(
         pkg.long_desc
             .as_deref()
             .filter(|s| !s.is_empty())
@@ -990,122 +1126,94 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
             .unwrap_or("No description available."),
     );
 
-    // ── Size Statistics ──
-    l.installed_size
-        .set_text(&crate::backend::package::pkg_format_size(pkg.install_size));
+    // ── SIZE (sync; the async reply may correct the download size) ──
+    inner.install_size.set(pkg.install_size);
+    inner.download_size.set(pkg.download_size);
+    rebuild_size_group(inner);
 
-    let dsz = if pkg.download_size > 0 {
-        Some(crate::backend::package::pkg_format_size(pkg.download_size))
-    } else {
-        None
-    };
-    l.download_size.set_text(dsz.as_deref().unwrap_or(DASH));
-
-    l.maintainer.set_text(if pkg.maintainer.is_empty() {
-        DASH
-    } else {
-        &pkg.maintainer
-    });
-
-    // ── Maintainer & Source: provisional placeholders now, real values
-    // once the async extra-info lookup lands. Would flicker if the
-    // worker were slow, but these queries are fast whenever the worker
-    // isn't mid-reload — and when it *is*, this is exactly what keeps
-    // the whole UI from freezing until the rescan finishes.
-    set_homepage_value(&l.homepage_box, None);
-    l.license.set_text(DASH);
-    l.repository.set_text(DASH);
-    l.install_date.set_text(DASH);
-    l.auto_install.set_text(DASH);
+    // ── INSTALLATION / SOURCE: rebuilt when the async extra-info
+    // lookup lands; until then the maintainer (known synchronously) is
+    // the only SOURCE row. Would flicker if the worker were slow, but
+    // these queries are fast whenever the worker isn't mid-reload — and
+    // when it *is*, this is exactly what keeps the whole UI from
+    // freezing until the rescan finishes.
+    *inner.current_maintainer.borrow_mut() = pkg.maintainer.clone();
+    rebuild_kv_group(&h.install_group, "INSTALLATION", Vec::new());
+    rebuild_source_group(inner, None);
     inner.btn_mark_manual.set_visible(false);
     inner.btn_mark_auto.set_visible(false);
     populate_provides_conflicts(inner, None);
 
+    // Files are fetched lazily on expand; the row only exists at all
+    // for packages that are actually on disk.
+    inner
+        .files_expander
+        .set_visible(pkg.state != PkgState::NotInstalled);
+
     {
         let inner = inner.clone();
         let name = pkg.name.clone();
-        inner.store.clone().get_extra_info_async(&pkg.name, move |extra| {
-            // Stale-reply guard: the user may have selected another
-            // package while this was queued behind other worker commands.
-            if inner.current_pkgname.borrow().as_deref() != Some(name.as_str()) {
-                return;
-            }
-            let l = &inner.labels;
-
-            if let Some(extra) = &extra {
-                if extra.download_size > 0 {
-                    l.download_size
-                        .set_text(&crate::backend::package::pkg_format_size(
-                            extra.download_size,
-                        ));
+        inner
+            .store
+            .clone()
+            .get_extra_info_async(&pkg.name, move |extra| {
+                // Stale-reply guard: the user may have selected another
+                // package while this was queued behind other worker commands.
+                if inner.current_pkgname.borrow().as_deref() != Some(name.as_str()) {
+                    return;
                 }
-            }
 
-            set_homepage_value(
-                &l.homepage_box,
-                extra.as_ref().and_then(|e| e.homepage.as_deref()),
-            );
-            l.license.set_text(
-                extra
-                    .as_ref()
-                    .and_then(|e| e.license.as_deref())
-                    .unwrap_or(DASH),
-            );
-            // Honor the user's custom repository display name (set via
-            // right-click in the filter sidebar) — the sidebar and this
-            // row otherwise showed two different names for the same repo.
-            // Re-loaded per lookup so a rename done mid-session shows up
-            // on the next selection; the file is a handful of lines.
-            let repo_names = crate::backend::repo_names::RepoNames::load();
-            l.repository.set_text(
-                extra
-                    .as_ref()
-                    .and_then(|e| e.repository.as_deref())
-                    .map_or(DASH.to_string(), |url| {
-                        repo_names.get(url).map_or_else(
-                            || crate::backend::repo_names::display_repo(url).to_string(),
-                            str::to_string,
-                        )
-                    })
-                    .as_str(),
-            );
-            l.install_date.set_text(
-                extra
+                if let Some(extra) = &extra {
+                    if extra.download_size > 0 {
+                        inner.download_size.set(extra.download_size);
+                        rebuild_size_group(&inner);
+                    }
+                }
+
+                // ── INSTALLATION: rows only for data that exists ──
+                let mut install_rows = Vec::new();
+                if let Some(date) = extra
                     .as_ref()
                     .and_then(|e| e.install_date.as_deref())
-                    .unwrap_or(DASH),
-            );
-
-            if let Some(extra) = &extra {
-                if extra.has_automatic_install {
-                    l.auto_install
-                        .set_text(if extra.automatic_install { "Yes" } else { "No" });
-                } else {
-                    l.auto_install.set_text(DASH);
+                    .filter(|d| !d.is_empty())
+                {
+                    install_rows.push(("Installed on", KvValue::Text(date.to_string())));
                 }
-            } else {
-                l.auto_install.set_text(DASH);
-            }
+                if let Some(extra) = extra.as_ref().filter(|e| e.has_automatic_install) {
+                    install_rows.push((
+                        "Auto-installed",
+                        KvValue::Text(if extra.automatic_install { "Yes" } else { "No" }.into()),
+                    ));
+                }
+                rebuild_kv_group(&inner.header.install_group, "INSTALLATION", install_rows);
 
-            // Manual/automatic marking only makes sense for a real
-            // installed pkgdb entry (`has_automatic_install`) — a
-            // not-yet-installed package (or one whose extra info failed
-            // to load) gets neither.
-            let auto_flag = extra.as_ref().filter(|e| e.has_automatic_install);
-            inner
-                .btn_mark_manual
-                .set_visible(auto_flag.is_some_and(|e| e.automatic_install));
-            inner
-                .btn_mark_auto
-                .set_visible(auto_flag.is_some_and(|e| !e.automatic_install));
+                rebuild_source_group(&inner, extra.as_ref());
 
-            populate_provides_conflicts(&inner, extra.as_ref());
-        });
+                // Manual/automatic marking only makes sense for a real
+                // installed pkgdb entry (`has_automatic_install`) — a
+                // not-yet-installed package (or one whose extra info failed
+                // to load) gets neither.
+                let auto_flag = extra.as_ref().filter(|e| e.has_automatic_install);
+                inner
+                    .btn_mark_manual
+                    .set_visible(auto_flag.is_some_and(|e| e.automatic_install));
+                inner
+                    .btn_mark_auto
+                    .set_visible(auto_flag.is_some_and(|e| !e.automatic_install));
+
+                populate_provides_conflicts(&inner, extra.as_ref());
+            });
     }
 
-    // ── Dependency column ──
+    // ── Dependency columns: shown while loading, then either filled
+    // with a count pill or hidden outright when there's nothing — an
+    // empty list is omitted, not placeholder-ed. ──
+    inner.deps_col.set_visible(true);
+    inner.rdeps_col.set_visible(true);
     inner.deps_placeholder.set_text("Loading\u{2026}");
     inner.rdeps_placeholder.set_text("Loading\u{2026}");
+    set_count(&inner.deps_pill, None);
+    set_count(&inner.rdeps_pill, None);
     populate(&inner.deps_list, None);
     populate(&inner.rdeps_list, None);
     {
@@ -1113,9 +1221,9 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
         let name = pkg.name.clone();
         inner.store.get_deps_async(&pkg.name, move |deps| {
             if inner2.current_pkgname.borrow().as_deref() == Some(name.as_str()) {
-                if deps.is_none() {
-                    inner2.deps_placeholder.set_text("No dependencies");
-                }
+                let count = deps.as_ref().map_or(0, Vec::len);
+                inner2.deps_col.set_visible(count > 0);
+                set_count(&inner2.deps_pill, (count > 0).then_some(count));
                 populate(&inner2.deps_list, deps);
             }
         });
@@ -1125,13 +1233,58 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
         let name = pkg.name.clone();
         inner.store.get_rdeps_async(&pkg.name, move |rdeps| {
             if inner2.current_pkgname.borrow().as_deref() == Some(name.as_str()) {
-                if rdeps.is_none() {
-                    inner2.rdeps_placeholder.set_text("No reverse dependencies");
-                }
+                let count = rdeps.as_ref().map_or(0, Vec::len);
+                inner2.rdeps_col.set_visible(count > 0);
+                set_count(&inner2.rdeps_pill, (count > 0).then_some(count));
                 populate(&inner2.rdeps_list, rdeps);
             }
         });
     }
 
     update_action_buttons(inner, Some(pkg));
+}
+
+/// Rebuilds the SOURCE group: repository / license / maintainer /
+/// homepage — whichever of them actually have values.
+fn rebuild_source_group(inner: &Inner, extra: Option<&crate::backend::package::PackageExtraInfo>) {
+    let mut rows = Vec::new();
+
+    if let Some(url) = extra
+        .and_then(|e| e.repository.as_deref())
+        .filter(|r| !r.is_empty())
+    {
+        // Honor the user's custom repository display name (set via
+        // right-click in the filter sidebar) — the sidebar and this
+        // row otherwise showed two different names for the same repo.
+        // Re-loaded per lookup so a rename done mid-session shows up
+        // on the next selection; the file is a handful of lines.
+        let repo_names = crate::backend::repo_names::RepoNames::load();
+        let display = repo_names.get(url).map_or_else(
+            || crate::backend::repo_names::display_repo(url).to_string(),
+            str::to_string,
+        );
+        rows.push(("Repository", KvValue::Text(display)));
+    }
+
+    if let Some(license) = extra
+        .and_then(|e| e.license.as_deref())
+        .filter(|l| !l.is_empty())
+    {
+        rows.push(("License", KvValue::Text(license.to_string())));
+    }
+
+    let maintainer = inner.current_maintainer.borrow();
+    if !maintainer.is_empty() {
+        rows.push(("Maintainer", KvValue::Text(maintainer.clone())));
+    }
+    drop(maintainer);
+
+    if let Some(url) = extra
+        .and_then(|e| e.homepage.as_deref())
+        .filter(|u| !u.is_empty())
+    {
+        rows.push(("Homepage", KvValue::Link(url.to_string())));
+    }
+
+    rebuild_kv_group(&inner.header.source_group, "SOURCE", rows);
 }

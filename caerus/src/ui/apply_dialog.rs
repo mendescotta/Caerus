@@ -298,14 +298,14 @@ pub fn run(
         })
     };
 
-    // This dialog's three listeners live on the shared, long-lived
-    // `session` — not on the dialog itself — so they must be detached
-    // once this batch is done, or they'd keep firing (against a
-    // destroyed dialog's widgets) on every future batch for the rest
-    // of the app's lifetime. `finished` always fires exactly once per
-    // batch (success, a failed step, or a mid-batch disconnect all
-    // route through `end_of_batch`/`emit_finished`), so it's the one
-    // reliable place to detach all three.
+    // This dialog's two listeners (log + disconnected) live on the
+    // shared, long-lived `session` — not on the dialog itself — so
+    // they must be detached once this batch is done, or they'd keep
+    // firing (against a destroyed dialog's widgets) on every future
+    // batch for the rest of the app's lifetime. The batch's own
+    // `on_finished` closure fires exactly once (success, a failed
+    // command, or a mid-batch disconnect all resolve it), so it's the
+    // one reliable place to detach both.
     let log_id = {
         let append_log = append_log.clone();
         session.connect_log(move |line| append_log(line))
@@ -327,17 +327,14 @@ pub fn run(
             }
         })
     };
-    {
+    let on_finished = {
         let spinner = spinner;
         let progress_bar = progress_bar;
         let bar_text_label = bar_text_label;
         let status_label = status_label;
         let close_btn = close_btn.clone();
-        let done_cb = Rc::new(done_cb);
         let session_for_cleanup = session.clone();
-        let finished_id_cell: Rc<Cell<u64>> = Rc::new(Cell::new(0));
-        let finished_id_cell2 = finished_id_cell.clone();
-        let finished_id = session.connect_finished(move |success| {
+        move |success: bool| {
             pulsing.set(false);
             spinner.stop();
             progress_bar.set_fraction(1.0);
@@ -366,10 +363,8 @@ pub fn run(
 
             session_for_cleanup.disconnect_log(log_id);
             session_for_cleanup.disconnect_disconnected(disconnected_id);
-            session_for_cleanup.disconnect_finished(finished_id_cell2.get());
-        });
-        finished_id_cell.set(finished_id);
-    }
+        }
+    };
 
     {
         let dlg_c = dlg.clone();
@@ -394,12 +389,8 @@ pub fn run(
         });
     }
 
-    for cmd in commands {
-        session.add_command(cmd);
-    }
-
     dlg.present();
-    session.run_async();
+    session.run_batch(commands.to_vec(), on_finished);
 }
 
 #[cfg(test)]
