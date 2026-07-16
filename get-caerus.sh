@@ -96,10 +96,12 @@ cargo build --release
 echo
 echo "Built. What now?"
 echo "  r) Run it without installing (straight out of this build tree)"
+echo "  u) Register for this user only — real icon/name in Alt-Tab etc.,"
+echo "     still runs from this build tree, no root (./install.sh --user)"
 echo "  i) Install system-wide (sudo ./install.sh)"
 echo "  q) Nothing — I'll do it myself"
 choice=q
-if { printf 'Choice [r/i/q]: ' > "$TTY"; } 2>/dev/null; then
+if { printf 'Choice [r/u/i/q]: ' > "$TTY"; } 2>/dev/null; then
     read -r choice < "$TTY" 2>/dev/null || choice=q
 fi
 
@@ -107,11 +109,17 @@ case "$choice" in
     [Rr]*)
         exec ./target/release/caerus
         ;;
+    [Uu]*)
+        ./install.sh --user
+        exec ./target/release/caerus
+        ;;
     [Ii]*)
         sudo ./install.sh
         ;;
     *)
         echo "Built at $SRC_DIR/target/release/caerus."
-        echo "Run it directly, or 'sudo ./install.sh' from $SRC_DIR when ready."
+        echo "Run it directly, './install.sh --user' to register it for this"
+        echo "user (no root), or 'sudo ./install.sh' to install system-wide —"
+        echo "all from $SRC_DIR when ready."
         ;;
 esac
