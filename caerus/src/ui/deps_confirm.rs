@@ -90,13 +90,9 @@ fn show_deps_dialog(
     dlg.set_default_widget(Some(&install_btn));
 
     {
-        let store = store.clone();
-        let deps = deps.clone();
         let cb = cb.clone();
         let dlg = dlg.clone();
         cancel_btn.connect_clicked(move |_| {
-            let _ = &store; // cancel never marks anything
-            let _ = &deps;
             cb(false);
             dlg.destroy();
         });

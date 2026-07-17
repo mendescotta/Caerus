@@ -31,6 +31,10 @@ struct WindowState {
     btn_mark_upgrades: gtk::Button,
     btn_unmark_all: gtk::Button,
     btn_apply: gtk::Button,
+    /// The "N" badge inside `btn_apply` — a count pill (see the 0.5
+    /// design-language rule: counts render as pills, never "(N)" text),
+    /// updated by `update_apply_button`.
+    apply_count_pill: gtk::Label,
     menu_button: gtk::MenuButton,
     /// The hamburger popover's page stack (root / view / settings /
     /// shortcuts) — created empty before `WindowState` exists, populated
@@ -285,9 +289,14 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     header.pack_start(&btn_mark_upgrades);
     header.pack_start(&btn_unmark_all);
 
-    let btn_apply = gtk::Button::with_label("Apply (0)");
+    let btn_apply = gtk::Button::new();
     btn_apply.set_sensitive(false);
     btn_apply.add_css_class("suggested-action");
+    let apply_btn_content = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    apply_btn_content.append(&gtk::Label::new(Some("Apply")));
+    let apply_count_pill = crate::ui::dialog_util::count_pill();
+    apply_btn_content.append(&apply_count_pill);
+    btn_apply.set_child(Some(&apply_btn_content));
 
     let btn_search_name_only = gtk::ToggleButton::new();
     btn_search_name_only.set_icon_name("edit-find-symbolic");
@@ -381,6 +390,7 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         btn_mark_upgrades,
         btn_unmark_all,
         btn_apply,
+        apply_count_pill,
         menu_button,
         menu_stack,
         btn_toggle_sidebar: btn_toggle_sidebar.clone(),
@@ -490,6 +500,7 @@ progressbar.apply-progress trough progress {
 /// actually referenced across the UI modules.
 const USED_SYMBOLIC_ICONS: &[&str] = &[
     "software-update-available-symbolic",
+    "software-update-urgent-symbolic",
     "view-refresh-symbolic",
     "sidebar-show-symbolic",
     "edit-find-symbolic",
@@ -897,11 +908,13 @@ fn show_shortcuts_dialog(parent: &gtk::ApplicationWindow) {
         ("Ctrl+F", "Focus search"),
         ("Escape", "Clear search, or close the current dialog"),
         ("F5", "Reload package list"),
+        ("F9", "Toggle sidebar"),
         ("Delete", "Mark selected package(s) for removal"),
         (
             "Ctrl+A",
             "Select all visible packages (for right-click bulk actions)",
         ),
+        ("Ctrl+,", "Open settings"),
         ("Ctrl+Q", "Quit"),
     ];
     for (key, desc) in shortcuts {
@@ -1408,14 +1421,12 @@ fn trigger_update(state: &Rc<WindowState>, sync_first: bool, silent: bool) {
             });
         } else {
             let state2 = state.clone();
-            let commands_for_history = commands.clone();
-            apply_dialog::run(
+            apply_dialog::run_recorded(
                 Some(state.window.upcast_ref()),
                 &state.session,
                 &commands,
                 "Syncing Repositories",
                 move |success| {
-                    crate::backend::history::record(&commands_for_history, success);
                     if !success {
                         show_toast(
                             &state2,
@@ -1498,15 +1509,13 @@ fn on_apply_clicked(state: &Rc<WindowState>) {
                     return;
                 }
                 let state3 = state2.clone();
-                let commands_for_history = commands.clone();
                 let commands_for_retry = commands.clone();
-                apply_dialog::run(
+                apply_dialog::run_recorded(
                     Some(state2.window.upcast_ref()),
                     &state2.session,
                     &commands,
                     "Applying Changes",
                     move |success| {
-                        crate::backend::history::record(&commands_for_history, success);
                         if success {
                             show_toast(&state3, "Changes applied. Reloading\u{2026}");
                             state3.store.clear_all_marks();
@@ -1717,14 +1726,12 @@ fn on_reconfigure_all_clicked(state: &Rc<WindowState>) {
 /// progress dialog as a regular Apply, then reloads.
 fn run_maintenance_command(state: &Rc<WindowState>, cmd: &str, title: &str) {
     let state2 = state.clone();
-    let cmd_for_history = cmd.to_string();
-    apply_dialog::run(
+    apply_dialog::run_recorded(
         Some(state.window.upcast_ref()),
         &state.session,
         &[cmd.to_string()],
         title,
         move |success| {
-            crate::backend::history::record(std::slice::from_ref(&cmd_for_history), success);
             show_toast(
                 &state2,
                 if success {
@@ -1809,14 +1816,12 @@ fn offer_force_retry(state: &Rc<WindowState>, commands: Vec<String>) {
             dlg.destroy();
             let forced: Vec<String> = commands.iter().map(|c| force_variant(c)).collect();
             let state2 = state.clone();
-            let forced_for_history = forced.clone();
-            apply_dialog::run(
+            apply_dialog::run_recorded(
                 Some(state.window.upcast_ref()),
                 &state.session,
                 &forced,
                 "Retrying With Force",
                 move |success| {
-                    crate::backend::history::record(&forced_for_history, success);
                     show_toast(
                         &state2,
                         if success {
@@ -1895,7 +1900,10 @@ fn update_status_bar(state: &Rc<WindowState>) {
 }
 
 fn update_apply_button(state: &Rc<WindowState>, marked: u32) {
-    state.btn_apply.set_label(&format!("Apply ({marked})"));
+    crate::ui::dialog_util::set_count(
+        &state.apply_count_pill,
+        (marked > 0).then_some(marked as usize),
+    );
     state.btn_apply.set_sensitive(marked > 0);
     state.btn_unmark_all.set_sensitive(marked > 0);
 }

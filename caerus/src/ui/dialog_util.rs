@@ -113,6 +113,30 @@ pub fn cancel_button_row(margin_top: i32) -> (gtk::Box, gtk::Button) {
     (btn_box, cancel_btn)
 }
 
+/// A count pill for section headers/expanders/buttons — the "count-pill"
+/// CSS class this project uses everywhere a number needs to render as a
+/// rounded badge rather than "(N)"/"· N" text (see the 0.5 design-language
+/// rule: counts are always pills). Starts hidden until a count is known.
+pub fn count_pill() -> gtk::Label {
+    let l = gtk::Label::new(None);
+    l.add_css_class("count-pill");
+    l.set_visible(false);
+    l.set_valign(gtk::Align::Center);
+    l
+}
+
+/// Updates a pill built by [`count_pill`]: `None` hides it (nothing to
+/// show), `Some(n)` sets its text and makes it visible.
+pub fn set_count(pill: &gtk::Label, count: Option<usize>) {
+    match count {
+        Some(n) => {
+            pill.set_text(&n.to_string());
+            pill.set_visible(true);
+        }
+        None => pill.set_visible(false),
+    }
+}
+
 /// Presents `dlg` and immediately moves keyboard focus to `widget`.
 ///
 /// Without the explicit `grab_focus`, GTK hands initial keyboard focus to

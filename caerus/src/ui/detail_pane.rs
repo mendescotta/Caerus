@@ -8,6 +8,7 @@
 use crate::backend::package::{Package, PkgMark, PkgState};
 use crate::backend::package_store::PackageStore;
 use crate::ui::deps_confirm;
+use crate::ui::dialog_util::{count_pill, set_count};
 use crate::ui::remove_confirm;
 use gio::prelude::*;
 use gtk::prelude::*;
@@ -146,26 +147,6 @@ fn chip(text: &str, extra_class: Option<&str>) -> gtk::Label {
     }
     l.set_valign(gtk::Align::Center);
     l
-}
-
-/// A count pill for section headers/expanders; starts hidden until a
-/// count is known.
-fn count_pill() -> gtk::Label {
-    let l = gtk::Label::new(None);
-    l.add_css_class("count-pill");
-    l.set_visible(false);
-    l.set_valign(gtk::Align::Center);
-    l
-}
-
-fn set_count(pill: &gtk::Label, count: Option<usize>) {
-    match count {
-        Some(n) => {
-            pill.set_text(&n.to_string());
-            pill.set_visible(true);
-        }
-        None => pill.set_visible(false),
-    }
 }
 
 /// Rebuilds one metadata group (SIZE / INSTALLATION / SOURCE): a
@@ -649,132 +630,82 @@ fn wire_buttons(inner: &Rc<Inner>) {
     // `Transaction`) carry it out. Every handler also closes the popover
     // itself, since a plain `gtk::Button` inside a `gtk::Popover` doesn't
     // do that automatically the way a real menu item would.
-    {
-        let btn_hold = inner.btn_hold.clone();
-        let popover = inner.more_popover.clone();
-        let inner = inner.clone();
-        btn_hold.connect_clicked(move |_| {
-            popover.popdown();
-            let Some(name) = inner.current_pkgname.borrow().clone() else {
-                return;
-            };
-            for f in inner.on_hold_requested.borrow().iter() {
-                f(name.clone(), true);
-            }
-        });
-    }
-    {
-        let btn_unhold = inner.btn_unhold.clone();
-        let popover = inner.more_popover.clone();
-        let inner = inner.clone();
-        btn_unhold.connect_clicked(move |_| {
-            popover.popdown();
-            let Some(name) = inner.current_pkgname.borrow().clone() else {
-                return;
-            };
-            for f in inner.on_hold_requested.borrow().iter() {
-                f(name.clone(), false);
-            }
-        });
-    }
-    {
-        let btn_reinstall = inner.btn_reinstall.clone();
-        let popover = inner.more_popover.clone();
-        let inner = inner.clone();
-        btn_reinstall.connect_clicked(move |_| {
-            popover.popdown();
-            let Some(name) = inner.current_pkgname.borrow().clone() else {
-                return;
-            };
-            for f in inner.on_reinstall_requested.borrow().iter() {
-                f(name.clone());
-            }
-        });
-    }
-    {
-        let btn_reconfigure = inner.btn_reconfigure.clone();
-        let popover = inner.more_popover.clone();
-        let inner = inner.clone();
-        btn_reconfigure.connect_clicked(move |_| {
-            popover.popdown();
-            let Some(name) = inner.current_pkgname.borrow().clone() else {
-                return;
-            };
-            for f in inner.on_reconfigure_requested.borrow().iter() {
-                f(name.clone());
-            }
-        });
-    }
-    {
-        let btn_download = inner.btn_download.clone();
-        let popover = inner.more_popover.clone();
-        let inner = inner.clone();
-        btn_download.connect_clicked(move |_| {
-            popover.popdown();
-            let Some(name) = inner.current_pkgname.borrow().clone() else {
-                return;
-            };
-            for f in inner.on_download_requested.borrow().iter() {
-                f(name.clone());
-            }
-        });
-    }
-    {
-        let btn_repolock = inner.btn_repolock.clone();
-        let popover = inner.more_popover.clone();
-        let inner = inner.clone();
-        btn_repolock.connect_clicked(move |_| {
-            popover.popdown();
-            let Some(name) = inner.current_pkgname.borrow().clone() else {
-                return;
-            };
-            for f in inner.on_repolock_requested.borrow().iter() {
-                f(name.clone(), true);
-            }
-        });
-    }
-    {
-        let btn_repounlock = inner.btn_repounlock.clone();
-        let popover = inner.more_popover.clone();
-        let inner = inner.clone();
-        btn_repounlock.connect_clicked(move |_| {
-            popover.popdown();
-            let Some(name) = inner.current_pkgname.borrow().clone() else {
-                return;
-            };
-            for f in inner.on_repolock_requested.borrow().iter() {
-                f(name.clone(), false);
-            }
-        });
-    }
-    {
-        let btn_mark_manual = inner.btn_mark_manual.clone();
-        let popover = inner.more_popover.clone();
-        let inner = inner.clone();
-        btn_mark_manual.connect_clicked(move |_| {
-            popover.popdown();
-            let Some(name) = inner.current_pkgname.borrow().clone() else {
-                return;
-            };
-            for f in inner.on_automatic_requested.borrow().iter() {
-                f(name.clone(), false);
-            }
-        });
-    }
-    {
-        let btn_mark_auto = inner.btn_mark_auto.clone();
-        let popover = inner.more_popover.clone();
-        let inner = inner.clone();
-        btn_mark_auto.connect_clicked(move |_| {
-            popover.popdown();
-            let Some(name) = inner.current_pkgname.borrow().clone() else {
-                return;
-            };
-            for f in inner.on_automatic_requested.borrow().iter() {
-                f(name.clone(), true);
-            }
-        });
-    }
+    wire_bool_action_button(inner, &inner.btn_hold, |i| &i.on_hold_requested, true);
+    wire_bool_action_button(inner, &inner.btn_unhold, |i| &i.on_hold_requested, false);
+    wire_action_button(inner, &inner.btn_reinstall, |i| &i.on_reinstall_requested);
+    wire_action_button(inner, &inner.btn_reconfigure, |i| {
+        &i.on_reconfigure_requested
+    });
+    wire_action_button(inner, &inner.btn_download, |i| &i.on_download_requested);
+    wire_bool_action_button(
+        inner,
+        &inner.btn_repolock,
+        |i| &i.on_repolock_requested,
+        true,
+    );
+    wire_bool_action_button(
+        inner,
+        &inner.btn_repounlock,
+        |i| &i.on_repolock_requested,
+        false,
+    );
+    wire_bool_action_button(
+        inner,
+        &inner.btn_mark_manual,
+        |i| &i.on_automatic_requested,
+        false,
+    );
+    wire_bool_action_button(
+        inner,
+        &inner.btn_mark_auto,
+        |i| &i.on_automatic_requested,
+        true,
+    );
+}
+
+/// Shared by every "More" popover button that just reports a
+/// no-argument request (Reinstall/Reconfigure/Download Only): popdown,
+/// read the current package, fan the request out to `get_cbs`'s listeners.
+fn wire_action_button(
+    inner: &Rc<Inner>,
+    btn: &gtk::Button,
+    get_cbs: impl Fn(&Inner) -> &ActionRequestedCbs + 'static,
+) {
+    let btn = btn.clone();
+    let popover = inner.more_popover.clone();
+    let inner = inner.clone();
+    btn.connect_clicked(move |_| {
+        popover.popdown();
+        let Some(name) = inner.current_pkgname.borrow().clone() else {
+            return;
+        };
+        for f in get_cbs(&inner).borrow().iter() {
+            f(name.clone());
+        }
+    });
+}
+
+/// Same as [`wire_action_button`], but for the paired on/off "More"
+/// buttons (Hold/Release Hold, Repo-Lock/Release, Mark Manual/Auto)
+/// that share one callback list and differ only in the bool they pass.
+fn wire_bool_action_button(
+    inner: &Rc<Inner>,
+    btn: &gtk::Button,
+    get_cbs: impl Fn(&Inner) -> &HoldRequestedCbs + 'static,
+    value: bool,
+) {
+    let btn = btn.clone();
+    let popover = inner.more_popover.clone();
+    let inner = inner.clone();
+    btn.connect_clicked(move |_| {
+        popover.popdown();
+        let Some(name) = inner.current_pkgname.borrow().clone() else {
+            return;
+        };
+        for f in get_cbs(&inner).borrow().iter() {
+            f(name.clone(), value);
+        }
+    });
 }
 
 /// Shared by Upgrade/Remove/Purge/Unmark: they all just set a mark on

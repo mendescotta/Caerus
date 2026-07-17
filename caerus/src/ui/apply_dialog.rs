@@ -393,6 +393,24 @@ pub fn run(
     session.run_batch(commands.to_vec(), on_finished);
 }
 
+/// Same as [`run`], but also records the batch to
+/// `crate::backend::history` before `done_cb` fires — the shape every
+/// call site that cares about history needs, so they don't each hand-clone
+/// `commands` into the closure themselves.
+pub fn run_recorded(
+    parent: Option<&gtk::Window>,
+    session: &Transaction,
+    commands: &[String],
+    title: &str,
+    done_cb: impl Fn(bool) + 'static,
+) {
+    let commands_for_history = commands.to_vec();
+    run(parent, session, commands, title, move |success| {
+        crate::backend::history::record(&commands_for_history, success);
+        done_cb(success);
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

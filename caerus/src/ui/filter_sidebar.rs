@@ -404,10 +404,7 @@ impl FilterSidebar {
         preset_lb.append(&make_row("view-list-symbolic", "All"));
         preset_lb.append(&make_row("object-select-symbolic", "Installed"));
         preset_lb.append(&make_row("list-remove-symbolic", "Not Installed"));
-        preset_lb.append(&make_row(
-            "software-update-available-symbolic",
-            "Upgradable",
-        ));
+        preset_lb.append(&make_row("software-update-urgent-symbolic", "Upgradable"));
         preset_lb.append(&make_row("media-playback-pause-symbolic", "On Hold"));
         preset_lb.append(&make_row("starred-symbolic", "Marked"));
         preset_lb.append(&make_row("edit-clear-symbolic", "Orphaned"));

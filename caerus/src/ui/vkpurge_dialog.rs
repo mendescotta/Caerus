@@ -10,7 +10,7 @@
 
 use crate::backend::transaction::Transaction;
 use crate::ui::apply_dialog;
-use crate::ui::dialog_util::{close_button, modal_window};
+use crate::ui::dialog_util::{close_button, modal_window, present_focused};
 use gio::prelude::*;
 use glib::subclass::prelude::*;
 use gtk::glib;
@@ -213,7 +213,7 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
     btn_box.append(&select_all_btn);
     btn_box.append(&purge_btn);
     outer.append(&btn_box);
-    close_button(&outer, &dlg, 0);
+    let close_btn = close_button(&outer, &dlg, 0);
 
     {
         let list_store = list_store.clone();
@@ -259,19 +259,14 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
                 return;
             }
             let cmd = format!("VKPURGE {}", versions.join(" "));
-            let cmd_for_history = cmd.clone();
             let list_store = list_store.clone();
             let status_label = status_label.clone();
-            apply_dialog::run(
+            apply_dialog::run_recorded(
                 Some(dlg_for_purge.upcast_ref()),
                 &session,
                 &[cmd],
                 "Purging Old Kernels",
-                move |success| {
-                    crate::backend::history::record(
-                        std::slice::from_ref(&cmd_for_history),
-                        success,
-                    );
+                move |_success| {
                     // Refresh in place rather than closing — lets the
                     // user see what's left (or the error) without
                     // reopening the dialog.
@@ -281,5 +276,5 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
         });
     }
 
-    dlg.present();
+    present_focused(&dlg, &close_btn);
 }

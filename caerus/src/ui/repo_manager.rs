@@ -78,6 +78,65 @@ fn confirm_add_repo(parent: Option<&gtk::Window>, url: &str, cb: impl Fn(bool) +
     present_focused(&dlg, &cancel_btn);
 }
 
+/// Warns before removing a configured repository — matches every other
+/// destructive action in the app (package Remove/Purge, Remove Orphans,
+/// Full System Upgrade) in requiring confirmation first, which this
+/// button previously skipped. `cb(true)` only fires if the user
+/// explicitly confirms; closing/Escape/Cancel all resolve to `cb(false)`.
+fn confirm_remove_repo(parent: Option<&gtk::Window>, url: &str, cb: impl Fn(bool) + 'static) {
+    let cb: Rc<dyn Fn(bool)> = Rc::new(cb);
+    let (dlg, outer) = modal_window("Remove Repository?", parent, false, (420, -1), 10);
+
+    let heading = gtk::Label::new(Some(
+        "This repository will no longer be used for syncing or installing \
+         packages. Packages already installed from it are not affected.",
+    ));
+    heading.set_xalign(0.0);
+    heading.set_wrap(true);
+    outer.append(&heading);
+
+    let url_label = gtk::Label::new(Some(url));
+    url_label.set_xalign(0.0);
+    url_label.set_wrap(true);
+    url_label.set_selectable(true);
+    url_label.add_css_class("dim-label");
+    outer.append(&url_label);
+
+    let (btn_box, cancel_btn) = cancel_button_row(4);
+    let remove_btn = gtk::Button::with_label("Remove Repository");
+    remove_btn.add_css_class("destructive-action");
+    btn_box.append(&remove_btn);
+    outer.append(&btn_box);
+
+    dlg.set_default_widget(Some(&cancel_btn));
+
+    {
+        let cb = cb.clone();
+        let dlg = dlg.clone();
+        cancel_btn.connect_clicked(move |_| {
+            cb(false);
+            dlg.destroy();
+        });
+    }
+    {
+        let cb = cb.clone();
+        let dlg = dlg.clone();
+        remove_btn.connect_clicked(move |_| {
+            cb(true);
+            dlg.destroy();
+        });
+    }
+    {
+        let cb = cb.clone();
+        dlg.connect_close_request(move |_| {
+            cb(false);
+            glib::Propagation::Proceed
+        });
+    }
+
+    present_focused(&dlg, &cancel_btn);
+}
+
 /// Every URL configured in an xbps.d conf file, enabled or disabled —
 /// the sidebar uses this to mark package-origin repos that aren't
 /// configured anywhere as stale.
@@ -204,19 +263,17 @@ fn refresh(inner: &Rc<Inner>) {
                     "DISABLEREPO"
                 };
                 let commands = vec![format!("{verb} {url}"), "SYNC".to_string()];
-                let commands_for_history = commands.clone();
                 let title = if want_enabled {
                     "Enabling Repository"
                 } else {
                     "Disabling Repository"
                 };
-                crate::ui::apply_dialog::run(
+                crate::ui::apply_dialog::run_recorded(
                     Some(&inner.dlg),
                     &inner.session,
                     &commands,
                     title,
                     move |success| {
-                        crate::backend::history::record(&commands_for_history, success);
                         if success {
                             switch.set_state(want_enabled);
                         }
@@ -237,19 +294,24 @@ fn refresh(inner: &Rc<Inner>) {
             let url = url.clone();
             btn.connect_clicked(move |_| {
                 let inner2 = inner.clone();
-                let commands = vec![format!("REMOVEREPO {}", url), "SYNC".to_string()];
-                let commands_for_history = commands.clone();
-                crate::ui::apply_dialog::run(
-                    Some(&inner.dlg),
-                    &inner.session,
-                    &commands,
-                    "Removing Repository",
-                    move |success| {
-                        crate::backend::history::record(&commands_for_history, success);
-                        refresh(&inner2);
-                        (inner2.on_changed)();
-                    },
-                );
+                let url2 = url.clone();
+                confirm_remove_repo(Some(&inner.dlg), &url, move |confirmed| {
+                    if !confirmed {
+                        return;
+                    }
+                    let inner3 = inner2.clone();
+                    let commands = vec![format!("REMOVEREPO {}", url2), "SYNC".to_string()];
+                    crate::ui::apply_dialog::run_recorded(
+                        Some(&inner2.dlg),
+                        &inner2.session,
+                        &commands,
+                        "Removing Repository",
+                        move |_success| {
+                            refresh(&inner3);
+                            (inner3.on_changed)();
+                        },
+                    );
+                });
             });
             row_box.append(&btn);
         }
@@ -319,14 +381,12 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction, on_changed: imp
                 let inner3 = inner2.clone();
                 let entry3 = entry2.clone();
                 let commands = vec![format!("ADDREPO {}", url_for_run), "SYNC".to_string()];
-                let commands_for_history = commands.clone();
-                crate::ui::apply_dialog::run(
+                crate::ui::apply_dialog::run_recorded(
                     Some(&inner2.dlg),
                     &inner2.session,
                     &commands,
                     "Adding Repository",
-                    move |success| {
-                        crate::backend::history::record(&commands_for_history, success);
+                    move |_success| {
                         entry3.set_text("");
                         refresh(&inner3);
                         (inner3.on_changed)();

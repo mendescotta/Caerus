@@ -183,15 +183,13 @@ fn populate_providers(inner: &Rc<Inner>, group: &str, candidates: &[(String, boo
             let provider2 = provider.clone();
             btn.connect_clicked(move |_| {
                 let commands = vec![format!("ALTERNATIVE {} {}", group2, provider2)];
-                let commands_for_history = commands.clone();
                 let inner3 = inner2.clone();
-                crate::ui::apply_dialog::run(
+                crate::ui::apply_dialog::run_recorded(
                     Some(&inner2.dlg),
                     &inner2.session,
                     &commands,
                     "Switching Alternative",
-                    move |success| {
-                        crate::backend::history::record(&commands_for_history, success);
+                    move |_success| {
                         refresh_groups(&inner3);
                     },
                 );
