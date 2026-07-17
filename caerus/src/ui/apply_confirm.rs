@@ -10,9 +10,27 @@
 
 use crate::backend::package::pkg_format_size;
 use crate::backend::transaction_preview::{TransAction, TransactionError, TransactionPreview};
-use crate::ui::dialog_util::{cancel_button_row, modal_window, present_focused, text_list_row};
+use crate::ui::dialog_util::{
+    cancel_button_row, count_pill, modal_window, present_focused, set_count, text_list_row,
+};
 use gtk::prelude::*;
 use std::rc::Rc;
+
+/// A section header: title + a count pill (see the 0.5 design-language
+/// rule — counts render as pills, never "(N)" text), same shape as
+/// `detail_pane::relation_field`'s header row.
+fn section_header(title: &str, count: usize) -> gtk::Box {
+    let header_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    header_row.set_margin_top(8);
+    let header = gtk::Label::new(Some(title));
+    header.set_xalign(0.0);
+    header.add_css_class("section-header");
+    let pill = count_pill();
+    set_count(&pill, Some(count));
+    header_row.append(&header);
+    header_row.append(&pill);
+    header_row
+}
 
 /// Same look as the Dependencies/Reverse Dependencies lists in the
 /// detail pane (see `detail_pane::populate`): a plain `ListBox` of
@@ -22,11 +40,7 @@ fn section(outer: &gtk::Box, title: &str, names: &[String]) {
     if names.is_empty() {
         return;
     }
-    let header = gtk::Label::new(Some(&format!("{} ({})", title, names.len())));
-    header.set_xalign(0.0);
-    header.add_css_class("section-header");
-    header.set_margin_top(8);
-    outer.append(&header);
+    outer.append(&section_header(title, names.len()));
 
     let mut sorted = names.to_vec();
     sorted.sort();
@@ -58,11 +72,7 @@ fn preview_section(
     if items.is_empty() {
         return;
     }
-    let header = gtk::Label::new(Some(&format!("{} ({})", title, items.len())));
-    header.set_xalign(0.0);
-    header.add_css_class("section-header");
-    header.set_margin_top(8);
-    outer.append(&header);
+    outer.append(&section_header(title, items.len()));
 
     let mut sorted = items;
     sorted.sort_by(|a, b| a.pkgname.cmp(&b.pkgname));
