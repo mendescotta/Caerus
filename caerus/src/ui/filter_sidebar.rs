@@ -6,7 +6,7 @@
 //! backend/package.rs, exactly like the original's comment about
 //! `on_preset_selected()`'s use of `gtk_list_box_row_get_index()`.
 
-use crate::backend::custom_filters::{ActiveFilter, CustomFilters};
+use crate::backend::custom_filters::{ActiveFilter, CustomFilters, FilterKind};
 use crate::backend::package::FilterMode;
 use crate::backend::repo_names::{display_repo, RepoNames};
 use crate::ui::custom_filters_dialog;
@@ -206,6 +206,35 @@ fn make_row(icon: &str, label: &str) -> gtk::ListBoxRow {
     row
 }
 
+/// A custom-filter row: same icon+label shape as `make_row`, but
+/// ellipsized like `make_text_row` since filter names are user-typed
+/// and can run long. The icon distinguishes Exclude ("hides matches",
+/// reusing the "Not Installed" preset's icon) from IncludeOnly ("shows
+/// only matches", reusing "Installed"'s) at a glance, both already
+/// bundled via `USED_SYMBOLIC_ICONS` in window.rs for the preset rows
+/// above.
+fn make_custom_filter_row(name: &str, kind: FilterKind) -> gtk::ListBoxRow {
+    let icon = match kind {
+        FilterKind::Exclude => "list-remove-symbolic",
+        FilterKind::IncludeOnly => "object-select-symbolic",
+    };
+    let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    row_box.set_margin_start(8);
+    row_box.set_margin_end(8);
+    row_box.set_margin_top(5);
+    row_box.set_margin_bottom(5);
+    row_box.append(&gtk::Image::from_icon_name(icon));
+    let l = gtk::Label::new(Some(name));
+    l.set_xalign(0.0);
+    l.set_hexpand(true);
+    l.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    row_box.append(&l);
+
+    let row = gtk::ListBoxRow::new();
+    row.set_child(Some(&row_box));
+    row
+}
+
 /// Repository rows have no natural icon (repos are arbitrary
 /// user-configured URIs/paths) and can be long, so this variant skips
 /// the icon and ellipsizes instead.
@@ -359,7 +388,9 @@ fn refresh_custom_rows(inner: &Rc<Inner>) {
         inner.preset_lb.remove(&row);
     }
     for f in inner.custom_filters.borrow().list() {
-        inner.preset_lb.append(&make_text_row(&f.name));
+        inner
+            .preset_lb
+            .append(&make_custom_filter_row(&f.name, f.kind));
     }
     inner.preset_lb.invalidate_headers();
 
@@ -422,7 +453,7 @@ impl FilterSidebar {
 
         let custom_filters = Rc::new(RefCell::new(CustomFilters::load()));
         for f in custom_filters.borrow().list() {
-            preset_lb.append(&make_text_row(&f.name));
+            preset_lb.append(&make_custom_filter_row(&f.name, f.kind));
         }
 
         let edit_filters_lb = gtk::ListBox::new();
@@ -607,6 +638,7 @@ impl FilterSidebar {
                         Some(f) => ActiveFilter::Custom {
                             name: f.name.clone(),
                             patterns: f.patterns.clone(),
+                            kind: f.kind,
                         },
                         None => ActiveFilter::Preset(FilterMode::All),
                     }

@@ -1,9 +1,9 @@
-//! User-defined "custom filters" — named sets of exclusion patterns
-//! (Synaptic-style) that hide matching packages from the list. Each
-//! filter has a name and a list of patterns matched against package
-//! *names*: patterns containing `*` are anchored globs (`lib*`,
-//! `*-devel`), patterns without one match as substrings (`devel`),
-//! both case-insensitive — deliberately the same matching feel as the
+//! User-defined "custom filters" — named sets of patterns matched
+//! against package *names*, each either hiding matches (Synaptic-style
+//! exclude) or showing *only* matches (include-only, the inverse).
+//! Patterns containing `*` are anchored globs (`lib*`, `*-devel`),
+//! patterns without one match as substrings (`devel`), both
+//! case-insensitive — deliberately the same matching feel as the
 //! search box.
 //!
 //! Persistence follows `repo_names.rs`: a tiny hand-rolled
@@ -16,6 +16,16 @@
 use crate::backend::package::FilterMode;
 use std::path::PathBuf;
 
+/// Whether a custom filter hides packages matching its patterns (the
+/// original Synaptic-style behavior) or does the opposite: shows
+/// *only* packages matching a pattern, hiding everything else
+/// (including everything when there are no patterns yet).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterKind {
+    Exclude,
+    IncludeOnly,
+}
+
 /// What the package list is currently narrowed by: one of the seven
 /// preset sidebar modes, or a user-defined custom filter. The custom
 /// variant carries its patterns *by value*, resolved by the sidebar at
@@ -25,7 +35,11 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActiveFilter {
     Preset(FilterMode),
-    Custom { name: String, patterns: Vec<String> },
+    Custom {
+        name: String,
+        patterns: Vec<String>,
+        kind: FilterKind,
+    },
 }
 
 /// One named filter: the unit the editor dialog manipulates and the
@@ -33,6 +47,7 @@ pub enum ActiveFilter {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CustomFilterDef {
     pub name: String,
+    pub kind: FilterKind,
     pub patterns: Vec<String>,
 }
 
@@ -87,8 +102,20 @@ impl CustomFilters {
         }
         self.filters.push(CustomFilterDef {
             name,
+            kind: FilterKind::Exclude,
             patterns: Vec::new(),
         });
+        self.save();
+        true
+    }
+
+    /// Sets `name`'s filter kind (Exclude/IncludeOnly). False — and no
+    /// change — for an unknown filter name.
+    pub fn set_kind(&mut self, name: &str, kind: FilterKind) -> bool {
+        let Some(f) = self.filters.iter_mut().find(|f| f.name == name) else {
+            return false;
+        };
+        f.kind = kind;
         self.save();
         true
     }
@@ -152,20 +179,38 @@ pub fn sanitize(s: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// One filter per line: `name \t pattern \t pattern ...`. Malformed
-/// lines (empty name) are skipped; on a duplicate name the first line
-/// wins. A filter with no patterns is legal and round-trips as a line
-/// holding just the name.
+/// One filter per line: `name \t E|I \t pattern \t pattern ...`, where
+/// `E`/`I` is the Exclude/IncludeOnly marker. Malformed lines (empty
+/// name) are skipped; on a duplicate name the first line wins. A
+/// filter with no patterns is legal and round-trips as a line holding
+/// just the name and marker.
+///
+/// Files written before the include-only mode existed have no marker
+/// field — their second field (if any) is just the first pattern. That
+/// shape is auto-detected (second field isn't literally `E`/`I`) and
+/// loaded as `FilterKind::Exclude`, the only kind that used to exist.
 pub fn parse(contents: &str) -> Vec<CustomFilterDef> {
     let mut filters: Vec<CustomFilterDef> = Vec::new();
     for line in contents.lines() {
-        let mut fields = line.split('\t');
+        let mut fields = line.split('\t').peekable();
         let Some(name) = fields.next() else { continue };
         if name.is_empty() || filters.iter().any(|f| f.name == name) {
             continue;
         }
+        let kind = match fields.peek() {
+            Some(&"E") => {
+                fields.next();
+                FilterKind::Exclude
+            }
+            Some(&"I") => {
+                fields.next();
+                FilterKind::IncludeOnly
+            }
+            _ => FilterKind::Exclude,
+        };
         filters.push(CustomFilterDef {
             name: name.to_string(),
+            kind,
             patterns: fields
                 .filter(|p| !p.is_empty())
                 .map(str::to_string)
@@ -179,6 +224,11 @@ pub fn serialize(filters: &[CustomFilterDef]) -> String {
     let mut out = String::new();
     for f in filters {
         out.push_str(&f.name);
+        out.push('\t');
+        out.push_str(match f.kind {
+            FilterKind::Exclude => "E",
+            FilterKind::IncludeOnly => "I",
+        });
         for p in &f.patterns {
             out.push('\t');
             out.push_str(p);
@@ -188,39 +238,23 @@ pub fn serialize(filters: &[CustomFilterDef]) -> String {
     out
 }
 
-/// Whether `pattern` matches `pkg_name`, case-insensitively. A pattern
-/// containing `*` is an anchored glob over the whole name (`*` = any
-/// run of characters; every other character, including `?`/`[`/`.`,
-/// matches itself literally). A pattern without `*` matches as a plain
-/// substring. Empty patterns match nothing (`sanitize` prevents them
-/// from being stored, but never panic on one).
-///
-/// No production call site yet — `filter_excludes` (bulk, pre-lowercased
-/// patterns) is what the package list predicate actually uses. Kept
-/// `pub` and tested as the one-off counterpart for a future single-
-/// pattern check (e.g. live match feedback while editing a pattern).
-#[allow(dead_code)]
-pub fn pattern_matches(pattern: &str, pkg_name: &str) -> bool {
-    if pattern.is_empty() {
-        return false;
+/// True if this package should be hidden by the filter: for `Exclude`,
+/// any pattern matching hides it (Synaptic-style); for `IncludeOnly`,
+/// the *absence* of any matching pattern hides it (including when
+/// there are no patterns at all — nothing is included yet). `patterns`
+/// must already be lowercased (the package list lowercases once at
+/// `set_filter` time rather than per row).
+pub fn filter_hides(kind: FilterKind, lowercased_patterns: &[String], pkg_name: &str) -> bool {
+    let any_match = !lowercased_patterns.is_empty() && {
+        let name = pkg_name.to_lowercase();
+        lowercased_patterns
+            .iter()
+            .any(|p| !p.is_empty() && matches_lowercased(p, &name))
+    };
+    match kind {
+        FilterKind::Exclude => any_match,
+        FilterKind::IncludeOnly => !any_match,
     }
-    let pattern = pattern.to_lowercase();
-    let name = pkg_name.to_lowercase();
-    matches_lowercased(&pattern, &name)
-}
-
-/// True if any pattern matches — i.e. this package is hidden by the
-/// filter. `patterns` must already be lowercased (the package list
-/// lowercases once at `set_filter` time rather than per row; use
-/// `pattern_matches` when matching one-off, un-normalized input).
-pub fn filter_excludes(lowercased_patterns: &[String], pkg_name: &str) -> bool {
-    if lowercased_patterns.is_empty() {
-        return false;
-    }
-    let name = pkg_name.to_lowercase();
-    lowercased_patterns
-        .iter()
-        .any(|p| !p.is_empty() && matches_lowercased(p, &name))
 }
 
 fn matches_lowercased(pattern: &str, name: &str) -> bool {
@@ -268,65 +302,98 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// Lowercases both sides and applies the same empty-pattern-never-
+    /// matches rule `filter_excludes` enforces via its own guard, so
+    /// tests exercise `matches_lowercased`/`glob_match` (the logic
+    /// `filter_excludes` actually runs in production) the same way a
+    /// real caller would use it.
+    fn matches(pattern: &str, pkg_name: &str) -> bool {
+        if pattern.is_empty() {
+            return false;
+        }
+        matches_lowercased(&pattern.to_lowercase(), &pkg_name.to_lowercase())
+    }
+
     #[test]
     fn starless_patterns_match_as_substrings() {
-        assert!(pattern_matches("devel", "gtk4-devel"));
-        assert!(pattern_matches("devel", "develtool"));
-        assert!(pattern_matches("devel", "devel"));
-        assert!(!pattern_matches("devel", "gtk4"));
+        assert!(matches("devel", "gtk4-devel"));
+        assert!(matches("devel", "develtool"));
+        assert!(matches("devel", "devel"));
+        assert!(!matches("devel", "gtk4"));
     }
 
     #[test]
     fn globs_are_anchored_over_the_whole_name() {
-        assert!(pattern_matches("lib*", "libfoo"));
-        assert!(pattern_matches("lib*", "lib"));
-        assert!(!pattern_matches("lib*", "zlib")); // anchored: no leading run
-        assert!(pattern_matches("*-devel", "gtk4-devel"));
-        assert!(!pattern_matches("*-devel", "develtool"));
-        assert!(!pattern_matches("*-devel", "gtk4-devel-doc"));
-        assert!(pattern_matches("*ssl*", "openssl-devel"));
-        assert!(pattern_matches("lib*ssl*", "libressl-devel"));
-        assert!(!pattern_matches("lib*ssl*", "openssl"));
-        assert!(pattern_matches("*", "anything"));
-        assert!(pattern_matches("**", "anything"));
-        assert!(pattern_matches("foo*", "foo")); // trailing star matches empty
+        assert!(matches("lib*", "libfoo"));
+        assert!(matches("lib*", "lib"));
+        assert!(!matches("lib*", "zlib")); // anchored: no leading run
+        assert!(matches("*-devel", "gtk4-devel"));
+        assert!(!matches("*-devel", "develtool"));
+        assert!(!matches("*-devel", "gtk4-devel-doc"));
+        assert!(matches("*ssl*", "openssl-devel"));
+        assert!(matches("lib*ssl*", "libressl-devel"));
+        assert!(!matches("lib*ssl*", "openssl"));
+        assert!(matches("*", "anything"));
+        assert!(matches("**", "anything"));
+        assert!(matches("foo*", "foo")); // trailing star matches empty
     }
 
     #[test]
     fn matching_is_case_insensitive_both_directions() {
-        assert!(pattern_matches("LIB*", "libfoo"));
-        assert!(pattern_matches("lib*", "LIBFOO"));
-        assert!(pattern_matches("DeVeL", "gtk4-Devel"));
+        assert!(matches("LIB*", "libfoo"));
+        assert!(matches("lib*", "LIBFOO"));
+        assert!(matches("DeVeL", "gtk4-Devel"));
     }
 
     #[test]
     fn glob_metacharacters_other_than_star_are_literal() {
-        assert!(pattern_matches("foo?", "foo?"));
-        assert!(!pattern_matches("foo?", "food"));
-        assert!(pattern_matches("a.b*", "a.bc"));
-        assert!(!pattern_matches("a.b*", "aXbc"));
-        assert!(pattern_matches("[x]*", "[x]y"));
+        assert!(matches("foo?", "foo?"));
+        assert!(!matches("foo?", "food"));
+        assert!(matches("a.b*", "a.bc"));
+        assert!(!matches("a.b*", "aXbc"));
+        assert!(matches("[x]*", "[x]y"));
     }
 
     #[test]
     fn degenerate_patterns_never_panic() {
-        assert!(!pattern_matches("", "anything"));
-        assert!(!pattern_matches("longer-than-name*", "short"));
-        assert!(pattern_matches("p\u{e4}ck*", "P\u{c4}CKAGE")); // unicode, case-folded
+        assert!(!matches("", "anything"));
+        assert!(!matches("longer-than-name*", "short"));
+        assert!(matches("p\u{e4}ck*", "P\u{c4}CKAGE")); // unicode, case-folded
         assert!(!glob_match("a*b", ""));
         assert!(glob_match("*", ""));
         assert!(glob_match("", ""));
     }
 
     #[test]
-    fn filter_excludes_is_any_of_and_expects_lowercased_patterns() {
+    fn filter_hides_exclude_is_any_of_and_expects_lowercased_patterns() {
         let pats = vec!["lib*".to_string(), "devel".to_string()];
-        assert!(filter_excludes(&pats, "libfoo"));
-        assert!(filter_excludes(&pats, "gtk4-devel"));
-        assert!(filter_excludes(&pats, "LIBFOO")); // name is normalized per call
-        assert!(!filter_excludes(&pats, "vim"));
-        assert!(!filter_excludes(&[], "anything"));
-        assert!(!filter_excludes(&[String::new()], "anything"));
+        assert!(filter_hides(FilterKind::Exclude, &pats, "libfoo"));
+        assert!(filter_hides(FilterKind::Exclude, &pats, "gtk4-devel"));
+        assert!(filter_hides(FilterKind::Exclude, &pats, "LIBFOO")); // normalized per call
+        assert!(!filter_hides(FilterKind::Exclude, &pats, "vim"));
+        assert!(!filter_hides(FilterKind::Exclude, &[], "anything"));
+        assert!(!filter_hides(
+            FilterKind::Exclude,
+            &[String::new()],
+            "anything"
+        ));
+    }
+
+    #[test]
+    fn filter_hides_include_only_is_the_inverse_of_exclude() {
+        let pats = vec!["lib*".to_string(), "devel".to_string()];
+        assert!(!filter_hides(FilterKind::IncludeOnly, &pats, "libfoo"));
+        assert!(!filter_hides(FilterKind::IncludeOnly, &pats, "gtk4-devel"));
+        assert!(!filter_hides(FilterKind::IncludeOnly, &pats, "LIBFOO"));
+        assert!(filter_hides(FilterKind::IncludeOnly, &pats, "vim"));
+        // No patterns yet: nothing qualifies as "included", so
+        // everything is hidden — the opposite of Exclude's empty case.
+        assert!(filter_hides(FilterKind::IncludeOnly, &[], "anything"));
+        assert!(filter_hides(
+            FilterKind::IncludeOnly,
+            &[String::new()],
+            "anything"
+        ));
     }
 
     #[test]
@@ -334,18 +401,34 @@ mod tests {
         let filters = vec![
             CustomFilterDef {
                 name: "No libs/devel".to_string(),
+                kind: FilterKind::Exclude,
                 patterns: vec!["lib*".to_string(), "*-devel".to_string()],
             },
             CustomFilterDef {
                 name: "srv=prod (päck)".to_string(), // '=', spaces, unicode
+                kind: FilterKind::IncludeOnly,
                 patterns: vec!["nginx*".to_string()],
             },
             CustomFilterDef {
                 name: "empty-for-now".to_string(),
+                kind: FilterKind::Exclude,
                 patterns: vec![],
             },
         ];
         assert_eq!(parse(&serialize(&filters)), filters);
+    }
+
+    #[test]
+    fn parse_defaults_to_exclude_for_pre_include_only_files() {
+        // Files written before the mode marker existed have no "E"/"I"
+        // field — their second field is just the first pattern.
+        let parsed = parse("legacy\tlib*\t*-devel\n");
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].kind, FilterKind::Exclude);
+        assert_eq!(
+            parsed[0].patterns,
+            vec!["lib*".to_string(), "*-devel".to_string()]
+        );
     }
 
     #[test]
