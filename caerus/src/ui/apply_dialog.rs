@@ -196,6 +196,13 @@ pub fn run(
     let seen_count = Rc::new(Cell::new(0usize));
     let last_pkgver: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
     let last_pct: Rc<Cell<Option<u8>>> = Rc::new(Cell::new(None));
+    // The helper streams the raw underlying command output verbatim,
+    // and a multi-command batch (or the underlying process itself) can
+    // repeat the exact same status line back to back — e.g. a
+    // "[*] Downloading packages" banner or a "foo-1.0_1: unpacking ..."
+    // line showing up twice in a row. Nothing new happened the second
+    // time, so it's suppressed rather than shown twice.
+    let last_logged_line: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
 
     let set_bar_text = {
         let bar_text_label = bar_text_label.clone();
@@ -238,6 +245,7 @@ pub fn run(
         let pulsing = pulsing.clone();
         let progress_bar = progress_bar.clone();
         let seen_count = seen_count.clone();
+        let last_logged_line = last_logged_line.clone();
         Rc::new(move |line: &str| {
             if let Some(pct) = extract_percentage(line) {
                 // A real progress tick — switch the bar from pulsing to
@@ -251,6 +259,10 @@ pub fn run(
                 set_bar_text();
                 return;
             }
+            if *last_logged_line.borrow() == line {
+                return;
+            }
+            *last_logged_line.borrow_mut() = line.to_string();
             let clean = strip_log_decoration(line);
             let (display, tag) = if line == "OK" {
                 ("\u{2713} Command completed".to_string(), Some(&tag_success))
