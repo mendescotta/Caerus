@@ -6,11 +6,19 @@
 //! if the edited filter is currently active, the package list's filter
 //! predicate stay in sync while this dialog is still open.
 
-use crate::backend::custom_filters::{sanitize, CustomFilters};
+use crate::backend::custom_filters::{sanitize, CustomFilters, FilterKind};
 use crate::ui::dialog_util::{close_button, modal_window, present_focused};
 use gtk::prelude::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+
+const EXCLUDE_CAPTION: &str = "Packages matching any pattern below are hidden. \u{2018}*\u{2019} \
+     matches any run of characters (lib*, *-devel); plain text matches anywhere in the name. \
+     Case-insensitive.";
+const INCLUDE_ONLY_CAPTION: &str = "Only packages matching a pattern below are shown; \
+     everything else is hidden. With no patterns yet, nothing is shown. \u{2018}*\u{2019} \
+     matches any run of characters (lib*, *-devel); plain text matches anywhere in the name. \
+     Case-insensitive.";
 
 struct Inner {
     dlg: gtk::Window,
@@ -22,6 +30,14 @@ struct Inner {
     selected: RefCell<Option<String>>,
     detail_heading: gtk::Label,
     rename_btn: gtk::Button,
+    mode_exclude_btn: gtk::ToggleButton,
+    mode_include_btn: gtk::ToggleButton,
+    syntax_caption: gtk::Label,
+    /// Set while `refresh_detail` is driving the mode toggle buttons
+    /// programmatically, so their own "toggled" handlers (which write
+    /// through to `custom_filters`) know to ignore that change instead
+    /// of treating it as a user edit.
+    refreshing_mode: Cell<bool>,
     pattern_lb: gtk::ListBox,
     new_pattern_entry: gtk::Entry,
     new_pattern_add: gtk::Button,
@@ -109,6 +125,8 @@ fn refresh_detail(inner: &Rc<Inner>) {
     let Some(name) = selected else {
         inner.detail_heading.set_text("Select a filter");
         inner.rename_btn.set_sensitive(false);
+        inner.mode_exclude_btn.set_sensitive(false);
+        inner.mode_include_btn.set_sensitive(false);
         inner.new_pattern_entry.set_sensitive(false);
         inner.new_pattern_add.set_sensitive(false);
         return;
@@ -116,8 +134,28 @@ fn refresh_detail(inner: &Rc<Inner>) {
 
     inner.detail_heading.set_text(&name);
     inner.rename_btn.set_sensitive(true);
+    inner.mode_exclude_btn.set_sensitive(true);
+    inner.mode_include_btn.set_sensitive(true);
     inner.new_pattern_entry.set_sensitive(true);
     inner.new_pattern_add.set_sensitive(true);
+
+    let kind = inner
+        .custom_filters
+        .borrow()
+        .get(&name)
+        .map_or(FilterKind::Exclude, |f| f.kind);
+    inner.refreshing_mode.set(true);
+    inner
+        .mode_exclude_btn
+        .set_active(kind == FilterKind::Exclude);
+    inner
+        .mode_include_btn
+        .set_active(kind == FilterKind::IncludeOnly);
+    inner.refreshing_mode.set(false);
+    inner.syntax_caption.set_text(match kind {
+        FilterKind::Exclude => EXCLUDE_CAPTION,
+        FilterKind::IncludeOnly => INCLUDE_ONLY_CAPTION,
+    });
 
     let patterns = inner
         .custom_filters
@@ -304,11 +342,23 @@ pub fn show(
     heading_row.append(&rename_btn);
     right.append(&heading_row);
 
-    let syntax_caption = gtk::Label::new(Some(
-        "Packages matching any pattern below are hidden. \u{2018}*\u{2019} matches any run of \
-         characters (lib*, *-devel); plain text matches anywhere in the name. \
-         Case-insensitive.",
-    ));
+    // Exclude/IncludeOnly mode: a two-way segmented toggle via GTK4's
+    // `.linked` style class, matching the button clusters used
+    // elsewhere in the app (see `detail_pane::linked_cluster`).
+    // `set_group` makes the pair mutually exclusive, like radio
+    // buttons.
+    let mode_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    mode_row.add_css_class("linked");
+    let mode_exclude_btn = gtk::ToggleButton::with_label("Hide Matching");
+    let mode_include_btn = gtk::ToggleButton::with_label("Show Only Matching");
+    mode_include_btn.set_group(Some(&mode_exclude_btn));
+    mode_exclude_btn.set_sensitive(false);
+    mode_include_btn.set_sensitive(false);
+    mode_row.append(&mode_exclude_btn);
+    mode_row.append(&mode_include_btn);
+    right.append(&mode_row);
+
+    let syntax_caption = gtk::Label::new(Some(EXCLUDE_CAPTION));
     syntax_caption.set_xalign(0.0);
     syntax_caption.set_wrap(true);
     syntax_caption.add_css_class("dim-label");
@@ -347,11 +397,50 @@ pub fn show(
         selected: RefCell::new(None),
         detail_heading,
         rename_btn: rename_btn.clone(),
+        mode_exclude_btn: mode_exclude_btn.clone(),
+        mode_include_btn: mode_include_btn.clone(),
+        syntax_caption: syntax_caption.clone(),
+        refreshing_mode: Cell::new(false),
         pattern_lb,
         new_pattern_entry: new_pattern_entry.clone(),
         new_pattern_add: new_pattern_add.clone(),
         on_changed: Box::new(on_changed),
     });
+
+    {
+        let inner = inner.clone();
+        mode_exclude_btn.connect_toggled(move |btn| {
+            if inner.refreshing_mode.get() || !btn.is_active() {
+                return;
+            }
+            let Some(name) = inner.selected.borrow().clone() else {
+                return;
+            };
+            inner
+                .custom_filters
+                .borrow_mut()
+                .set_kind(&name, FilterKind::Exclude);
+            inner.syntax_caption.set_text(EXCLUDE_CAPTION);
+            (inner.on_changed)();
+        });
+    }
+    {
+        let inner = inner.clone();
+        mode_include_btn.connect_toggled(move |btn| {
+            if inner.refreshing_mode.get() || !btn.is_active() {
+                return;
+            }
+            let Some(name) = inner.selected.borrow().clone() else {
+                return;
+            };
+            inner
+                .custom_filters
+                .borrow_mut()
+                .set_kind(&name, FilterKind::IncludeOnly);
+            inner.syntax_caption.set_text(INCLUDE_ONLY_CAPTION);
+            (inner.on_changed)();
+        });
+    }
 
     {
         let inner_weak = Rc::downgrade(&inner);

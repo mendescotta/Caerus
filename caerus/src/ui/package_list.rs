@@ -2,7 +2,7 @@
 //! chain, plus a checkbox column for marking several packages at once.
 //! Rust translation of `ui/package_list.{h,c}`.
 
-use crate::backend::custom_filters::{filter_excludes, ActiveFilter};
+use crate::backend::custom_filters::{filter_hides, ActiveFilter};
 use crate::backend::package::{
     pkg_format_size, pkg_state_icon, pkg_state_tooltip, FilterMode, Package, PackageObject,
     PkgMark, PkgState,
@@ -220,8 +220,13 @@ impl PackageList {
 
     pub fn set_filter(&self, filter: ActiveFilter) {
         let filter = match filter {
-            ActiveFilter::Custom { name, patterns } => ActiveFilter::Custom {
+            ActiveFilter::Custom {
                 name,
+                patterns,
+                kind,
+            } => ActiveFilter::Custom {
+                name,
+                kind,
                 patterns: patterns.into_iter().map(|p| p.to_lowercase()).collect(),
             },
             preset => preset,
@@ -347,7 +352,9 @@ fn build(inner: Rc<Inner>) {
                 ActiveFilter::Preset(FilterMode::OnHold) => p.state == PkgState::OnHold,
                 ActiveFilter::Preset(FilterMode::Marked) => p.mark != PkgMark::None,
                 ActiveFilter::Preset(FilterMode::Orphaned) => p.is_orphan,
-                ActiveFilter::Custom { patterns, .. } => !filter_excludes(patterns, &p.name),
+                ActiveFilter::Custom { patterns, kind, .. } => {
+                    !filter_hides(*kind, patterns, &p.name)
+                }
             }
         });
     }
