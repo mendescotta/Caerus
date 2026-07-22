@@ -460,7 +460,12 @@ fn install_css(window: &gtk::ApplicationWindow) {
   background: @headerbar_bg_color;
   border-top: 1px solid @borders; }
 .section-header {
-  font-weight: bold; padding: 4px 6px;
+  /* No horizontal padding: this class labels SIZE:/INSTALLATION:/
+     SOURCE: micro-headers that must sit at the exact same left edge as
+     the key/value rows below them and the package name above them —
+     any horizontal padding here shifts the header text right of that
+     shared edge. Vertical padding only, for breathing room. */
+  font-weight: bold; padding: 4px 0;
   opacity: 0.55; font-size: 0.78em;
   letter-spacing: 0.06em; }
 .detail-name { font-size: 1.35em; font-weight: 800; }
@@ -476,8 +481,21 @@ fn install_css(window: &gtk::ApplicationWindow) {
   font-size: 0.78em;
   background: alpha(currentColor, 0.13); }
 .vsep { border-left: 1px solid @borders; padding-left: 8px; }
-.segment-active {
+.tight-flow, .tight-flow flowboxchild {
+  padding: 0; margin: 0; min-width: 0; min-height: 0; }
+.secondary-action {
   background: alpha(currentColor, 0.16);
+  border: 1px solid alpha(currentColor, 0.5); }
+.secondary-action:hover {
+  background: alpha(currentColor, 0.26);
+  border-color: alpha(currentColor, 0.65); }
+.secondary-action:active {
+  background: alpha(currentColor, 0.34); }
+.inline-link {
+  padding: 0; min-height: 0; }
+.segment-active {
+  background: alpha(currentColor, 0.34);
+  border-color: alpha(currentColor, 0.6);
   font-weight: bold;
   opacity: 1; }
 .pkg-marked   { font-weight: bold; }
