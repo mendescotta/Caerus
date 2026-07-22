@@ -1292,6 +1292,7 @@ fn get_missing_deps(
 // *why* it failed — see `exec_transaction()` in Void's own
 // `bin/xbps-install/transaction.c`, which this mirrors. Not pulled from
 // the `libc` crate (not a dependency of this crate) for four constants.
+const EEXIST: c_int = 17;
 const ENOEXEC: c_int = 8;
 const EAGAIN: c_int = 11;
 const ENODEV: c_int = 19;
@@ -1371,7 +1372,24 @@ unsafe fn run_preview_ops(
                 xbps_sys::xbps_transaction_remove_pkg(xh, cstr(name).as_ptr(), true),
             ),
         };
-        if code != 0 {
+        // EEXIST here doesn't mean what the two functions' own doc
+        // comments say ("already installed"/"already up to date") — it
+        // also fires when `name` was already staged as another op's
+        // exact-version-pinned dependency earlier in this same loop
+        // (e.g. updating a base package auto-includes an installed
+        // "-devel"/"-32bit" sibling that depends on its exact pkgver,
+        // so the sibling's own later explicit call here finds it
+        // already present). Confirmed with a standalone libxbps
+        // reproducer: calling update_pkg() on "wayland" then
+        // "wayland-devel" returns EEXIST for "wayland-devel", but
+        // `xbps_transaction_prepare()` still succeeds afterward and the
+        // resulting transaction correctly includes both at their target
+        // versions — so this is harmless and must not abort the preview
+        // (previously every op_error here skipped straight past
+        // `xbps_transaction_prepare()` below, silently downgrading a
+        // real libxbps preview to the app's low-fidelity fallback
+        // estimate any time this — common — situation came up).
+        if code != 0 && code != EEXIST {
             op_errors.push(format!(
                 "{}: {}",
                 name,
