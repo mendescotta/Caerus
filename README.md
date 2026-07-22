@@ -31,8 +31,10 @@ A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
   and an on-demand file list
 - Install / Upgrade / Remove / Purge / Hold / Unhold, with multi-select and
   bulk actions
-- From the detail pane's "More" menu: Reinstall, Reconfigure, Download Only,
-  Repo-Lock/Release Repo-Lock, and Mark as Manually/Automatically Installed
+- Detail pane secondary actions, always visible as grouped button
+  clusters (no "More" menu to open): Reinstall, Reconfigure, Download
+  Only, Repo-Lock/Release Repo-Lock, and Mark as Manually/Automatically
+  Installed
 - Real transaction preview before applying anything — actual sizes,
   ordering, and conflicts from `libxbps` itself, with a "Copy Dry-Run
   Output" button
@@ -68,15 +70,15 @@ A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
 | Install (force retry) | "Retry With Force" after a failed Apply | `xbps-install -y -I -- pkg...` |
 | Remove (force retry) | "Retry With Force" after a failed Apply | `xbps-remove -y -F -- pkg...` |
 | Purge (force retry) | "Retry With Force" after a failed Apply | `xbps-remove -y -R -F -- pkg...` |
-| Reinstall | Detail pane → More | `xbps-install -f -y -- pkg...` |
-| Reconfigure | Detail pane → More | `xbps-reconfigure -f -- pkg...` |
-| Download Only | Detail pane → More | `xbps-install -D -y -- pkg...` |
-| Hold | Detail pane → More | `xbps-pkgdb -m hold -- pkg...` |
-| Release Hold | Detail pane → More | `xbps-pkgdb -m unhold -- pkg...` |
-| Repo-Lock | Detail pane → More | `xbps-pkgdb -m repolock -- pkg...` |
-| Release Repo-Lock | Detail pane → More | `xbps-pkgdb -m repounlock -- pkg...` |
-| Mark as Automatically Installed | Detail pane → More | `xbps-pkgdb -m auto -- pkg...` |
-| Mark as Manually Installed | Detail pane → More | `xbps-pkgdb -m manual -- pkg...` |
+| Reinstall | Detail pane | `xbps-install -f -y -- pkg...` |
+| Reconfigure | Detail pane | `xbps-reconfigure -f -- pkg...` |
+| Download Only | Detail pane | `xbps-install -D -y -- pkg...` |
+| Hold | Detail pane | `xbps-pkgdb -m hold -- pkg...` |
+| Release Hold | Detail pane | `xbps-pkgdb -m unhold -- pkg...` |
+| Repo-Lock | Detail pane | `xbps-pkgdb -m repolock -- pkg...` |
+| Release Repo-Lock | Detail pane | `xbps-pkgdb -m repounlock -- pkg...` |
+| Mark as Automatically Installed | Detail pane | `xbps-pkgdb -m auto -- pkg...` |
+| Mark as Manually Installed | Detail pane | `xbps-pkgdb -m manual -- pkg...` |
 | Remove Orphaned Packages | App menu | `xbps-remove -y -o` |
 | Clean Package Cache | App menu | `xbps-remove -O` |
 | Verify Package Database | App menu | `xbps-pkgdb -a --checks files,dependencies,alternatives,pkgdb` |
