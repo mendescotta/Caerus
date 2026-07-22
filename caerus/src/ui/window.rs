@@ -476,6 +476,10 @@ fn install_css(window: &gtk::ApplicationWindow) {
   font-size: 0.78em;
   background: alpha(currentColor, 0.13); }
 .vsep { border-left: 1px solid @borders; padding-left: 8px; }
+.segment-active {
+  background: alpha(currentColor, 0.16);
+  font-weight: bold;
+  opacity: 1; }
 .pkg-marked   { font-weight: bold; }
 .pkg-installed  { color: @success_color; }
 .pkg-upgradable { color: @warning_color; }
@@ -523,6 +527,14 @@ const USED_SYMBOLIC_ICONS: &[&str] = &[
     "object-flip-horizontal-symbolic",
     "document-open-recent-symbolic",
     "network-server-symbolic",
+    "hold-symbolic",
+    "unhold-symbolic",
+    "repo-lock-symbolic",
+    "repo-unlock-symbolic",
+    "mark-manual-symbolic",
+    "mark-auto-symbolic",
+    "download-only-symbolic",
+    "reinstall-symbolic",
 ];
 
 /// GTK only resolves an icon name against the *active* icon theme (plus
