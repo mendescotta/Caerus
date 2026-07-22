@@ -67,8 +67,6 @@ struct Inner {
     btn_mark_manual: gtk::Button,
     btn_mark_auto: gtk::Button,
     btn_unmark: gtk::Button,
-    more_button: gtk::MenuButton,
-    more_popover: gtk::Popover,
     header: Header,
     /// Switches between a centered "Select a package…" empty page and
     /// the real content — with no selection nothing else renders at all.
@@ -126,15 +124,43 @@ pub struct DetailPane {
     inner: Rc<Inner>,
 }
 
-/// A flat, left-aligned button for the "More" popover's menu-style list
-/// — same look as `flat_menu_button` in `window.rs`'s app menu.
-fn more_menu_button(label: &str) -> gtk::Button {
-    let btn = gtk::Button::with_label(label);
-    btn.set_has_frame(false);
-    if let Some(l) = btn.child().and_downcast::<gtk::Label>() {
-        l.set_xalign(0.0);
-    }
+/// One segment of a `.linked` button cluster (see `linked_cluster`) — an
+/// icon + label button, the standard GTK4 look for segmented groups.
+fn secondary_button(icon_name: &str, label: &str) -> gtk::Button {
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    content.append(&gtk::Image::from_icon_name(icon_name));
+    content.append(&gtk::Label::new(Some(label)));
+    let btn = gtk::Button::new();
+    btn.set_child(Some(&content));
     btn
+}
+
+/// Groups buttons into a single fused-border strip via GTK4's own
+/// `.linked` style class — defined by the theme itself (every GTK4
+/// theme, not just libadwaita's), so it renders correctly with or
+/// without the `adwaita` Cargo feature.
+fn linked_cluster(buttons: &[&gtk::Button]) -> gtk::Box {
+    let cluster = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    cluster.add_css_class("linked");
+    for btn in buttons {
+        cluster.append(*btn);
+    }
+    cluster
+}
+
+/// Marks `active` as the segment describing the package's *current*
+/// state in a two-segment toggle pair (Hold/Release Hold, Repo-Lock/
+/// Release, Mark Manual/Auto): tinted via the `.segment-active` CSS
+/// class (plain `alpha(currentColor, …)`, same idiom as `.chip` in
+/// `install_css` — no libadwaita named accent color involved) and
+/// insensitive, since it already describes reality and isn't a
+/// pending action. `inactive` is left as a normal, clickable button —
+/// the one action this pair actually offers right now.
+fn set_segment_state(active: &gtk::Button, inactive: &gtk::Button) {
+    active.add_css_class("segment-active");
+    active.set_sensitive(false);
+    inactive.remove_css_class("segment-active");
+    inactive.set_sensitive(true);
 }
 
 /// A pill-styled chip label (state chip, tag chips, count pills share
@@ -250,72 +276,86 @@ impl DetailPane {
         action_row.append(&btn_purge);
         action_row.append(&btn_unmark);
 
-        // ── "More" popover: every other, less-common action. Kept out of
-        // the row above so it doesn't grow one button per feature —
-        // these are all still-immediate (not queued-mark) actions, same
-        // rationale as Hold below.
-        let more_button = gtk::MenuButton::new();
-        more_button.set_label("More");
-        more_button.set_visible(false);
-        let more_popover = gtk::Popover::new();
-        let more_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        more_box.set_margin_start(4);
-        more_box.set_margin_end(4);
-        more_box.set_margin_top(4);
-        more_box.set_margin_bottom(4);
-        more_box.set_width_request(220);
-
-        let btn_hold = more_menu_button("Hold");
+        // ── Secondary actions: everything that used to live behind a
+        // "More" popover, now visible by default as GTK `.linked`
+        // segmented clusters (a core-GTK4 style class, not
+        // libadwaita-specific — renders correctly whether or not the
+        // `adwaita` Cargo feature is enabled) grouped by relationship —
+        // the three mutually-exclusive state pairs, then the one-shot
+        // actions — rather than dumped in one flat row. Both segments of
+        // a pair stay visible at once now (see `update_action_buttons`
+        // / `set_segment_state`): the one matching the package's current
+        // state is tinted and insensitive, its sibling is the live
+        // action. Icons are bundled symbolic SVGs under
+        // `data/icons/hicolor/symbolic/` (see `USED_SYMBOLIC_ICONS` in
+        // `window.rs`) — hicolor is a fallback checked regardless of the
+        // active icon theme, same mechanism as every other icon in this
+        // app, nothing libadwaita-specific.
+        let btn_hold = secondary_button("hold-symbolic", "Hold");
         btn_hold.set_visible(false);
         btn_hold.set_tooltip_text(Some(
             "Pin this package's version — exclude it from upgrades",
         ));
-        let btn_unhold = more_menu_button("Release Hold");
+        let btn_unhold = secondary_button("unhold-symbolic", "Release Hold");
         btn_unhold.set_visible(false);
-        let btn_reinstall = more_menu_button("Reinstall");
+        btn_unhold.set_tooltip_text(Some("Un-pin this package's version — allow upgrades again"));
+        let btn_reinstall = secondary_button("reinstall-symbolic", "Reinstall");
         btn_reinstall.set_visible(false);
         btn_reinstall.set_tooltip_text(Some(
             "Force re-installation, overwriting any locally-modified files",
         ));
-        let btn_reconfigure = more_menu_button("Reconfigure");
+        let btn_reconfigure = secondary_button("applications-utilities-symbolic", "Reconfigure");
         btn_reconfigure.set_visible(false);
         btn_reconfigure.set_tooltip_text(Some("Re-run this package's post-install configuration"));
-        let btn_download = more_menu_button("Download Only");
+        let btn_download = secondary_button("download-only-symbolic", "Download Only");
         btn_download.set_visible(false);
         btn_download.set_tooltip_text(Some(
             "Fetch and verify the package file without installing it",
         ));
-        let btn_repolock = more_menu_button("Repo-Lock");
+        let btn_repolock = secondary_button("repo-lock-symbolic", "Repo-Lock");
         btn_repolock.set_visible(false);
         btn_repolock.set_tooltip_text(Some(
             "Only ever upgrade this package from the repository it's currently installed from",
         ));
-        let btn_repounlock = more_menu_button("Release Repo-Lock");
+        let btn_repounlock = secondary_button("repo-unlock-symbolic", "Release Repo-Lock");
         btn_repounlock.set_visible(false);
-        let btn_mark_manual = more_menu_button("Mark as Manually Installed");
+        btn_repounlock.set_tooltip_text(Some("Allow upgrades from any enabled repository again"));
+        let btn_mark_manual =
+            secondary_button("mark-manual-symbolic", "Mark as Manually Installed");
         btn_mark_manual.set_visible(false);
         btn_mark_manual.set_tooltip_text(Some(
             "Treat as explicitly requested — won't be offered for orphan cleanup",
         ));
-        let btn_mark_auto = more_menu_button("Mark as Automatically Installed");
+        let btn_mark_auto =
+            secondary_button("mark-auto-symbolic", "Mark as Automatically Installed");
         btn_mark_auto.set_visible(false);
         btn_mark_auto.set_tooltip_text(Some(
             "Treat as a dependency pulled in for something else — eligible for orphan cleanup \
              if nothing ends up needing it",
         ));
-        more_box.append(&btn_hold);
-        more_box.append(&btn_unhold);
-        more_box.append(&btn_reinstall);
-        more_box.append(&btn_reconfigure);
-        more_box.append(&btn_download);
-        more_box.append(&btn_repolock);
-        more_box.append(&btn_repounlock);
-        more_box.append(&btn_mark_manual);
-        more_box.append(&btn_mark_auto);
-        more_popover.set_child(Some(&more_box));
-        more_button.set_popover(Some(&more_popover));
-        action_row.append(&more_button);
+
+        let hold_cluster = linked_cluster(&[&btn_hold, &btn_unhold]);
+        let repolock_cluster = linked_cluster(&[&btn_repolock, &btn_repounlock]);
+        let mark_cluster = linked_cluster(&[&btn_mark_manual, &btn_mark_auto]);
+        let oneshot_cluster = linked_cluster(&[&btn_reinstall, &btn_reconfigure, &btn_download]);
+
+        // FlowBox (core GTK4, not Adwaita) rather than a plain Box so the
+        // four clusters wrap onto a second line on a narrow pane instead
+        // of overflowing.
+        let secondary_row = gtk::FlowBox::new();
+        secondary_row.set_selection_mode(gtk::SelectionMode::None);
+        secondary_row.set_row_spacing(8);
+        secondary_row.set_column_spacing(14);
+        secondary_row.set_homogeneous(false);
+        secondary_row.set_halign(gtk::Align::Start);
+        secondary_row.set_margin_bottom(10);
+        secondary_row.insert(&hold_cluster, -1);
+        secondary_row.insert(&repolock_cluster, -1);
+        secondary_row.insert(&mark_cluster, -1);
+        secondary_row.insert(&oneshot_cluster, -1);
+
         widget.append(&action_row);
+        widget.append(&secondary_row);
 
         // ── Split: metadata column | dependency column ──
         let split = gtk::Box::new(gtk::Orientation::Horizontal, 12);
@@ -492,8 +532,6 @@ impl DetailPane {
             btn_mark_manual,
             btn_mark_auto,
             btn_unmark,
-            more_button,
-            more_popover,
             header: Header {
                 name,
                 version,
@@ -624,12 +662,10 @@ fn wire_buttons(inner: &Rc<Inner>) {
     wire_remove_button(inner, &inner.btn_purge, PkgMark::Purge);
     wire_simple_mark_button(inner, &inner.btn_unmark, PkgMark::None);
 
-    // Hold/unhold and everything else in the "More" popover isn't a
-    // queued mark — each needs a privileged action of its own, so this
-    // pane just reports the request and lets the caller (which owns the
-    // `Transaction`) carry it out. Every handler also closes the popover
-    // itself, since a plain `gtk::Button` inside a `gtk::Popover` doesn't
-    // do that automatically the way a real menu item would.
+    // Hold/unhold and the other secondary actions aren't a queued mark —
+    // each needs a privileged action of its own, so this pane just
+    // reports the request and lets the caller (which owns the
+    // `Transaction`) carry it out.
     wire_bool_action_button(inner, &inner.btn_hold, |i| &i.on_hold_requested, true);
     wire_bool_action_button(inner, &inner.btn_unhold, |i| &i.on_hold_requested, false);
     wire_action_button(inner, &inner.btn_reinstall, |i| &i.on_reinstall_requested);
@@ -663,19 +699,17 @@ fn wire_buttons(inner: &Rc<Inner>) {
     );
 }
 
-/// Shared by every "More" popover button that just reports a
-/// no-argument request (Reinstall/Reconfigure/Download Only): popdown,
-/// read the current package, fan the request out to `get_cbs`'s listeners.
+/// Shared by every secondary action button that just reports a
+/// no-argument request (Reinstall/Reconfigure/Download Only): read the
+/// current package, fan the request out to `get_cbs`'s listeners.
 fn wire_action_button(
     inner: &Rc<Inner>,
     btn: &gtk::Button,
     get_cbs: impl Fn(&Inner) -> &ActionRequestedCbs + 'static,
 ) {
     let btn = btn.clone();
-    let popover = inner.more_popover.clone();
     let inner = inner.clone();
     btn.connect_clicked(move |_| {
-        popover.popdown();
         let Some(name) = inner.current_pkgname.borrow().clone() else {
             return;
         };
@@ -685,9 +719,9 @@ fn wire_action_button(
     });
 }
 
-/// Same as [`wire_action_button`], but for the paired on/off "More"
-/// buttons (Hold/Release Hold, Repo-Lock/Release, Mark Manual/Auto)
-/// that share one callback list and differ only in the bool they pass.
+/// Same as [`wire_action_button`], but for the paired on/off secondary
+/// actions (Hold/Release Hold, Repo-Lock/Release, Mark Manual/Auto) that
+/// share one callback list and differ only in the bool they pass.
 fn wire_bool_action_button(
     inner: &Rc<Inner>,
     btn: &gtk::Button,
@@ -695,10 +729,8 @@ fn wire_bool_action_button(
     value: bool,
 ) {
     let btn = btn.clone();
-    let popover = inner.more_popover.clone();
     let inner = inner.clone();
     btn.connect_clicked(move |_| {
-        popover.popdown();
         let Some(name) = inner.current_pkgname.borrow().clone() else {
             return;
         };
@@ -793,7 +825,6 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
         inner.btn_repounlock.set_visible(false);
         inner.btn_mark_manual.set_visible(false);
         inner.btn_mark_auto.set_visible(false);
-        inner.more_button.set_visible(false);
         inner.btn_unmark.set_visible(false);
         return;
     };
@@ -803,22 +834,28 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
     // queued), so their visibility only depends on whether the package
     // is installed at all — not on `pkg.mark`. (Mark-manual/automatic's
     // visibility depends on data only `show_package_impl` has fetched —
-    // see there.)
+    // see there.) Hold/Unhold and Repo-Lock/Release now both stay
+    // visible together as a pair; `set_segment_state` picks which one
+    // reflects the current state (tinted, insensitive) vs. which one is
+    // the live action.
     let installed = pkg.state != PkgState::NotInstalled;
-    inner.more_button.set_visible(true);
-    inner
-        .btn_hold
-        .set_visible(installed && pkg.state != PkgState::OnHold);
-    inner.btn_unhold.set_visible(pkg.state == PkgState::OnHold);
+    inner.btn_hold.set_visible(installed);
+    inner.btn_unhold.set_visible(installed);
+    if pkg.state == PkgState::OnHold {
+        set_segment_state(&inner.btn_hold, &inner.btn_unhold);
+    } else {
+        set_segment_state(&inner.btn_unhold, &inner.btn_hold);
+    }
     inner.btn_reinstall.set_visible(installed);
     inner.btn_reconfigure.set_visible(installed);
     inner.btn_download.set_visible(!installed);
-    inner
-        .btn_repolock
-        .set_visible(installed && !pkg.is_repolocked);
-    inner
-        .btn_repounlock
-        .set_visible(installed && pkg.is_repolocked);
+    inner.btn_repolock.set_visible(installed);
+    inner.btn_repounlock.set_visible(installed);
+    if pkg.is_repolocked {
+        set_segment_state(&inner.btn_repolock, &inner.btn_repounlock);
+    } else {
+        set_segment_state(&inner.btn_repounlock, &inner.btn_repolock);
+    }
 
     if pkg.mark != PkgMark::None {
         inner.btn_install.set_visible(false);
@@ -1140,14 +1177,21 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
                 // Manual/automatic marking only makes sense for a real
                 // installed pkgdb entry (`has_automatic_install`) — a
                 // not-yet-installed package (or one whose extra info failed
-                // to load) gets neither.
+                // to load) gets neither, matching "missing data ⇒ not
+                // rendered" (unlike Hold/Repo-Lock this data isn't known
+                // synchronously, so the pair starts hidden and only
+                // appears once this async reply lands).
                 let auto_flag = extra.as_ref().filter(|e| e.has_automatic_install);
-                inner
-                    .btn_mark_manual
-                    .set_visible(auto_flag.is_some_and(|e| e.automatic_install));
-                inner
-                    .btn_mark_auto
-                    .set_visible(auto_flag.is_some_and(|e| !e.automatic_install));
+                let mark_pair_visible = auto_flag.is_some();
+                inner.btn_mark_manual.set_visible(mark_pair_visible);
+                inner.btn_mark_auto.set_visible(mark_pair_visible);
+                if let Some(flag) = auto_flag {
+                    if flag.automatic_install {
+                        set_segment_state(&inner.btn_mark_auto, &inner.btn_mark_manual);
+                    } else {
+                        set_segment_state(&inner.btn_mark_manual, &inner.btn_mark_auto);
+                    }
+                }
 
                 populate_provides_conflicts(&inner, extra.as_ref());
             });
