@@ -547,17 +547,26 @@ const USED_SYMBOLIC_ICONS: &[&str] = &[
 /// even when `adwaita-icon-theme` is installed — it's just not the
 /// active theme. Fixed the same way the app's own logo already is: a
 /// bundled copy of the specific icons this app needs lives under
-/// `data/icons/hicolor/symbolic/` (copied from Adwaita, which ships them
+/// `data/icons/hicolor/scalable/` (copied from Adwaita, which ships them
 /// under a CC0/LGPL-compatible license same as the rest of GNOME's
-/// icon set), placed in the *hicolor* theme's own directory structure —
-/// hicolor is checked as a fallback for every icon lookup regardless of
-/// which theme is active, by design, so this doesn't depend on guessing
-/// or overriding the desktop's chosen theme at all.
+/// icon set, plus this app's own hand-drawn ones for concepts with no
+/// existing icon), placed in the *hicolor* theme's own directory
+/// structure. Deliberately `scalable/<context>/`, not
+/// `symbolic/<context>/`, despite every filename ending "-symbolic":
+/// hicolor's own `index.theme` only ever declares a `symbolic/apps`
+/// directory, never `symbolic/actions` et al., so anything placed under
+/// a non-`apps` `symbolic/` subdirectory is silently never scanned by
+/// GTK — for any app, not just this one's fallback bundle, and not just
+/// in a dev build. `scalable/<context>/` is what hicolor's `index.theme`
+/// actually declares for every context, and GTK still recolors a
+/// "*-symbolic"-suffixed icon found there correctly (confirmed via
+/// `IconPaintable::is_symbolic()`), so nothing is lost by not using a
+/// `symbolic/` directory name.
 ///
-/// `install.sh`/`dev-install.sh` register this tree at its real system
-/// location for an installed build. For a bare `cargo build`/`cargo run`
-/// with neither script run yet, this also registers the checkout's own
-/// `caerus/data/icons` directory directly — same dev-vs-installed
+/// `install.sh` registers this tree at its real system location for an
+/// installed build (`--user` or system-wide). For a bare `cargo build`/
+/// `cargo run` with neither run yet, this also registers the checkout's
+/// own `caerus/data/icons` directory directly — same dev-vs-installed
 /// resolution shape as `Transaction::find_helper_path`.
 fn ensure_icon_theme_fallback(window: &gtk::ApplicationWindow) {
     let icon_theme = gtk::IconTheme::for_display(&gtk::prelude::WidgetExt::display(window));

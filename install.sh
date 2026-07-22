@@ -69,9 +69,20 @@ APP_ICON="$DATADIR/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg"
 # uninstall (and both scopes) so they can never drift out of sync with
 # each other. See `ensure_icon_theme_fallback` in caerus/src/ui/window.rs
 # for why these are bundled at all (not every desktop's active icon
-# theme is guaranteed to have them).
+# theme is guaranteed to have them). Lives under scalable/, not a
+# symbolic/ directory, despite every filename ending "-symbolic" —
+# hicolor's own index.theme (see /usr/share/icons/hicolor/index.theme)
+# only ever declares a symbolic/apps directory, never symbolic/actions
+# et al., so icons placed there are silently never scanned by GTK for
+# *any* app, bundled fallback or not. scalable/<context> is what
+# hicolor actually declares for every context, and GTK still recolors
+# a "*-symbolic"-suffixed icon found there correctly — confirmed with
+# gtk_icon_theme_lookup_icon()'s is_symbolic() during debugging.
+# $APP_ICON above (scalable/apps) is handled separately, so exclude it
+# here to avoid installing/removing it twice.
 symbolic_icon_paths() {
-    find "$SRC_DIR/caerus/data/icons/hicolor/symbolic" -name '*.svg' | while read -r svg; do
+    find "$SRC_DIR/caerus/data/icons/hicolor/scalable" -name '*.svg' -not -path '*/apps/*' \
+        | while read -r svg; do
         echo "${svg#"$SRC_DIR/caerus/data/icons/"}"
     done
 }

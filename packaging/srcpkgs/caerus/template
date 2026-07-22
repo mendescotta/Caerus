@@ -37,7 +37,13 @@ do_install() {
 	# Bundled fallback copies of the symbolic icons the UI uses (see
 	# ensure_icon_theme_fallback() in caerus/src/ui/window.rs) — installed
 	# under hicolor, which every icon theme falls back to automatically.
-	find caerus/data/icons/hicolor/symbolic -name '*.svg' | while read -r svg; do
+	# scalable/, not a symbolic/ directory: hicolor's own index.theme only
+	# ever declares scalable/<context> (and symbolic/apps, nothing else
+	# under symbolic/), so that's what actually gets scanned; GTK still
+	# recolors a "*-symbolic"-suffixed icon correctly wherever it's found.
+	# apps/ is excluded — the logo above already installs it.
+	find caerus/data/icons/hicolor/scalable -name '*.svg' -not -path '*/apps/*' \
+	| while read -r svg; do
 		rel="${svg#caerus/data/icons/hicolor/}"
 		vinstall "${svg}" 644 "usr/share/icons/hicolor/$(dirname "${rel}")"
 	done
