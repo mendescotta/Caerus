@@ -67,6 +67,24 @@ struct Inner {
     btn_mark_manual: gtk::Button,
     btn_mark_auto: gtk::Button,
     btn_unmark: gtk::Button,
+    /// The `.linked` wrapper `Box`es around each button pair/trio in
+    /// `secondary_row`. A `gtk::Box` with every child hidden is still
+    /// itself "visible" (an empty widget, not an absent one) — inside a
+    /// `FlowBox` that still reserves a flow slot and column-spacing for
+    /// it, silently shoving any later cluster rightward out of
+    /// alignment with `action_row` above. So each cluster's own
+    /// visibility is kept in lockstep with "does it have anything to
+    /// show" everywhere its members' visibility changes, rather than
+    /// leaving it permanently `true` from construction.
+    hold_cluster: gtk::Box,
+    repolock_cluster: gtk::Box,
+    mark_cluster: gtk::Box,
+    /// Unlike the other three, this one always has *some* visible
+    /// member when a package is selected (Reinstall+Reconfigure when
+    /// installed, Download Only when not) — but with no package
+    /// selected at all, none of its three buttons are, and it needs the
+    /// same hide-when-empty treatment as the others.
+    oneshot_cluster: gtk::Box,
     header: Header,
     /// Switches between a centered "Select a package…" empty page and
     /// the real content — with no selection nothing else renders at all.
@@ -132,6 +150,17 @@ fn secondary_button(icon_name: &str, label: &str) -> gtk::Button {
     content.append(&gtk::Label::new(Some(label)));
     let btn = gtk::Button::new();
     btn.set_child(Some(&content));
+    // A plain GTK button, at rest, reads as low-contrast enough on a
+    // dark theme to look disabled next to `action_row`'s bold
+    // `suggested-action` Install/Upgrade — even though every one of
+    // these is a fully live action. `.secondary-action` (install_css in
+    // window.rs) gives it the same subtle-tint idiom as `.chip`/
+    // `.count-pill` so it reads as "available", not "greyed out".
+    // `.segment-active` (applied on top of this for the button that
+    // already describes the package's current state) overrides the
+    // tint back down — declared after `.secondary-action` in the
+    // stylesheet so it wins the cascade.
+    btn.add_css_class("secondary-action");
     btn
 }
 
@@ -146,6 +175,28 @@ fn linked_cluster(buttons: &[&gtk::Button]) -> gtk::Box {
         cluster.append(*btn);
     }
     cluster
+}
+
+/// Hides (or shows) a secondary-action cluster, *and* the
+/// `GtkFlowBoxChild` `secondary_row.insert()` auto-wraps it in.
+/// Hiding only the cluster `Box` itself leaves that wrapper visible —
+/// an empty but still-present flow cell that `GtkFlowBox` keeps
+/// allocating a column slot and `column_spacing` for, silently padding
+/// out every hidden cluster ahead of the first visible one. With three
+/// of the four clusters commonly hidden at once (e.g. a not-installed
+/// package, where only "Download Only" shows), that reserved spacing
+/// compounds into tens of pixels indenting the one visible cluster away
+/// from `action_row`'s left edge above it — this is what actually broke
+/// "Download Only" flush-left alignment, not anything about the button
+/// or its own margins. Toggling the wrapper's visibility in lockstep
+/// with the cluster's is the actual fix; `parent()` is always the
+/// `FlowBoxChild` once the cluster has been `insert()`-ed into
+/// `secondary_row`, so no extra field is needed to reach it.
+fn set_cluster_visible(cluster: &gtk::Box, visible: bool) {
+    cluster.set_visible(visible);
+    if let Some(parent) = cluster.parent() {
+        parent.set_visible(visible);
+    }
 }
 
 /// Marks `active` as the segment describing the package's *current*
@@ -186,8 +237,9 @@ fn rebuild_kv_group(group: &gtk::Box, title: &str, rows: Vec<(&str, KvValue)>) {
     }
     group.set_visible(true);
 
-    let header = gtk::Label::new(Some(title));
+    let header = gtk::Label::new(Some(&format!("{title}:")));
     header.set_xalign(0.0);
+    header.set_halign(gtk::Align::Start);
     header.add_css_class("section-header");
     group.append(&header);
 
@@ -208,7 +260,17 @@ fn rebuild_kv_group(group: &gtk::Box, title: &str, rows: Vec<(&str, KvValue)>) {
                 row.append(&val);
             }
             KvValue::Link(url) => {
+                // A bare `LinkButton` carries GtkButton's own padding,
+                // which is taller than a plain value `Label` — the
+                // Homepage row would otherwise sit visibly further from
+                // its neighbor than every other row in the group.
+                // `.flat` (no border/background) plus `.inline-link`
+                // (install_css in window.rs, zeroes the leftover button
+                // padding) makes it read as inline hyperlink text at
+                // the same row height as everything else.
                 let link = gtk::LinkButton::new(&url);
+                link.add_css_class("flat");
+                link.add_css_class("inline-link");
                 link.set_halign(gtk::Align::Start);
                 link.set_hexpand(true);
                 row.append(&link);
@@ -339,10 +401,33 @@ impl DetailPane {
         let mark_cluster = linked_cluster(&[&btn_mark_manual, &btn_mark_auto]);
         let oneshot_cluster = linked_cluster(&[&btn_reinstall, &btn_reconfigure, &btn_download]);
 
-        // FlowBox (core GTK4, not Adwaita) rather than a plain Box so the
-        // four clusters wrap onto a second line on a narrow pane instead
-        // of overflowing.
+        // A plain `gtk::Box` was tried first (its children are the
+        // actual cluster widgets, with no intermediate wrapper node
+        // that could carry surprise theme padding — a structural
+        // guarantee of left-flush alignment rather than a CSS patch).
+        // But a plain `Box` never wraps: with every cluster visible
+        // (installed, on-hold, repo-locked, manually-marked package —
+        // an entirely ordinary state) the unwrapped row is wider than
+        // `left_col`'s share of `split`, and a non-hexpanding `Box`
+        // reports *that* full width as its natural size — which
+        // dragged `left_col`'s own natural width along with it and
+        // squeezed `dependency_col` down past visibility. `GtkFlowBox`
+        // is the correct tool here: it wraps onto additional lines
+        // instead of reporting an ever-growing natural width, so it
+        // can never force a sibling column out of the layout. Its
+        // downside — every GTK4 theme styles the `GtkFlowBoxChild`
+        // wrapper around each child with its own padding/margin (sized
+        // for icon-grid cells, e.g. Nautilus' icon view), several times
+        // wider than this row needs, which would otherwise inset the
+        // first visible cluster from the left edge and break flush
+        // alignment with `action_row`'s buttons above — is zeroed out
+        // by `.tight-flow` (install_css in window.rs) at APPLICATION
+        // style-provider priority, which beats the theme's own
+        // THEME-priority rule regardless of which theme is active; the
+        // pixel measurement in this pane's verification pass confirmed
+        // the zeroing actually lands, not just the CSS rule existing.
         let secondary_row = gtk::FlowBox::new();
+        secondary_row.add_css_class("tight-flow");
         secondary_row.set_selection_mode(gtk::SelectionMode::None);
         secondary_row.set_row_spacing(8);
         secondary_row.set_column_spacing(14);
@@ -354,21 +439,73 @@ impl DetailPane {
         secondary_row.insert(&mark_cluster, -1);
         secondary_row.insert(&oneshot_cluster, -1);
 
-        widget.append(&action_row);
-        widget.append(&secondary_row);
-
-        // ── Split: metadata column | dependency column ──
+        // ── Split: metadata column (action buttons on top) | dependency
+        // column — both start at the same y, so Dependencies lines up
+        // with the Install/Download Only row instead of sitting below
+        // it. `action_row`/`secondary_row` live in `left_col` rather
+        // than in `metadata_scroll`'s scrollable content, so they stay
+        // pinned in view even if the description/SIZE/SOURCE grid is
+        // long enough to scroll.
         let split = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         split.set_vexpand(true);
+        split.set_hexpand(true);
+
+        let left_col = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        // Every container from here down to the individual SIZE/
+        // INSTALLATION/SOURCE groups gets *both* `hexpand(true)` and
+        // `halign(Fill)` set explicitly and directly on itself — never
+        // relying on GTK's expand-computation bubbling up from a
+        // descendant, and never relying on a plain-`Box` child's default
+        // `halign: Fill` alone. Two concrete reasons this matters here:
+        // (1) `GtkScrolledWindow` wraps its child in an implicit
+        // `GtkViewport`, which does not reliably bubble a descendant's
+        // `hexpand` back out to decide the `ScrolledWindow`'s own width
+        // — so `metadata_scroll` needs its *own* `hexpand(true)`, not
+        // just its child's. (2) a plain `gtk::Box` child's `halign:
+        // Fill` only has something to fill if the box itself was told
+        // to claim the extra width in the first place (`hexpand`) —
+        // `halign` alone, without `hexpand`, still just settles at
+        // natural width in a container that hands out surplus space by
+        // expand flags. Setting both, on every level, removes any
+        // dependency on which of these two mechanisms actually carries
+        // the width through in a given GTK version/theme.
+        left_col.set_hexpand(true);
+        left_col.set_halign(gtk::Align::Fill);
+        // Without this, a plain `gtk::Box` only claims its natural
+        // (minimum-needed) height from `split`'s vexpand row instead of
+        // filling it — `metadata_scroll` then gets squeezed down to a
+        // sliver, clipping SIZE/INSTALLATION/SOURCE out of view even
+        // though they're still genuinely there (this was the actual
+        // cause of an apparent "SIZE/SOURCE vanished" regression while
+        // developing this layout — not a visibility bug in
+        // `rebuild_kv_group`, a sizing one here).
+        left_col.set_vexpand(true);
+        left_col.append(&action_row);
+        left_col.append(&secondary_row);
 
         let metadata_scroll = gtk::ScrolledWindow::new();
         metadata_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+        // As a child of the *horizontal* `split` (its old parent),
+        // height was the cross axis, filled automatically via the
+        // default `valign: Fill` — no `vexpand` needed. Now it's a
+        // child of the *vertical* `left_col`, where height is the main
+        // axis: without `vexpand`, it only claims its own small natural
+        // height and leaves the rest of `left_col` as dead space,
+        // clipping SIZE/INSTALLATION/SOURCE out of view below the fold
+        // rather than actually hiding them.
+        metadata_scroll.set_vexpand(true);
+        metadata_scroll.set_hexpand(true);
+        metadata_scroll.set_halign(gtk::Align::Fill);
         let metadata_col = gtk::Box::new(gtk::Orientation::Vertical, 0);
         metadata_col.set_width_request(320);
+        metadata_col.set_hexpand(true);
+        metadata_col.set_halign(gtk::Align::Fill);
 
         // ── Header: name + version + state chip + tag chips, over the
         // description ──
         let header_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        header_row.set_hexpand(true);
+        header_row.set_halign(gtk::Align::Fill);
         let name = gtk::Label::new(None);
         name.set_xalign(0.0);
         name.set_selectable(true);
@@ -397,28 +534,37 @@ impl DetailPane {
         desc.add_css_class("dim-label");
         desc.set_margin_top(2);
         desc.set_margin_bottom(6);
+        desc.set_hexpand(true);
+        desc.set_halign(gtk::Align::Fill);
         metadata_col.append(&desc);
 
-        // ── Unframed key/value grid: SIZE + INSTALLATION on the left,
-        // SOURCE on the right — groups without data stay hidden ──
-        let kv_split = gtk::Box::new(gtk::Orientation::Horizontal, 24);
-        let kv_left = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        kv_left.set_hexpand(true);
-        let kv_right = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        kv_right.set_hexpand(true);
+        // ── Unframed key/value grid: SIZE, then INSTALLATION, then
+        // SOURCE, stacked in reading order — groups without data stay
+        // hidden. (Previously SOURCE sat beside SIZE/INSTALLATION in a
+        // second column; stacking single-column keeps every group's
+        // left edge — headers and values alike — on the same line
+        // metadata_col itself starts at, rather than SOURCE's edge
+        // depending on how wide the left column happened to be.)
+        let kv_stack = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        kv_stack.set_hexpand(true);
+        kv_stack.set_halign(gtk::Align::Fill);
 
         let size_group = gtk::Box::new(gtk::Orientation::Vertical, 2);
         size_group.set_visible(false);
+        size_group.set_hexpand(true);
+        size_group.set_halign(gtk::Align::Fill);
         let install_group = gtk::Box::new(gtk::Orientation::Vertical, 2);
         install_group.set_visible(false);
+        install_group.set_hexpand(true);
+        install_group.set_halign(gtk::Align::Fill);
         let source_group = gtk::Box::new(gtk::Orientation::Vertical, 2);
         source_group.set_visible(false);
-        kv_left.append(&size_group);
-        kv_left.append(&install_group);
-        kv_right.append(&source_group);
-        kv_split.append(&kv_left);
-        kv_split.append(&kv_right);
-        metadata_col.append(&kv_split);
+        source_group.set_hexpand(true);
+        source_group.set_halign(gtk::Align::Fill);
+        kv_stack.append(&size_group);
+        kv_stack.append(&install_group);
+        kv_stack.append(&source_group);
+        metadata_col.append(&kv_stack);
 
         // ── Files / Provides disclosure rows with count pills ──
         let files_pill = count_pill();
@@ -440,7 +586,8 @@ impl DetailPane {
         metadata_col.append(&files_expander);
 
         metadata_scroll.set_child(Some(&metadata_col));
-        split.append(&metadata_scroll);
+        left_col.append(&metadata_scroll);
+        split.append(&left_col);
         split.append(&gtk::Separator::new(gtk::Orientation::Vertical));
 
         // Each section row takes its natural height (lists scroll when
@@ -459,6 +606,13 @@ impl DetailPane {
         let deps_header = gtk::Label::new(Some("DEPENDENCIES"));
         deps_header.set_xalign(0.0);
         deps_header.add_css_class("section-header");
+        // `.section-header` itself carries zero left padding (needed so
+        // it flush-aligns with the zero-margin kv-group rows elsewhere
+        // in this file) — but this header's own rows come from
+        // `dialog_util::text_list_row`, which indents each row's label
+        // 8px via `margin_start`. Match that here so header and rows
+        // still share a left edge.
+        deps_header.set_margin_start(8);
         let deps_pill = count_pill();
         deps_header_row.append(&deps_header);
         deps_header_row.append(&deps_pill);
@@ -482,6 +636,8 @@ impl DetailPane {
         let rdeps_header = gtk::Label::new(Some("REVERSE DEPENDENCIES"));
         rdeps_header.set_xalign(0.0);
         rdeps_header.add_css_class("section-header");
+        // See the matching comment on `deps_header` above.
+        rdeps_header.set_margin_start(8);
         let rdeps_pill = count_pill();
         rdeps_header_row.append(&rdeps_header);
         rdeps_header_row.append(&rdeps_pill);
@@ -532,6 +688,10 @@ impl DetailPane {
             btn_mark_manual,
             btn_mark_auto,
             btn_unmark,
+            hold_cluster,
+            repolock_cluster,
+            mark_cluster,
+            oneshot_cluster,
             header: Header {
                 name,
                 version,
@@ -826,6 +986,10 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
         inner.btn_mark_manual.set_visible(false);
         inner.btn_mark_auto.set_visible(false);
         inner.btn_unmark.set_visible(false);
+        set_cluster_visible(&inner.hold_cluster, false);
+        set_cluster_visible(&inner.repolock_cluster, false);
+        set_cluster_visible(&inner.mark_cluster, false);
+        set_cluster_visible(&inner.oneshot_cluster, false);
         return;
     };
 
@@ -841,6 +1005,7 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
     let installed = pkg.state != PkgState::NotInstalled;
     inner.btn_hold.set_visible(installed);
     inner.btn_unhold.set_visible(installed);
+    set_cluster_visible(&inner.hold_cluster, installed);
     if pkg.state == PkgState::OnHold {
         set_segment_state(&inner.btn_hold, &inner.btn_unhold);
     } else {
@@ -849,8 +1014,15 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
     inner.btn_reinstall.set_visible(installed);
     inner.btn_reconfigure.set_visible(installed);
     inner.btn_download.set_visible(!installed);
+    // Unlike the other three clusters, this one always has *something*
+    // visible once a package is selected — Reinstall+Reconfigure when
+    // installed, Download Only otherwise — so it's unconditionally
+    // shown here (the `pkg == None` branch above is the only place it
+    // needs to be hidden).
+    set_cluster_visible(&inner.oneshot_cluster, true);
     inner.btn_repolock.set_visible(installed);
     inner.btn_repounlock.set_visible(installed);
+    set_cluster_visible(&inner.repolock_cluster, installed);
     if pkg.is_repolocked {
         set_segment_state(&inner.btn_repolock, &inner.btn_repounlock);
     } else {
@@ -914,6 +1086,9 @@ fn relation_field(title: &str, items: &[String]) -> gtk::Box {
     let header = gtk::Label::new(Some(title));
     header.set_xalign(0.0);
     header.add_css_class("section-header");
+    // See the matching comment on `deps_header` in `DetailPane::new` —
+    // this column's rows also come from `text_list_row`'s 8px indent.
+    header.set_margin_start(8);
     let pill = count_pill();
     set_count(&pill, Some(items.len()));
     header_row.append(&header);
@@ -1127,6 +1302,7 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
     rebuild_source_group(inner, None);
     inner.btn_mark_manual.set_visible(false);
     inner.btn_mark_auto.set_visible(false);
+    set_cluster_visible(&inner.mark_cluster, false);
     populate_provides_conflicts(inner, None);
 
     // Files are fetched lazily on expand; the row only exists at all
@@ -1185,6 +1361,7 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
                 let mark_pair_visible = auto_flag.is_some();
                 inner.btn_mark_manual.set_visible(mark_pair_visible);
                 inner.btn_mark_auto.set_visible(mark_pair_visible);
+                set_cluster_visible(&inner.mark_cluster, mark_pair_visible);
                 if let Some(flag) = auto_flag {
                     if flag.automatic_install {
                         set_segment_state(&inner.btn_mark_auto, &inner.btn_mark_manual);
