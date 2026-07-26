@@ -5,7 +5,9 @@
 //! & Replaces row. Rust translation of `ui/detail_pane.{h,c}`, built
 //! directly in code here rather than from a `GtkBuilder` .ui file.
 
-use crate::backend::package::{Package, PkgMark, PkgState};
+use crate::backend::package::{
+    pkg_format_size, pkg_state_icon, Package, PackageObject, PkgMark, PkgState,
+};
 use crate::backend::package_store::PackageStore;
 use crate::ui::deps_confirm;
 use crate::ui::dialog_util::{count_pill, set_count};
@@ -13,6 +15,7 @@ use crate::ui::remove_confirm;
 use gio::prelude::*;
 use gtk::prelude::*;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 /// Files lists can run into the thousands of entries for large
@@ -135,6 +138,11 @@ struct Inner {
     /// Fired when the user clicks Mark as Manually/Automatically
     /// Installed. Args: pkgname, `want_automatic`.
     on_automatic_requested: HoldRequestedCbs,
+    /// Fired when a Dependencies/Reverse Dependencies row's package name
+    /// is activated (clicked) — window.rs wires this to
+    /// `PackageList::select_package_by_name`, jumping the main list to
+    /// that package. Arg: pkgname.
+    on_jump_to_package: ActionRequestedCbs,
 }
 
 #[derive(Clone)]
@@ -212,6 +220,19 @@ fn set_segment_state(active: &gtk::Button, inactive: &gtk::Button) {
     active.set_sensitive(false);
     inactive.remove_css_class("segment-active");
     inactive.set_sensitive(true);
+}
+
+/// Display text + chip CSS class for a package's install state — shared
+/// by the header's state chip and the Dependencies/Reverse Dependencies
+/// hover popover, so the two stay in sync by construction.
+fn pkg_state_text_class(state: PkgState) -> (&'static str, Option<&'static str>) {
+    match state {
+        PkgState::NotInstalled => ("Not installed", None),
+        PkgState::Installed => ("Installed", Some("chip-ok")),
+        PkgState::Upgradable => ("Upgrade available", Some("chip-warn")),
+        PkgState::OnHold => ("On hold", Some("chip-warn")),
+        PkgState::Broken => ("Broken", Some("chip-err")),
+    }
 }
 
 /// A pill-styled chip label (state chip, tag chips, count pills share
@@ -620,7 +641,7 @@ impl DetailPane {
         let deps_scroll = gtk::ScrolledWindow::new();
         deps_scroll.set_propagate_natural_height(true);
         let deps_list = gtk::ListBox::new();
-        deps_list.set_selection_mode(gtk::SelectionMode::None);
+        deps_list.set_selection_mode(gtk::SelectionMode::Single);
         let deps_ph = gtk::Label::new(Some("Select a package"));
         deps_ph.add_css_class("dim-label");
         deps_ph.set_margin_top(12);
@@ -645,7 +666,7 @@ impl DetailPane {
         let rdeps_scroll = gtk::ScrolledWindow::new();
         rdeps_scroll.set_propagate_natural_height(true);
         let rdeps_list = gtk::ListBox::new();
-        rdeps_list.set_selection_mode(gtk::SelectionMode::None);
+        rdeps_list.set_selection_mode(gtk::SelectionMode::Single);
         let rdeps_ph = gtk::Label::new(Some("Select a package"));
         rdeps_ph.add_css_class("dim-label");
         rdeps_ph.set_margin_top(12);
@@ -726,10 +747,12 @@ impl DetailPane {
             on_download_requested: RefCell::new(Vec::new()),
             on_repolock_requested: RefCell::new(Vec::new()),
             on_automatic_requested: RefCell::new(Vec::new()),
+            on_jump_to_package: RefCell::new(Vec::new()),
         });
 
         wire_buttons(&inner);
         wire_files_expander(&inner);
+        wire_dependency_lists(&inner);
 
         Self { inner }
     }
@@ -787,6 +810,12 @@ impl DetailPane {
             .on_automatic_requested
             .borrow_mut()
             .push(Box::new(f));
+    }
+
+    /// pkgname — fired when a Dependencies/Reverse Dependencies row's
+    /// package name is clicked ("jump to it" in the main list).
+    pub fn connect_jump_to_package(&self, f: impl Fn(String) + 'static) {
+        self.inner.on_jump_to_package.borrow_mut().push(Box::new(f));
     }
 
     pub fn show_package(&self, pkg: Option<&Package>) {
@@ -1076,6 +1105,150 @@ fn populate(lb: &gtk::ListBox, items: Option<Vec<String>>) {
     }
 }
 
+/// Replaces `populate` for the Dependencies/Reverse Dependencies lists
+/// specifically — `populate`/`text_list_row` above stay untouched for
+/// `relation_field`'s Provides/Requires/Exports/Conflicts/Replaces
+/// columns, which don't get row highlighting, hover, or jump-to-package.
+fn populate_dep_list(
+    lb: &gtk::ListBox,
+    items: Option<Vec<String>>,
+    snapshot: &HashMap<String, PackageObject>,
+) {
+    while let Some(c) = lb.first_child() {
+        lb.remove(&c);
+    }
+    let Some(items) = items else { return };
+    for name in items {
+        lb.append(&dependency_row(&name, snapshot));
+    }
+}
+
+/// Builds one Dependencies/Reverse-Dependencies row: dims the label if
+/// the package isn't installed, and — for names that resolved to a real
+/// package in the store — stashes the name for `wire_dependency_lists`'s
+/// row-activated handler and attaches a hover popover with basic
+/// details. A name absent from `snapshot` (stale repo data, a virtual
+/// package) degrades to a plain unclickable row rather than erroring.
+fn dependency_row(name: &str, snapshot: &HashMap<String, PackageObject>) -> gtk::ListBoxRow {
+    let label = gtk::Label::new(Some(name));
+    label.set_xalign(0.0);
+    label.set_margin_start(8);
+    label.set_margin_top(4);
+    label.set_margin_bottom(4);
+    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+
+    let row = gtk::ListBoxRow::new();
+    row.set_child(Some(&label));
+
+    if let Some(pkg) = snapshot.get(name).map(|o| o.pkg().clone()) {
+        if pkg.state != PkgState::NotInstalled {
+            label.add_css_class("pkg-installed");
+        } else {
+            label.add_css_class("dim-label");
+        }
+        unsafe {
+            row.set_data("dep-pkgname", name.to_string());
+        }
+        wire_hover_tooltip(&row, pkg);
+    } else {
+        label.add_css_class("dim-label");
+    }
+
+    row
+}
+
+/// Shows `pkg`'s basic details on hover via GTK's own custom-tooltip
+/// mechanism (`has-tooltip`/`query-tooltip`) rather than a hand-rolled
+/// `gtk::Popover`. A first attempt used a `Popover` positioned by an
+/// `EventControllerMotion` + a delay timer, but `Popover`'s default
+/// `autohide` grabs the pointer while it's showing — clicking the very
+/// row that triggered it (to jump to that package) could get eaten by
+/// the popover's own dismiss handling instead of reaching the row's
+/// `row-activated` handler, and a popover left open across a list
+/// rebuild (e.g. the lists get repopulated on every new selection) had
+/// no code path to close/unparent it, leaving a grabbing, unparented
+/// popup behind — the app-hang the user hit. GTK's tooltip mechanism
+/// owns its own popup lifecycle (delay, positioning, dismiss-on-any-
+/// interaction) without ever taking a pointer grab, so none of that
+/// class of bug is reachable here.
+fn wire_hover_tooltip(row: &gtk::ListBoxRow, pkg: Package) {
+    row.set_has_tooltip(true);
+    row.connect_query_tooltip(move |_, _x, _y, _keyboard_mode, tooltip| {
+        tooltip.set_custom(Some(&build_hover_content(&pkg)));
+        true
+    });
+}
+
+/// The hover tooltip's content: state icon (the same
+/// `pkg_state_icon`/`pkg_state_tooltip` pair — existing stock GTK icon
+/// names, e.g. `object-select-symbolic` — already used by the main
+/// list's status column, rather than a new asset) + name + state chip,
+/// then version/size/source. Reuses `chip()`, the same pill styling the
+/// header's state chip uses.
+fn build_hover_content(pkg: &Package) -> gtk::Box {
+    let vbox = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    vbox.set_margin_start(10);
+    vbox.set_margin_end(10);
+    vbox.set_margin_top(8);
+    vbox.set_margin_bottom(8);
+
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    if let Some(icon) = pkg_state_icon(pkg.state, pkg.mark) {
+        header.append(&gtk::Image::from_icon_name(icon));
+    }
+    let name = gtk::Label::new(Some(&pkg.name));
+    name.add_css_class("detail-name");
+    header.append(&name);
+    let (state_text, state_class) = pkg_state_text_class(pkg.state);
+    header.append(&chip(state_text, state_class));
+    vbox.append(&header);
+
+    if let Some(v) = pkg
+        .version_installed
+        .as_ref()
+        .or(pkg.version_available.as_ref())
+    {
+        let l = gtk::Label::new(Some(v));
+        l.set_xalign(0.0);
+        l.add_css_class("dim-label");
+        vbox.append(&l);
+    }
+    if pkg.install_size > 0 {
+        let l = gtk::Label::new(Some(&format!(
+            "Size: {}",
+            pkg_format_size(pkg.install_size)
+        )));
+        l.set_xalign(0.0);
+        vbox.append(&l);
+    }
+    if let Some(repo) = &pkg.repository {
+        let l = gtk::Label::new(Some(&format!("Source: {repo}")));
+        l.set_xalign(0.0);
+        vbox.append(&l);
+    }
+
+    vbox
+}
+
+/// Wires row-activation once per list (not per row): a click on a
+/// Dependencies/Reverse Dependencies row fires `on_jump_to_package` with
+/// the name `dependency_row` stashed on it, if any (rows for names that
+/// didn't resolve to a real package have nothing stashed and are inert).
+fn wire_dependency_lists(inner: &Rc<Inner>) {
+    for lb in [&inner.deps_list, &inner.rdeps_list] {
+        let lb = lb.clone();
+        let inner = inner.clone();
+        lb.connect_row_activated(move |_, row| {
+            let name = unsafe { row.data::<String>("dep-pkgname") };
+            let Some(name) = name else { return };
+            let name = unsafe { name.as_ref() }.clone();
+            for f in inner.on_jump_to_package.borrow().iter() {
+                f(name.clone());
+            }
+        });
+    }
+}
+
 /// One independent field, styled like a Dependencies column: header +
 /// count pill + its own scrollable list, one row per item.
 fn relation_field(title: &str, items: &[String]) -> gtk::Box {
@@ -1252,13 +1425,7 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
     h.version.set_text(ver.as_deref().unwrap_or(""));
 
     // The state chip always shows: install state is data, not absence.
-    let (state_text, state_class) = match pkg.state {
-        PkgState::NotInstalled => ("Not installed", None),
-        PkgState::Installed => ("Installed", Some("chip-ok")),
-        PkgState::Upgradable => ("Upgrade available", Some("chip-warn")),
-        PkgState::OnHold => ("On hold", Some("chip-warn")),
-        PkgState::Broken => ("Broken", Some("chip-err")),
-    };
+    let (state_text, state_class) = pkg_state_text_class(pkg.state);
     for class in ["chip-ok", "chip-warn", "chip-err"] {
         h.state_chip.remove_css_class(class);
     }
@@ -1393,7 +1560,8 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
                 let count = deps.as_ref().map_or(0, Vec::len);
                 inner2.deps_col.set_visible(count > 0);
                 set_count(&inner2.deps_pill, (count > 0).then_some(count));
-                populate(&inner2.deps_list, deps);
+                let snapshot = inner2.store.snapshot_objects();
+                populate_dep_list(&inner2.deps_list, deps, &snapshot);
             }
         });
     }
@@ -1405,7 +1573,8 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
                 let count = rdeps.as_ref().map_or(0, Vec::len);
                 inner2.rdeps_col.set_visible(count > 0);
                 set_count(&inner2.rdeps_pill, (count > 0).then_some(count));
-                populate(&inner2.rdeps_list, rdeps);
+                let snapshot = inner2.store.snapshot_objects();
+                populate_dep_list(&inner2.rdeps_list, rdeps, &snapshot);
             }
         });
     }

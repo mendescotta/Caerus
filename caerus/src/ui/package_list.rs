@@ -33,6 +33,10 @@ struct Inner {
     /// Lets `PackageList::select_all` reach it without `build()` having
     /// to plumb it back out through a separate return value.
     selection: RefCell<Option<gtk::MultiSelection>>,
+    /// Set once by `build()` right after the `ColumnView` is constructed
+    /// — `selection` alone (a `SelectionModel`) has no scroll capability,
+    /// needed by `select_package_by_name`'s `scroll_to`.
+    column_view: RefCell<Option<gtk::ColumnView>>,
     on_package_selected: PackageSelectedCbs,
     on_marks_changed: MarksChangedCbs,
 }
@@ -138,6 +142,7 @@ impl PackageList {
             search_name_only: Cell::new(false),
             current_repo_filter: RefCell::new(None),
             selection: RefCell::new(None),
+            column_view: RefCell::new(None),
             on_package_selected: RefCell::new(Vec::new()),
             on_marks_changed: RefCell::new(Vec::new()),
         });
@@ -170,6 +175,33 @@ impl PackageList {
         if let Some(selection) = self.inner.selection.borrow().as_ref() {
             selection.select_all();
         }
+    }
+
+    /// Selects `pkgname` and scrolls it into view within the *currently
+    /// filtered/sorted* model only — doesn't touch search text or any
+    /// filter. Returns `false` if the name isn't present in the current
+    /// view; the caller (`window.rs`'s jump-to-package wiring, driven by
+    /// clicking a Dependencies/Reverse Dependencies row in the detail
+    /// pane) decides whether to reset filters and retry.
+    pub fn select_package_by_name(&self, pkgname: &str) -> bool {
+        let (Some(selection), Some(column_view)) = (
+            self.inner.selection.borrow().clone(),
+            self.inner.column_view.borrow().clone(),
+        ) else {
+            return false;
+        };
+        let n = selection.n_items();
+        for i in 0..n {
+            let Some(obj) = selection.item(i) else {
+                continue;
+            };
+            if pkg_of(&obj).name() == pkgname {
+                selection.select_item(i, true);
+                column_view.scroll_to(i, None, gtk::ListScrollFlags::FOCUS, None);
+                return true;
+            }
+        }
+        false
     }
 
     /// Marks `pkgname` for removal, going through the same
@@ -397,6 +429,7 @@ fn build(inner: Rc<Inner>) {
     }
 
     let column_view = gtk::ColumnView::new(Some(selection.clone()));
+    *inner.column_view.borrow_mut() = Some(column_view.clone());
     column_view.set_show_row_separators(true);
     column_view.set_show_column_separators(true);
     column_view.set_vexpand(true);

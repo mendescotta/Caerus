@@ -704,6 +704,23 @@ impl FilterSidebar {
             .push(Box::new(f));
     }
 
+    /// Resets to "All" / "All Repositories" — used by `window.rs`'s
+    /// jump-to-package fallback when a Dependencies/Reverse Dependencies
+    /// row is clicked but the target package is hidden by the current
+    /// filter/repo selection. Goes through `preset_lb`/`repo_lb`'s own
+    /// row selection (the same path a user clicking those rows by hand
+    /// takes), so `connect_filter_changed`/`connect_repository_changed`
+    /// fire normally and `PackageList` stays in sync without this
+    /// needing to call it directly.
+    pub fn reset_to_all(&self) {
+        if let Some(row) = self.inner.preset_lb.row_at_index(0) {
+            self.inner.preset_lb.select_row(Some(&row));
+        }
+        if let Some(row) = self.inner.repo_lb.row_at_index(0) {
+            self.inner.repo_lb.select_row(Some(&row));
+        }
+    }
+
     /// Fires when an action row (MAINTENANCE / TOOLS / Manage
     /// Repositories) is activated.
     pub fn connect_action(&self, f: impl Fn(SidebarAction) + 'static) {

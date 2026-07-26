@@ -328,6 +328,22 @@ impl PackageStore {
         out
     }
 
+    /// Live `PackageObject` handles for every package in the store, keyed
+    /// by name, built in one pass — the fuller counterpart to
+    /// `state_and_mark_snapshot` for callers that need more than (state,
+    /// mark), e.g. the detail pane's Dependencies/Reverse Dependencies
+    /// rows, which also want version/size/repository for highlighting
+    /// and the hover popover. Cloning a `PackageObject` is a cheap
+    /// GObject ref-count bump, not a deep copy, so building this once per
+    /// package selection is far cheaper than one `for_each` scan per row.
+    pub fn snapshot_objects(&self) -> HashMap<String, PackageObject> {
+        let mut out = HashMap::new();
+        self.for_each(|o| {
+            out.insert(o.name(), o.clone());
+        });
+        out
+    }
+
     /// Names of every package currently in `PkgState::Upgradable`,
     /// regardless of mark — used to preview a full system upgrade
     /// before running it (the actual `xbps-install -Su` computes its
@@ -1009,10 +1025,14 @@ fn get_deps(xh: &mut xbps_sys::xbps_handle, inited: bool, pkgname: &str) -> Opti
         for i in 0..n {
             let mut s: *const c_char = std::ptr::null();
             xbps_sys::xbps_array_get_cstring_nocopy(deps, i, &mut s);
+            // `run_depends` entries are xbps "pkgpatterns" (e.g.
+            // `foo>=1.2_1`), not bare names — strip the version
+            // constraint so callers can match these against the store
+            // by exact package name.
             out.push(if s.is_null() {
                 String::new()
             } else {
-                CStr::from_ptr(s).to_string_lossy().into_owned()
+                bare_pkgname_from_dep(&CStr::from_ptr(s).to_string_lossy())
             });
         }
         Some(out)
@@ -1037,10 +1057,14 @@ fn get_rdeps(xh: &mut xbps_sys::xbps_handle, inited: bool, pkgname: &str) -> Opt
         for i in 0..n {
             let mut s: *const c_char = std::ptr::null();
             xbps_sys::xbps_array_get_cstring_nocopy(rdeps, i, &mut s);
+            // Unlike `run_depends`, `xbps_pkgdb_get_pkg_revdeps` entries
+            // are full pkgver strings (e.g. `foo-1.2.3_1`), not
+            // pkgpatterns — `bare_pkgname_from_dep` is the wrong parser
+            // here, hence the separate `bare_pkgname_from_pkgver`.
             out.push(if s.is_null() {
                 String::new()
             } else {
-                CStr::from_ptr(s).to_string_lossy().into_owned()
+                bare_pkgname_from_pkgver(&CStr::from_ptr(s).to_string_lossy())
             });
         }
         Some(out)
@@ -1222,6 +1246,24 @@ fn bare_pkgname_from_dep(dep: &str) -> String {
             CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned()
         } else {
             dep.to_string()
+        }
+    }
+}
+
+/// Turns one `revdeps` entry (a full "pkgver" like `foo-1.2.3_1`) into
+/// the plain package name — the pkgver counterpart to
+/// `bare_pkgname_from_dep`, which handles version-constraint patterns
+/// instead. `xbps_pkgdb_get_pkg_revdeps` returns pkgver strings, not
+/// patterns, so `xbps_pkgpattern_name` is the wrong parser for this list.
+fn bare_pkgname_from_pkgver(pkgver: &str) -> String {
+    unsafe {
+        let c = cstr(pkgver);
+        let mut buf = [0 as c_char; 256];
+        let ok = xbps_sys::xbps_pkg_name(buf.as_mut_ptr(), buf.len(), c.as_ptr());
+        if ok {
+            CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned()
+        } else {
+            pkgver.to_string()
         }
     }
 }
