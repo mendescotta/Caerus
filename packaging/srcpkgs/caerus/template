@@ -1,28 +1,26 @@
 # Template file for 'caerus'
 #
-# Follows the usual Void "-git"-style pattern: do_fetch() clones the
-# repo directly (tracking main) instead of using distfiles/checksum.
-# Push local commits to origin/main before rebuilding with xbps-src,
-# since do_fetch always pulls from GitHub, not this working tree.
-# `version` mirrors the latest tagged release main corresponds to.
-#
 # To use: copy or symlink this directory to <void-packages checkout>/srcpkgs/caerus,
 # then from inside that checkout: ./xbps-src pkg caerus
 pkgname=caerus
 version=0.5.0
 revision=1
 build_style=cargo
-hostmakedepends="pkg-config clang git"
+hostmakedepends="pkg-config clang"
 makedepends="gtk4-devel libxbps-devel glib-devel"
 depends="polkit"
 short_desc="Synaptic-inspired GTK4 package manager for Void Linux, built on libxbps"
 maintainer="gui <mendescotta@gmail.com>"
 license="GPL-3.0-or-later"
 homepage="https://github.com/mendescotta/Caerus"
-
-do_fetch() {
-	git clone https://github.com/mendescotta/Caerus.git "${wrksrc}"
-}
+distfiles="https://github.com/mendescotta/Caerus/archive/refs/tags/v${version}.tar.gz"
+checksum=6a527f8c2e62763d58991e38191b584ead6eadf93a43bdb0373eaa63f08040a8
+# GitHub's tag archive extracts to "Caerus-${version}" (matching the
+# repo's actual capitalized name), not xbps-src's default
+# "${pkgname}-${version}" ("caerus-${version}", lowercase) — without this
+# override do_extract would leave wrksrc pointing at a directory that
+# doesn't exist.
+wrksrc="Caerus-${version}"
 
 do_install() {
 	vbin target/${RUST_TARGET}/release/caerus
