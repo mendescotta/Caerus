@@ -1113,6 +1113,32 @@ fn wire_up(state: &Rc<WindowState>) {
         });
     }
     {
+        let detail_pane = state.detail_pane.clone();
+        let state = state.clone();
+        // Clicking a Dependencies/Reverse Dependencies row's package
+        // name jumps the main list to it. `select_package_by_name`
+        // changing the selection fires `connect_package_selected` above
+        // automatically, so the detail pane updates for free — no direct
+        // call into it needed here.
+        detail_pane.connect_jump_to_package(move |pkgname| {
+            if state.pkg_list.select_package_by_name(&pkgname) {
+                return;
+            }
+            // Not visible under the current search/filter/repo
+            // selection — clear everything that could be hiding it and
+            // retry once. Goes through the sidebar's own row selection
+            // (which cascades to `pkg_list` via the
+            // connect_filter_changed/connect_repository_changed wiring
+            // above) rather than calling `pkg_list.set_filter`/
+            // `set_repository_filter` directly, so the sidebar's
+            // highlighted row stays in sync with what's actually shown.
+            state.search_entry.set_text("");
+            state.pkg_list.set_search("");
+            state.sidebar.reset_to_all();
+            state.pkg_list.select_package_by_name(&pkgname);
+        });
+    }
+    {
         let pkg_list = state.pkg_list.clone();
         let state = state.clone();
         pkg_list.connect_marks_changed(move || {
