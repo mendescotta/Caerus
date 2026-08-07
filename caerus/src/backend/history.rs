@@ -1,13 +1,9 @@
 //! Persists a one-line-per-batch record of every privileged command
-//! batch caerus has actually run, so past actions are visible somewhere
-//! other than the (ephemeral, per-dialog) apply dialog's Details
-//! expander. Deliberately not a log of every raw `LOG` line the helper
-//! emits — that's already shown live during the batch and would make
-//! this file grow unboundedly fast; one row per batch keeps it small and
-//! scannable, matching "actionable, not verbose."
+//! batch caerus has run, so past actions are visible outside the
+//! ephemeral apply dialog. Not a log of every raw `LOG` line — one row
+//! per batch keeps it small and scannable.
 //!
-//! Explicitly out of scope: rollback. This module only records what
-//! happened, it doesn't know how to undo it.
+//! Out of scope: rollback. This module only records what happened.
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -84,13 +80,8 @@ pub fn load() -> Vec<HistoryEntry> {
     out
 }
 
-/// Local wall-clock time, human-readable — this string is shown verbatim
-/// in the Transaction History dialog, and a UTC timestamp there (the
-/// previous behavior) read hours off from when the user actually did the
-/// thing. `glib` is already a dependency, so its `DateTime` replaces the
-/// hand-rolled civil-from-days conversion this module used to carry.
-/// Older history lines recorded in the previous `...Z` UTC format still
-/// parse and display fine — they're plain strings either way.
+/// Local wall-clock time, human-readable — shown verbatim in the
+/// Transaction History dialog.
 fn now_local() -> String {
     glib::DateTime::now_local()
         .ok()

@@ -2,15 +2,10 @@
 //! `GObject` wrapper needed to put `Package` values into a `gio::ListStore`
 //! (GTK4's list widgets — `gtk::ColumnView` here — only work with
 //! `glib::Object`-derived items).
-//!
-//! Direct translation of backend/package.h + backend/package.c. The
-//! plain-old-data `Package` struct maps 1:1 onto the original C struct;
-//! `PackageObject` maps onto `CaerusPackageObject`.
 
 use glib::subclass::prelude::*;
 use std::cell::RefCell;
 
-/// Mirrors `PkgState` in the original `package.h`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PkgState {
     #[default]
@@ -21,7 +16,6 @@ pub enum PkgState {
     Broken,
 }
 
-/// Mirrors `PkgMark`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PkgMark {
     #[default]
@@ -32,9 +26,8 @@ pub enum PkgMark {
     Purge,
 }
 
-/// Mirrors `FilterMode`. Row index in the filter sidebar's preset list
-/// maps directly onto this enum's discriminant, exactly as it did in
-/// the original (`ui/filter_sidebar.c`'s `on_preset_selected`).
+/// Row index in the filter sidebar's preset list maps directly onto
+/// this enum's discriminant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum FilterMode {
@@ -61,7 +54,6 @@ impl FilterMode {
     }
 }
 
-/// Plain package record. Mirrors `Package` in package.h field-for-field.
 #[derive(Debug, Clone, Default)]
 pub struct Package {
     pub name: String,
@@ -95,9 +87,9 @@ pub struct Package {
     pub is_repolocked: bool,
 }
 
-/// On-demand metadata not loaded during the bulk scan. Mirrors
-/// `PackageExtraInfo`. `install_date`/`automatic_install` are only ever
-/// populated for installed packages.
+/// On-demand metadata not loaded during the bulk scan.
+/// `install_date`/`automatic_install` are only ever populated for
+/// installed packages.
 #[derive(Debug, Clone, Default)]
 pub struct PackageExtraInfo {
     pub homepage: Option<String>,
@@ -170,12 +162,9 @@ pub fn pkg_format_size(bytes: u64) -> String {
 }
 
 // ── GObject wrapper ─────────────────────────────────────────────────
-//
 // A thin `glib::Object` subclass holding one `Package` in a `RefCell`.
-// This is the Rust equivalent of `CaerusPackageObject`: gio::ListStore
-// (and therefore gtk::ColumnView/SingleSelection/FilterListModel/
-// SortListModel) requires items to be GObjects, so every `Package`
-// gets wrapped in one of these before going into the store.
+// gio::ListStore requires items to be GObjects, so every `Package` gets
+// wrapped in one of these before going into the store.
 
 mod imp {
     use super::*;

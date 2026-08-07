@@ -1,10 +1,8 @@
 //! If a package has any not-yet-installed `run_depends` (transitively),
 //! shows a confirmation dialog transient for `parent` listing them.
-//! Rust translation of `ui/deps_confirm.{h,c}`.
 //!
 //! Asynchronous: `cb` may fire after this function returns (a real
-//! dialog was shown) or before it returns (the no-deps-missing fast
-//! path) — mirroring the original exactly.
+//! dialog was shown) or before it returns (the no-deps-missing fast path).
 
 use crate::backend::package::PkgMark;
 use crate::backend::package_store::PackageStore;
@@ -18,9 +16,6 @@ pub fn confirm_install_deps(
     pkgname: &str,
     cb: impl Fn(bool) + 'static,
 ) {
-    // The missing-deps resolution runs on the xbps worker thread; the
-    // dialog (or the fast-path `cb(true)`) follows once it reports back,
-    // keeping the main loop responsive even if the worker is mid-reload.
     let parent = parent.cloned();
     let store2 = store.clone();
     let pkgname = pkgname.to_string();
@@ -57,20 +52,15 @@ fn show_deps_dialog(
     heading.set_wrap(true);
     outer.append(&heading);
 
-    // propagate-natural-height + a capped max-content-height gives us
-    // both cases for free: short lists size to fit naturally, long
-    // ones get a real scrollbar rather than the window itself growing
-    // unboundedly — same rationale as the original.
+    // propagate-natural-height + capped max-content-height: short lists
+    // size to fit, long ones get a real scrollbar instead of an
+    // unbounded window.
     let scroll = gtk::ScrolledWindow::new();
     scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
     scroll.set_propagate_natural_height(true);
     scroll.set_max_content_height(400);
     scroll.set_vexpand(true);
 
-    // Same list-box style as `remove_confirm`'s affected-package list and
-    // the detail pane's Dependencies list — a plain wrapped label here
-    // used to be the odd one out, selecting as a single opaque block of
-    // text instead of one name at a time.
     let mut sorted = (*deps).clone();
     sorted.sort();
     let list = gtk::ListBox::new();

@@ -58,9 +58,8 @@ fn pkg_of(obj: &glib::Object) -> PackageObject {
     obj.clone().downcast::<PackageObject>().unwrap()
 }
 
-/// Version-column ordering: absent versions ("—" rows) first, then
-/// proper xbps version comparison (via `libxbps`'s own comparator) so
-/// "1.10" sorts after "1.9" instead of lexicographically before it.
+/// Version-column ordering: absent versions first, then xbps version
+/// comparison (so "1.10" sorts after "1.9", not before).
 fn cmp_opt_version(a: Option<&str>, b: Option<&str>) -> CmpOrdering {
     match (a, b) {
         (None, None) => CmpOrdering::Equal,
@@ -70,9 +69,8 @@ fn cmp_opt_version(a: Option<&str>, b: Option<&str>) -> CmpOrdering {
     }
 }
 
-/// Status rank: lower sorts first — broken, then marked-for-action,
-/// then upgradable, then on-hold, then plain installed, then
-/// not-installed last. Mirrors `pkg_sort_rank` in the original.
+/// Status rank: lower sorts first — broken, marked-for-action,
+/// upgradable, on-hold, installed, not-installed.
 fn pkg_sort_rank(p: &Package) -> i32 {
     if p.state == PkgState::Broken {
         return 0;
@@ -166,23 +164,17 @@ impl PackageList {
         self.inner.on_marks_changed.borrow_mut().push(Box::new(f));
     }
 
-    /// Selects every currently-*filtered* row (Ctrl+A) — a fast way to
-    /// feed the right-click context menu's bulk mark actions without
-    /// ctrl/shift-clicking each row by hand. Only affects selection, not
-    /// marks directly: like a plain click, it's still the context menu
-    /// (or double-click on a single row) that actually applies a mark.
+    /// Selects every currently-filtered row (Ctrl+A). Only affects
+    /// selection, not marks — the context menu still applies those.
     pub fn select_all(&self) {
         if let Some(selection) = self.inner.selection.borrow().as_ref() {
             selection.select_all();
         }
     }
 
-    /// Selects `pkgname` and scrolls it into view within the *currently
-    /// filtered/sorted* model only — doesn't touch search text or any
-    /// filter. Returns `false` if the name isn't present in the current
-    /// view; the caller (`window.rs`'s jump-to-package wiring, driven by
-    /// clicking a Dependencies/Reverse Dependencies row in the detail
-    /// pane) decides whether to reset filters and retry.
+    /// Selects `pkgname` and scrolls it into view within the currently
+    /// filtered/sorted model only. Returns `false` if not present in the
+    /// current view; the caller decides whether to reset filters and retry.
     pub fn select_package_by_name(&self, pkgname: &str) -> bool {
         let (Some(selection), Some(column_view)) = (
             self.inner.selection.borrow().clone(),
@@ -204,13 +196,10 @@ impl PackageList {
         false
     }
 
-    /// Marks `pkgname` for removal, going through the same
-    /// reverse-dependency confirmation dialog and "not already marked"
-    /// guard every other removal path (checkbox, context menu, detail
-    /// pane, double-click) uses — for callers outside this module (the
-    /// window-level Delete key shortcut) that don't have direct access
-    /// to `Inner`. No-ops if `mark_applies_to` says Remove doesn't apply
-    /// (already marked, essential, or not installed).
+    /// Marks `pkgname` for removal via the same reverse-dependency
+    /// confirmation every other removal path uses; for callers (e.g. the
+    /// window-level Delete shortcut) without direct access to `Inner`.
+    /// No-ops if `mark_applies_to` says Remove doesn't apply.
     pub fn request_remove(&self, root: Option<gtk::Window>, pkg: &Package) {
         if mark_applies_to(pkg, PkgMark::Remove) {
             request_remove_with_confirm(
@@ -224,11 +213,9 @@ impl PackageList {
         }
     }
 
-    /// Delete-key entry point: acts on the current selection. A single
-    /// selected row goes through `request_remove`'s confirmation path; a
-    /// multi-row selection goes through `request_bulk_remove_with_confirm`
-    /// — one aggregate reverse-dependency confirmation for the whole
-    /// batch, exactly like the right-click context menu's bulk action.
+    /// Delete-key entry point: a single selected row goes through
+    /// `request_remove`; a multi-row selection goes through
+    /// `request_bulk_remove_with_confirm` (one aggregate confirmation).
     pub fn delete_selected(&self, root: Option<gtk::Window>) {
         let pkgs = {
             let selection = self.inner.selection.borrow();
@@ -290,11 +277,8 @@ impl PackageList {
         !self.inner.current_search.borrow().is_empty()
     }
 
-    /// Whether anything at all narrows the visible list right now —
-    /// search text, a sidebar preset other than "All", or a repository
-    /// restriction. The status bar switches from whole-database totals
-    /// to visible-row counts whenever this holds, so the numbers always
-    /// describe what's actually on screen.
+    /// Whether search text, a non-"All" preset, or a repository
+    /// restriction currently narrows the visible list.
     pub fn has_active_filters(&self) -> bool {
         self.has_active_search()
             || !matches!(
@@ -304,12 +288,9 @@ impl PackageList {
             || self.inner.current_repo_filter.borrow().is_some()
     }
 
-    /// (total, installed, not-installed) among the currently *visible*
-    /// rows — i.e. after search text and every active filter (preset,
-    /// repository) have been applied. Walks the same
-    /// final `MultiSelection` the column view itself renders from,
-    /// rather than re-implementing the filter predicate, so this always
-    /// matches exactly what's on screen.
+    /// (total, installed, not-installed) among the currently visible
+    /// rows. Walks the final `MultiSelection` the column view renders
+    /// from, so this always matches exactly what's on screen.
     pub fn visible_counts(&self) -> (u32, u32, u32) {
         let mut installed = 0u32;
         let mut not_installed = 0u32;
@@ -331,8 +312,7 @@ impl PackageList {
     }
 
     /// Distinct, non-empty `repository` values currently in the store,
-    /// sorted — used to populate `FilterSidebar`'s repository rows
-    /// after each load.
+    /// sorted, for `FilterSidebar`'s repository rows.
     pub fn available_repositories(&self) -> Vec<String> {
         let mut set = std::collections::HashSet::new();
         let n = self.inner.store.list().n_items();
@@ -395,25 +375,17 @@ fn build(inner: Rc<Inner>) {
         gtk::FilterListModel::new(Some(inner.store.list()), Some(inner.custom_filter.clone()));
     let sort_model = gtk::SortListModel::new(Some(filter_model), None::<gtk::Sorter>);
 
-    // MultiSelection (rather than SingleSelection) so ctrl/shift-click
-    // range selection works, which the right-click context menu uses
-    // for bulk marking. Unlike SingleSelection it has no "autoselect"
-    // footgun to begin with — nothing is ever selected until a real
-    // click, so the mid-load-swallows-first-click bug the old
-    // SingleSelection comment described doesn't apply here.
+    // MultiSelection (not SingleSelection) so ctrl/shift-click range
+    // selection works for the context menu's bulk marking.
     let selection = gtk::MultiSelection::new(Some(sort_model.clone()));
     *inner.selection.borrow_mut() = Some(selection.clone());
 
     {
         let inner_s = inner.clone();
         selection.connect_selection_changed(move |model, _pos, _n| {
-            // The single-package callback only fires a package when
-            // exactly one row is selected (0 or 2+ both report `None`,
-            // same as before multi-select existed) — every consumer of
-            // it (the detail pane) only ever made sense for a single
-            // package anyway. Bulk actions instead read the selection
-            // directly at the point they need it (see
-            // `selected_packages` / the context menu).
+            // Fires a package only when exactly one row is selected (0
+            // or 2+ both report None); bulk actions read the selection
+            // directly instead (see `selected_packages`).
             let bitset = model.selection();
             let pkg = if bitset.size() == 1 {
                 model
@@ -435,17 +407,10 @@ fn build(inner: Rc<Inner>) {
     column_view.set_vexpand(true);
 
     // ── Checkbox column ──────────────────────────────────────────────
-    //
-    // Lets you mark/unmark several packages directly from the list. A
-    // `gtk::ListItem` is recycled across rows as the view scrolls, but
-    // the *same* `ListItem` handle keeps being reused for a given
-    // screen row, and its `.item()` property always reflects whichever
-    // `PackageObject` is currently bound to it. Capturing a clone of
-    // the `ListItem` once, in `setup`, and reading `.item()` fresh
-    // inside the "toggled" handler therefore always resolves the
-    // correct currently-bound package — the Rust equivalent of the
-    // original's `g_object_get_data(cb, "list-item")` lookup at click
-    // time, without needing to stash anything by hand.
+    // A recycled `ListItem`'s `.item()` always reflects whichever
+    // `PackageObject` is currently bound to it, so capturing the
+    // `ListItem` in `setup` and reading `.item()` fresh in the "toggled"
+    // handler always resolves the correct currently-bound package.
     {
         let store = inner.store.clone();
         let on_marks_changed = inner.clone();
@@ -469,9 +434,7 @@ fn build(inner: Rc<Inner>) {
                     on_checkbox_toggled(cb, &obj, &store, &on_marks_changed);
                 });
                 // SAFETY: standard glib idiom for stashing per-widget
-                // state that a later, separate closure (bind, below)
-                // needs to retrieve — mirrors the original's
-                // `g_object_set_data`/`g_object_get_data` use exactly.
+                // state the `bind` closure below needs to retrieve.
                 unsafe {
                     cb.set_data("toggle-handler-id", handler_id);
                 }
@@ -484,22 +447,14 @@ fn build(inner: Rc<Inner>) {
                 let cb = item.child().and_downcast::<gtk::CheckButton>().unwrap();
                 let p = obj.pkg();
 
-                // Checking this box when unmarked maps to Upgrade (if
-                // upgradable), Install (if not installed), or Remove
-                // otherwise — mirroring `on_checkbox_toggled`'s own
-                // branching exactly. Essential only actually blocks the
-                // Remove case (Upgrade and Install are always fine on
-                // an essential package, same as the context menu/detail
-                // pane), and never blocks *unchecking* an existing mark.
+                // Mirrors `on_checkbox_toggled`'s branching. Essential
+                // only blocks the Remove case, never unchecking a mark.
                 let would_remove = p.mark == PkgMark::None
                     && p.state != PkgState::Upgradable
                     && p.state != PkgState::NotInstalled;
                 let blocked = p.essential && would_remove;
 
-                // Block while we set the programmatic state so this
-                // rebind doesn't itself fire "toggled" (which would
-                // otherwise re-open the deps-confirm dialog on every
-                // scroll for an already-marked not-yet-installed row).
+                // Block signal so this rebind doesn't itself fire "toggled".
                 let handler_id = unsafe { cb.data::<glib::SignalHandlerId>("toggle-handler-id") };
                 if let Some(id) = handler_id {
                     let id_ref = unsafe { id.as_ref() };
@@ -553,11 +508,9 @@ fn build(inner: Rc<Inner>) {
     column_view.append_column(&col_status);
 
     // ── Package name column ──────────────────────────────────────────
-    // Also carries a right-click context menu (Mark for Install/
-    // Upgrade/Removal/Purge/Unmark) — same identity-by-`item.item()`
-    // trick as the checkbox column above, so the menu always acts on
-    // whichever package is currently bound to this row, not whichever
-    // one was there when the row widget was first created.
+    // Also carries a right-click context menu; same identity-by-
+    // `item.item()` trick as the checkbox column so it acts on
+    // whichever package is currently bound to the row.
     let col_name = make_col(
         "Package",
         200,
@@ -582,11 +535,8 @@ fn build(inner: Rc<Inner>) {
                         return;
                     }
                     let pos = li.position();
-                    // Right-clicking a row that's already part of a
-                    // multi-row selection acts on the whole selection
-                    // (standard file-manager convention); right-clicking
-                    // anything else replaces the selection with just
-                    // that row, same as a plain click would.
+                    // Right-click on a row already in a multi-selection
+                    // acts on the whole selection; otherwise replaces it.
                     if !selection.is_selected(pos) || selection.selection().size() <= 1 {
                         selection.select_item(pos, true);
                     }
@@ -720,19 +670,14 @@ fn build(inner: Rc<Inner>) {
     set_column_sorter(&col_dsize, |a, b| a.download_size.cmp(&b.download_size));
     column_view.append_column(&col_dsize);
 
-    // Now that every column has its own GtkSorter, hand the column
-    // view's auto-managed combined sorter to the GtkSortListModel —
-    // this is what makes clicking a header actually sort the list.
+    // Hands the column view's combined sorter to the model — this is
+    // what makes clicking a header actually sort the list.
     sort_model.set_sorter(column_view.sorter().as_ref());
 
-    // Sensible default ordering on first load.
     column_view.sort_by_column(Some(&col_name), gtk::SortType::Ascending);
 
-    // Double-click (or Enter on the selected row) is a quick shortcut
-    // for the same toggle the checkbox column and context menu offer —
-    // `single-click-activate` defaults to false, so this only fires on
-    // an actual double-click/Enter, never a plain single click (which
-    // only changes selection, handled above).
+    // Double-click (or Enter) toggles the mark, same as the checkbox
+    // column / context menu.
     {
         let inner = inner.clone();
         let selection = selection;
@@ -751,15 +696,10 @@ fn build(inner: Rc<Inner>) {
     scroll.set_child(Some(&column_view));
     inner.widget.append(&scroll);
 
-    // GTK's ColumnView auto-scrolls to keep the selected/focused row in
-    // view whenever the model's item order changes — including a plain
-    // resort from clicking a column header, where nothing the user
-    // would call "scrolling" actually happened; the row just moved
-    // underneath them. Work around it by snapshotting the scroll
-    // position the moment the sort criteria changes (before the
-    // reorder or any auto-scroll happens) and reasserting it on the
-    // next main-loop iteration, once GTK has finished whatever layout
-    // pass it wanted to do for this cycle.
+    // GTK's ColumnView auto-scrolls to keep the selected row in view on
+    // any resort, even a plain header-click resort. Work around it by
+    // snapshotting the scroll position before the reorder and
+    // reasserting it on the next main-loop iteration.
     if let Some(sorter) = column_view.sorter() {
         let vadj = scroll.vadjustment();
         sorter.connect_changed(move |_, _| {
@@ -772,11 +712,9 @@ fn build(inner: Rc<Inner>) {
     }
 }
 
-/// Double-click (or Enter) shortcut: clears an existing mark, or
-/// applies the obvious one for the package's current state (Install,
-/// with the same deps confirmation as everywhere else; Upgrade if one's
-/// available; otherwise Remove, unless the package is essential — same
-/// guard the checkbox column and detail pane apply).
+/// Double-click (or Enter) shortcut: clears an existing mark, or applies
+/// the obvious one for the package's current state (Install, Upgrade,
+/// or Remove unless essential).
 fn toggle_mark(
     root: Option<gtk::Window>,
     store: &PackageStore,
@@ -803,9 +741,7 @@ fn toggle_mark(
     }
 }
 
-/// Sets `mark` on `pkgname` and fires every registered
-/// `on_marks_changed` listener. Shared by the checkbox column and the
-/// right-click context menu.
+/// Sets `mark` on `pkgname` and fires every `on_marks_changed` listener.
 fn set_mark_and_notify(store: &PackageStore, inner: &Rc<Inner>, pkgname: &str, mark: PkgMark) {
     store.set_mark(pkgname, mark);
     for f in inner.on_marks_changed.borrow().iter() {
@@ -813,13 +749,9 @@ fn set_mark_and_notify(store: &PackageStore, inner: &Rc<Inner>, pkgname: &str, m
     }
 }
 
-/// Marking a not-yet-installed package for install first checks whether
-/// it drags in further not-yet-installed dependencies and confirms with
-/// the user (see `deps_confirm`). Asynchronous: `on_result` fires with
-/// `true` if the mark was actually applied, `false` if the user
-/// canceled — the caller decides what, if anything, to do with either
-/// outcome (the checkbox column reverts its checkbox; the context menu
-/// has nothing to revert).
+/// Marking a not-yet-installed package for install first confirms
+/// dragged-in dependencies (see `deps_confirm`). `on_result` fires with
+/// whether the mark was actually applied.
 fn request_install_with_confirm(
     root: Option<gtk::Window>,
     store: &PackageStore,
@@ -839,10 +771,9 @@ fn request_install_with_confirm(
     });
 }
 
-/// Marking an installed package for Remove/Purge first checks whether
-/// any other still-to-be-installed package depends on it (see
-/// `remove_confirm`). Same `on_result(applied)` shape as
-/// `request_install_with_confirm` above.
+/// Marking an installed package for Remove/Purge first confirms reverse-
+/// dependency impact (see `remove_confirm`). Same shape as
+/// `request_install_with_confirm`.
 fn request_remove_with_confirm(
     root: Option<gtk::Window>,
     store: &PackageStore,
@@ -868,10 +799,9 @@ fn request_remove_with_confirm(
     );
 }
 
-/// Whether `mark` is a meaningful action to offer for `pkg` right now —
-/// shared between building menu labels (counting how many selected
-/// packages a mark would apply to) and actually applying a bulk mark,
-/// so the count shown always matches what clicking the button does.
+/// Whether `mark` is a meaningful action to offer for `pkg` right now.
+/// Shared between menu-label counting and actually applying a bulk mark
+/// so the two stay in sync.
 pub fn mark_applies_to(pkg: &Package, mark: PkgMark) -> bool {
     match mark {
         PkgMark::Install => pkg.state == PkgState::NotInstalled && pkg.mark == PkgMark::None,
@@ -883,13 +813,9 @@ pub fn mark_applies_to(pkg: &Package, mark: PkgMark) -> bool {
     }
 }
 
-/// (button label, target mark, enabled) for a right-clicked selection —
-/// one package, or several when multiple rows are selected. One entry
-/// per mark that applies to at least one package in `pkgs`, labeled
-/// with how many it would affect once there's more than one (singular
-/// wording — "Mark for Installation" rather than "Mark 1 for
-/// Installation" — when there's exactly one, matching how this menu
-/// always read before multi-select existed).
+/// (button label, target mark) for a right-clicked selection. One entry
+/// per mark that applies to at least one package in `pkgs`, with a
+/// count in the label once more than one package is selected.
 fn context_menu_items(pkgs: &[Package]) -> Vec<(String, PkgMark)> {
     let multi = pkgs.len() > 1;
     let mut items = Vec::new();
@@ -921,13 +847,10 @@ fn context_menu_items(pkgs: &[Package]) -> Vec<(String, PkgMark)> {
     items
 }
 
-/// Multi-row counterpart to `request_remove_with_confirm`: Remove/Purge
-/// applied to several packages at once first shows one aggregate
-/// reverse-dependency confirmation covering the whole batch (see
-/// `remove_confirm::confirm_bulk_remove_impact`), then applies the mark
-/// via `apply_bulk_mark` — same as every other bulk mark — only if the
-/// user proceeds. The only bulk-mark path with a confirmation step;
-/// Install/Upgrade/Unmark bulk marks go straight through `apply_bulk_mark`.
+/// Multi-row counterpart to `request_remove_with_confirm`: one aggregate
+/// reverse-dependency confirmation for the whole batch, then
+/// `apply_bulk_mark` if the user proceeds. The only bulk-mark path with
+/// a confirmation step.
 fn request_bulk_remove_with_confirm(
     root: Option<gtk::Window>,
     store: &PackageStore,
@@ -959,15 +882,10 @@ fn request_bulk_remove_with_confirm(
     );
 }
 
-/// Applies `mark` to every package in `pkgs` it's actually applicable
-/// to (see `mark_applies_to`) and fires `on_marks_changed` once. Used
-/// for multi-row selections. Doesn't confirm anything itself — Install/
-/// Upgrade/Unmark bulk marks call this directly and rely on the
-/// pre-Apply summary and xbps's own dependency resolution to catch
-/// anything that matters (asking once per selected package would mean a
-/// chain of N modal dialogs); Remove/Purge instead go through
-/// `request_bulk_remove_with_confirm`, which confirms once for the
-/// whole batch before calling this.
+/// Applies `mark` to every package in `pkgs` it's applicable to (see
+/// `mark_applies_to`) and fires `on_marks_changed` once. Doesn't confirm
+/// anything itself — Remove/Purge go through
+/// `request_bulk_remove_with_confirm` first instead.
 fn apply_bulk_mark(store: &PackageStore, inner: &Rc<Inner>, pkgs: &[Package], mark: PkgMark) {
     let names: std::collections::HashSet<String> = pkgs
         .iter()
@@ -994,12 +912,9 @@ fn selected_packages(selection: &gtk::MultiSelection) -> Vec<Package> {
     out
 }
 
-/// Builds and pops up a small right-click menu, anchored at `(x, y)`
-/// within `widget`, offering mark actions for `selected` (a single
-/// package, or several when multiple rows are selected). A fresh
-/// `gtk::Popover` per invocation (rather than one reused instance)
-/// keeps this stateless between rows; `connect_closed` unparents it so
-/// it doesn't linger once dismissed.
+/// Builds and pops up a right-click menu at `(x, y)` within `widget`. A
+/// fresh `gtk::Popover` per invocation keeps this stateless between
+/// rows; `connect_closed` unparents it so it doesn't linger.
 fn show_context_menu(
     widget: &gtk::Widget,
     x: f64,
@@ -1083,11 +998,9 @@ fn show_context_menu(
     popover.popup();
 }
 
-/// Unchecks `cb` without re-firing its own "toggled" handler — but only
-/// if it's still showing the same package `expected_name` was bound to
-/// when the async confirmation dialog was opened (list virtualization
-/// may have rebound this exact widget to a different row while the
-/// modal was up).
+/// Unchecks `cb` without re-firing "toggled" — but only if it's still
+/// showing `expected_name` (list virtualization may have rebound this
+/// widget to a different row while the async confirmation was open).
 fn revert_checkbox_if_still_bound(
     obj_weak: &glib::object::WeakRef<PackageObject>,
     cb_weak: &glib::object::WeakRef<gtk::CheckButton>,
@@ -1131,10 +1044,8 @@ fn on_checkbox_toggled(
         return;
     }
 
-    // Both remaining cases (installing something new, or removing an
-    // installed one) go through an async confirmation first — deps for
-    // installs, reverse-deps impact for removals — and revert the
-    // checkbox on cancel using the same shared helper.
+    // Both remaining cases go through an async confirmation first and
+    // revert the checkbox on cancel.
     let root = cb.root().and_downcast::<gtk::Window>();
     let obj_weak = glib::object::ObjectExt::downgrade(obj);
     let cb_weak = glib::object::ObjectExt::downgrade(cb);

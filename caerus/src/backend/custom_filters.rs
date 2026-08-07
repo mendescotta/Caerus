@@ -28,10 +28,8 @@ pub enum FilterKind {
 
 /// What the package list is currently narrowed by: one of the seven
 /// preset sidebar modes, or a user-defined custom filter. The custom
-/// variant carries its patterns *by value*, resolved by the sidebar at
-/// selection time — the list widget never needs access to the
-/// persistence store, and a name going stale after a delete/rename is
-/// structurally impossible (the sidebar simply re-emits).
+/// variant carries its patterns by value, resolved by the sidebar at
+/// selection time, so the list widget never needs the persistence store.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActiveFilter {
     Preset(FilterMode),

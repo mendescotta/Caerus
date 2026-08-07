@@ -1,12 +1,8 @@
 //! "Purge Old Kernels" — a thin GUI over `vkpurge`, the standalone Void
 //! script (not an xbps tool) that removes kernel files/modules a kernel
-//! upgrade left behind once nothing needs them anymore. Listing is a
-//! read-only local scan (`vkpurge list`: reads `/boot`, cross-checks
-//! `xbps-query -o` ownership and the running `uname -r`, no root
-//! needed), so — like `file_owner_dialog`'s `xbps-query -o` — it runs
-//! directly from the unprivileged GUI process; only the actual removal
-//! (which `vkpurge` itself refuses to run as non-root) goes through
-//! `caerus-helper` via `pkexec`.
+//! upgrade left behind. Listing (`vkpurge list`) is a read-only local
+//! scan needing no root, so it runs directly from the GUI process; only
+//! the actual removal goes through `caerus-helper` via `pkexec`.
 
 use crate::backend::transaction::Transaction;
 use crate::ui::apply_dialog;

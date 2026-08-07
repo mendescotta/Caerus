@@ -20,8 +20,7 @@ use std::rc::Rc;
 const MAX_IMPACT_ROWS: usize = 200;
 
 /// Whether (`state`, `mark`) means this package is still going to be
-/// installed after the batch runs: already-installed and not itself
-/// marked for Remove/Purge.
+/// installed after the batch runs.
 fn is_still_installed_afterward(state: PkgState, mark: PkgMark) -> bool {
     let installed = matches!(
         state,
@@ -45,17 +44,12 @@ pub fn confirm_remove_impact(
     pkgname: &str,
     cb: impl Fn(bool) + 'static,
 ) {
-    // The reverse-dependency walk runs on the xbps worker thread; the
-    // dialog (or the fast-path `cb(true)`) follows once it reports back,
-    // keeping the main loop responsive even if the worker is mid-reload.
     let parent = parent.cloned();
     let store2 = store.clone();
     let pkgname = pkgname.to_string();
     store.get_rdeps_transitive_async(&pkgname.clone(), move |rdeps| {
-        // Transitive: `(affected_pkgname, direct_parent_that_pulled_it_in)`.
-        // A name reached only through an intermediate package (parent !=
-        // `pkgname` itself) gets annotated "(via parent)" below so the
-        // dialog shows *why* it would break, not just that it would.
+        // A name reached only through an intermediate package gets
+        // annotated "(via parent)" below.
         let affected: Vec<(String, String)> = rdeps
             .unwrap_or_default()
             .into_iter()
@@ -76,13 +70,9 @@ pub fn confirm_remove_impact(
     });
 }
 
-/// Multi-root counterpart to `confirm_remove_impact`, for a bulk Remove/
-/// Purge mark applied to several packages at once (Delete over a
-/// multi-selection, or the right-click context menu's bulk action): one
-/// aggregate confirmation for the whole batch instead of either no
-/// confirmation (every other bulk mark) or a chain of N per-package
-/// dialogs. `names` is the batch itself — empty resolves `cb(true)`
-/// immediately, same as the no-impact fast path below.
+/// Multi-root counterpart to `confirm_remove_impact`: one aggregate
+/// confirmation for a whole batch instead of a chain of N per-package
+/// dialogs. Empty `names` resolves `cb(true)` immediately.
 pub fn confirm_bulk_remove_impact(
     parent: Option<&gtk::Window>,
     store: &PackageStore,
@@ -109,13 +99,8 @@ pub fn confirm_bulk_remove_impact(
 }
 
 /// Pure filter over a raw multi-root transitive-rdeps walk: the subset
-/// that would actually break a still-installed package, excluding the
-/// removal selection itself (`roots`) — belt-and-suspenders on top of
-/// the worker's multi-root BFS already seeding `visited` with every
-/// root, so this stays correct even fed a hand-built walk. `snapshot`
-/// mirrors `get_missing_deps_async`'s name -> (state, mark) map so this
-/// needs no live `PackageStore`/GTK access, which is what makes it
-/// directly testable.
+/// that would actually break a still-installed package, excluding
+/// `roots` itself.
 fn bulk_affected(
     roots: &HashSet<String>,
     snapshot: &HashMap<String, (PkgState, PkgMark)>,
@@ -133,20 +118,15 @@ fn bulk_affected(
 }
 
 /// Splits `sorted` into the rows to actually display (at most `cap`) and
-/// how many were left out — pure so the truncation math is testable
-/// without a GTK list to inspect.
+/// how many were left out.
 fn capped_rows(sorted: &[(String, String)], cap: usize) -> (&[(String, String)], usize) {
     let visible = sorted.len().min(cap);
     (&sorted[..visible], sorted.len() - visible)
 }
 
-/// `roots` is the package (single-item slice) or batch (multi-item)
-/// being removed — used both for the heading's subject and to decide
-/// whether a row's "(via parent)" annotation is worth showing (omitted
-/// when `parent` is itself one of the roots, since that's just "it").
-/// Caps the list at `MAX_IMPACT_ROWS` with a summary row for the rest —
-/// a glibc-scale reverse-dependency closure can otherwise dump hundreds
-/// of rows into the dialog.
+/// `roots` is the package or batch being removed, used for the
+/// heading's subject and to decide whether a row's "(via parent)"
+/// annotation is worth showing. Caps the list at `MAX_IMPACT_ROWS`.
 fn show_impact_dialog(
     parent: Option<&gtk::Window>,
     roots: &[String],
@@ -173,8 +153,6 @@ fn show_impact_dialog(
     heading.set_wrap(true);
     outer.append(&heading);
 
-    // Same list-box style as `deps_confirm`'s own list and the detail
-    // pane's Dependencies list, not a wrapped comma-separated line.
     let scroll = gtk::ScrolledWindow::new();
     scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
     scroll.set_propagate_natural_height(true);
@@ -206,9 +184,6 @@ fn show_impact_dialog(
     btn_box.append(&remove_btn);
     outer.append(&btn_box);
 
-    // Cancel is the safer default — both as the Enter target and the
-    // initial focus (also sidesteps the selectable-list-row-grabs-
-    // focus-on-open issue the other confirm dialogs had).
     dlg.set_default_widget(Some(&cancel_btn));
 
     {
