@@ -1,10 +1,7 @@
-//! Preset filter sidebar. Rust translation of `ui/filter_sidebar.{h,c}`
-//! (built directly in code here rather than from a `GtkBuilder` .ui file
-//! — see the top-level README for why).
+//! Preset filter sidebar.
 //!
 //! Row order must stay in sync with `FilterMode::from_row_index` in
-//! backend/package.rs, exactly like the original's comment about
-//! `on_preset_selected()`'s use of `gtk_list_box_row_get_index()`.
+//! backend/package.rs.
 
 use crate::backend::custom_filters::{ActiveFilter, CustomFilters, FilterKind};
 use crate::backend::package::FilterMode;
@@ -27,8 +24,7 @@ const NUM_PRESET_ROWS: i32 = 7;
 
 /// An operational command living in the sidebar's MAINTENANCE / TOOLS
 /// sections (or the REPOSITORIES section's manage row). The sidebar only
-/// emits these; `window.rs` routes each to the same handler the old app
-/// menu used.
+/// emits these; `window.rs` routes each to its handler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarAction {
     FullUpgrade,
@@ -207,12 +203,8 @@ fn make_row(icon: &str, label: &str) -> gtk::ListBoxRow {
 }
 
 /// A custom-filter row: same icon+label shape as `make_row`, but
-/// ellipsized like `make_text_row` since filter names are user-typed
-/// and can run long. The icon distinguishes Exclude ("hides matches",
-/// reusing the "Not Installed" preset's icon) from IncludeOnly ("shows
-/// only matches", reusing "Installed"'s) at a glance, both already
-/// bundled via `USED_SYMBOLIC_ICONS` in window.rs for the preset rows
-/// above.
+/// ellipsized since filter names are user-typed and can run long. Icon
+/// distinguishes Exclude from IncludeOnly.
 fn make_custom_filter_row(name: &str, kind: FilterKind) -> gtk::ListBoxRow {
     let icon = match kind {
         FilterKind::Exclude => "list-remove-symbolic",
@@ -362,13 +354,10 @@ fn show_rename_dialog(
     present_focused(&dlg, &entry);
 }
 
-/// Rebuilds the custom-filter rows below the fixed presets after an add/
-/// rename/remove in the "Edit Custom Filters…" dialog. Mirrors
-/// `set_available_repositories`'s snapshot-reselect approach: if the
-/// previously-selected custom filter still exists (by name — indices
-/// shift on add/remove), the selection carries over; otherwise falls
-/// back to "All" (also covers the deleted-while-active case, and the
-/// renaming-the-active-filter wart called out in the plan).
+/// Rebuilds the custom-filter rows below the fixed presets after an
+/// add/rename/remove. If the previously-selected filter still exists
+/// (by name — indices shift), selection carries over; otherwise falls
+/// back to "All".
 fn refresh_custom_rows(inner: &Rc<Inner>) {
     let previously_selected = inner
         .preset_lb
@@ -407,11 +396,8 @@ fn refresh_custom_rows(inner: &Rc<Inner>) {
         .map_or(0, |pos| pos as i32 + NUM_PRESET_ROWS);
 
     if let Some(row) = inner.preset_lb.row_at_index(restore_index) {
-        // A restored custom row is always a freshly-recreated widget, so
-        // this reliably fires "row-selected" even when the logical
-        // selection (by name) didn't change. Falling back to row 0
-        // ("All") when it was already selected is a harmless no-op —
-        // nothing about the active filter changed either way.
+        // A freshly-recreated row, so this reliably fires "row-selected"
+        // even when the logical selection didn't change.
         inner.preset_lb.select_row(Some(&row));
     }
 }
@@ -649,13 +635,9 @@ impl FilterSidebar {
             });
         }
 
-        // Selects "All" visually. NOTE: exactly like the original, this
-        // fires "filter-changed" synchronously during construction,
-        // before the caller has had a chance to call
-        // `connect_filter_changed` — so that first emission is
-        // silently dropped. Harmless only because `PackageList`'s own
-        // default (`FilterMode::All`) already matches; see the same
-        // caveat in the original ui/filter_sidebar.c.
+        // Fires "filter-changed" synchronously during construction,
+        // before a caller can connect — dropped harmlessly since
+        // `PackageList`'s own default already matches `FilterMode::All`.
         if let Some(row0) = preset_lb.row_at_index(0) {
             preset_lb.select_row(Some(&row0));
         }
@@ -678,10 +660,7 @@ impl FilterSidebar {
                 }
             });
         }
-        // Same first-emission caveat as the preset list above: fires
-        // during construction, before the caller can connect — harmless
-        // since `PackageList`'s own default (no repository filter)
-        // already matches "All Repositories".
+        // Same first-emission caveat as the preset list above.
         if let Some(row0) = repo_lb.row_at_index(0) {
             repo_lb.select_row(Some(&row0));
         }
@@ -704,14 +683,9 @@ impl FilterSidebar {
             .push(Box::new(f));
     }
 
-    /// Resets to "All" / "All Repositories" — used by `window.rs`'s
-    /// jump-to-package fallback when a Dependencies/Reverse Dependencies
-    /// row is clicked but the target package is hidden by the current
-    /// filter/repo selection. Goes through `preset_lb`/`repo_lb`'s own
-    /// row selection (the same path a user clicking those rows by hand
-    /// takes), so `connect_filter_changed`/`connect_repository_changed`
-    /// fire normally and `PackageList` stays in sync without this
-    /// needing to call it directly.
+    /// Resets to "All" / "All Repositories" via the same row-selection
+    /// path a user click takes, so `connect_filter_changed`/
+    /// `connect_repository_changed` fire normally.
     pub fn reset_to_all(&self) {
         if let Some(row) = self.inner.preset_lb.row_at_index(0) {
             self.inner.preset_lb.select_row(Some(&row));
@@ -813,10 +787,8 @@ fn rebuild_repo_rows(inner: &Rc<Inner>) {
         .map_or(0, |pos| pos as i32 + 1);
 
     if let Some(row) = inner.repo_lb.row_at_index(restore_index) {
-        // Every row was just recreated, so nothing is selected yet —
-        // this always fires "row-selected", which notifies listeners
-        // with the correct value (restored, or reset to "All", which
-        // also covers hiding the currently-selected stale repo).
+        // Every row was just recreated, so this always fires
+        // "row-selected" with the restored (or "All") value.
         inner.repo_lb.select_row(Some(&row));
     }
 }

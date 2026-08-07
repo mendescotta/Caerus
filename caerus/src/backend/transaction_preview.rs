@@ -2,11 +2,7 @@
 //! same mechanism `xbps-install -n` itself uses: call
 //! `xbps_transaction_install_pkg`/`_update_pkg`/`_remove_pkg` for every
 //! marked package, then `xbps_transaction_prepare()` and read back
-//! `xh.transd` *without* ever calling `xbps_transaction_commit()`.
-//!
-//! Property names and error-code mapping below were confirmed against
-//! Void's own `bin/xbps-install/transaction.c`/`util.c` (upstream
-//! `void-linux/xbps`), not guessed from the `xbps.h` doc comments alone.
+//! `xh.transd` without ever calling `xbps_transaction_commit()`.
 
 /// One requested change, mirroring `PkgMark` but is what actually gets
 /// fed to the `xbps_transaction_*` calls.

@@ -1,12 +1,9 @@
 //! Pre-Apply confirmation: summarizes exactly what's about to happen
 //! before the privileged batch is queued. When a real `libxbps`-computed
-//! preview is available (see `backend::transaction_preview` — built from
-//! `xbps_transaction_prepare()`, the same mechanism `xbps-install -n`
-//! itself uses), shows actual per-package sizes/versions/actions and a
-//! "Copy Dry-Run Output" button instead of just grouped name lists. Falls
-//! back to the plain name-list rendering if no preview was computed
-//! (`preview: None`) — callers that haven't wired preview computation yet
-//! keep working unchanged. Same manual-widget style as `deps_confirm.rs`.
+//! preview is available (see `backend::transaction_preview`, built from
+//! `xbps_transaction_prepare()`), shows actual per-package sizes/
+//! versions/actions and a "Copy Dry-Run Output" button; otherwise falls
+//! back to plain grouped name lists.
 
 use crate::backend::package::pkg_format_size;
 use crate::backend::transaction_preview::{TransAction, TransactionError, TransactionPreview};
@@ -16,9 +13,7 @@ use crate::ui::dialog_util::{
 use gtk::prelude::*;
 use std::rc::Rc;
 
-/// A section header: title + a count pill (see the 0.5 design-language
-/// rule — counts render as pills, never "(N)" text), same shape as
-/// `detail_pane::relation_field`'s header row.
+/// A section header: title + a count pill.
 fn section_header(title: &str, count: usize) -> gtk::Box {
     let header_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     header_row.set_margin_top(8);
@@ -32,10 +27,8 @@ fn section_header(title: &str, count: usize) -> gtk::Box {
     header_row
 }
 
-/// Same look as the Dependencies/Reverse Dependencies lists in the
-/// detail pane (see `detail_pane::populate`): a plain `ListBox` of
-/// selectable-text rows, not a wrapped comma-separated label — easier
-/// to scan and to select one name out of a long list.
+/// A plain `ListBox` of selectable-text rows, not a wrapped
+/// comma-separated label.
 fn section(outer: &gtk::Box, title: &str, names: &[String]) {
     if names.is_empty() {
         return;
@@ -54,10 +47,9 @@ fn section(outer: &gtk::Box, title: &str, names: &[String]) {
 }
 
 /// Same shape as `section()` above, but sourced from real preview items
-/// for one `TransAction` bucket — each row shows version + real size
-/// instead of just the bare name. Purge's orphan-removal cascade shows up
-/// here for free: those extra packages arrive as ordinary `Remove` items
-/// in `xh.transd`, alongside whatever the user directly marked.
+/// for one `TransAction` bucket — each row shows version + real size.
+/// Purge's orphan-removal cascade shows up here for free, as ordinary
+/// `Remove` items alongside whatever the user directly marked.
 fn preview_section(
     outer: &gtk::Box,
     title: &str,
@@ -142,15 +134,12 @@ fn error_banner(outer: &gtk::Box, err: &TransactionError) {
 }
 
 /// Shows a summary dialog and calls `cb(true)` if the user confirms,
-/// `cb(false)` if they cancel (button or window-close, same as
-/// `deps_confirm`). Never called with everything empty — the caller
-/// (`window.rs::on_apply_clicked`) already returns early in that case.
+/// `cb(false)` if they cancel. Never called with everything empty — the
+/// caller already returns early in that case.
 ///
-/// `preview` is the result of `PackageStore::preview_transaction()`:
-/// `Some(Ok(p))` renders real per-package data, `Some(Err(e))` shows the
-/// libxbps-reported problem above the plain name-list fallback, `None`
-/// renders the plain name-list summary alone (e.g. the worker thread
-/// couldn't be reached).
+/// `preview`: `Some(Ok(p))` renders real per-package data, `Some(Err(e))`
+/// shows the libxbps-reported problem above the name-list fallback,
+/// `None` renders the plain name-list summary alone.
 pub fn confirm(
     parent: Option<&gtk::Window>,
     installs: &[String],
@@ -163,9 +152,7 @@ pub fn confirm(
     let (dlg, outer) = modal_window("Confirm Changes", parent, true, (480, -1), 4);
 
     // With a real preview, count what the transaction will actually
-    // touch (marked packages plus whatever dependencies libxbps pulled
-    // in) — otherwise the heading would say "3 packages" above a list
-    // visibly showing more.
+    // touch (including deps libxbps pulled in), not just what was marked.
     let total = match &preview {
         Some(Ok(p)) => p.items.len(),
         _ => installs.len() + upgrades.len() + removes.len() + purges.len(),
@@ -230,9 +217,6 @@ pub fn confirm(
         btn_box.append(&copy_btn);
     }
 
-    // Removing/purging anything (or a failed dry-run) makes this the
-    // riskier action of the two possible framings; installs/upgrades
-    // alone, with a clean dry-run, stay "suggested".
     let had_error = matches!(preview, Some(Err(_)));
     let destructive = !removes.is_empty() || !purges.is_empty() || had_error;
     let apply_label = if had_error { "Apply Anyway" } else { "Apply" };
@@ -245,8 +229,6 @@ pub fn confirm(
     btn_box.append(&apply_btn);
     outer.append(&btn_box);
 
-    // Same default-widget/focus target: Enter activates Cancel rather
-    // than a destructive Apply when removals/purges/errors are involved.
     dlg.set_default_widget(Some(if destructive { &cancel_btn } else { &apply_btn }));
 
     let cb = Rc::new(cb);

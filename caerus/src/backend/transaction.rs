@@ -1,33 +1,22 @@
 //! `Transaction` — drives `caerus-helper` as a long-lived child process,
 //! spawned via `pkexec` directly (the GUI itself is never privileged).
-//! Rust translation of backend/transaction.{h,c}.
 //!
 //! One instance lives for the whole app session: create it once, call
-//! `run_batch()` each time there's a new batch of commands. The
-//! underlying helper process is spawned lazily on first use and then
-//! kept alive — repeated batches do NOT re-trigger authentication.
+//! `run_batch()` each time there's a new batch of commands. The helper
+//! is spawned lazily on first use and kept alive — repeated batches do
+//! NOT re-trigger authentication.
 //!
 //! Batches are first-class: each `run_batch()` call carries its own
 //! completion callback, batches queued while another is in flight wait
-//! their turn (they never merge), and a failed command aborts only the
-//! batch it belongs to — queued batches behind it still run.
+//! their turn, and a failed command aborts only the batch it belongs to.
 //!
-//! The helper is only ever told to exit (QUIT) in two situations:
-//!   - it has sat idle (no command in flight, none queued) for
-//!     `IDLE_TIMEOUT`, or
-//!   - `shutdown()` is called explicitly (app exit).
+//! The helper is told to exit (QUIT) only after `IDLE_TIMEOUT` idle, or
+//! on explicit `shutdown()`; the next `run_batch()` after that
+//! transparently respawns it.
 //!
-//! Either way, the *next* call to `run_batch()` after that transparently
-//! respawns the helper — a fresh `pkexec` prompt — since this is
-//! indistinguishable from first use.
-//!
-//! Callbacks (all invoked on the main thread, mirroring the original's
-//! `GObject` signals):
-//!   `connect_log`          (line: &str)              -- every raw line
-//!   `connect_disconnected` (`DisconnectReason`)          -- helper exited
-//! Batch completion is NOT a session-wide signal: it's the per-batch
-//! `on_finished` closure passed to `run_batch()`, which fires exactly
-//! once (success, a failed command, or a disconnect all resolve it).
+//! Callbacks (invoked on the main thread): `connect_log` (every raw
+//! line), `connect_disconnected` (helper exited). Batch completion is
+//! per-batch, via the `on_finished` closure passed to `run_batch()`.
 
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -73,28 +62,16 @@ impl Batch {
 }
 
 /// Why the helper connection ended, passed to `connect_disconnected`
-/// listeners — distinguishes "nothing to worry about" from "this will
-/// keep failing every time" so the UI can give an actionable message
-/// instead of a generic one, without assuming anything about which
-/// desktop environment (or none at all) the user is running.
+/// listeners so the UI can give an actionable message.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DisconnectReason {
-    /// `shutdown()` or the idle timeout's own `QUIT` — expected, no UI
-    /// action needed.
+    /// `shutdown()` or the idle timeout's own `QUIT` — expected.
     Expected,
-    /// The helper died after successfully authenticating and sending
-    /// `READY` at least once (crashed, killed, etc) — unexpected, but
-    /// the *next* attempt will simply re-authenticate and likely work.
+    /// Helper died after successfully authenticating — retrying will
+    /// likely just work.
     Unexpected,
-    /// `pkexec` itself never got past authentication — the helper
-    /// never sent `READY`, so this session's `TxnState` never left
-    /// `Spawning`. Most commonly: no polkit authentication agent is
-    /// registered for this session at all (a real possibility on a
-    /// bare window manager setup that never started one — GNOME/KDE/
-    /// XFCE start one automatically, a minimal WM doesn't), the user
-    /// cancelled/failed the prompt, or `pkexec` itself isn't usable.
-    /// Unlike `Unexpected`, simply retrying won't help without fixing
-    /// the underlying cause first.
+    /// `pkexec` never got past authentication (no polkit agent, user
+    /// cancelled, etc) — retrying alone won't help.
     AuthFailed,
 }
 
@@ -130,10 +107,7 @@ impl Transaction {
             on_disconnected: RefCell::new(Vec::new()),
         });
 
-        // One persistent poll, for the object's whole lifetime, rather
-        // than one per spawn — same reasoning as PackageStore's reload
-        // poll: only plain `String` data crosses the worker-thread
-        // boundary, applied here on the main thread only.
+        // One persistent poll for the object's whole lifetime.
         let txn = Self { inner };
         {
             let weak = Rc::downgrade(&txn.inner);
@@ -149,13 +123,9 @@ impl Transaction {
         txn
     }
 
-    /// Every `connect_*` returns an id that a later `disconnect_*` call
-    /// can use to remove that one listener. Callers that attach a
-    /// listener for the duration of something shorter than the
-    /// `Transaction`'s own lifetime (e.g. a single apply/sync dialog)
-    /// must disconnect it themselves once done — otherwise it stays
-    /// registered (and keeps firing, against stale UI state) for as
-    /// long as the session itself lives.
+    /// Every `connect_*` returns an id a later `disconnect_*` call uses
+    /// to remove that listener. Callers with a shorter lifetime than the
+    /// `Transaction` (e.g. a single dialog) must disconnect themselves.
     fn next_id(&self) -> u64 {
         let id = self.inner.next_listener_id.get();
         self.inner.next_listener_id.set(id + 1);
@@ -186,11 +156,9 @@ impl Transaction {
             .retain(|(i, _)| *i != id);
     }
 
-    // Each `emit_*` clones the current listener `Rc`s into a temporary
-    // `Vec` and drops the `RefCell` borrow before invoking any of them,
-    // specifically so a listener is free to call `disconnect_*` (on
-    // itself or another id) from within its own callback without
-    // hitting a double-borrow panic.
+    // Clones listener `Rc`s and drops the RefCell borrow before invoking
+    // any of them, so a listener can call `disconnect_*` from its own
+    // callback without a double-borrow panic.
     fn emit_log(&self, line: &str) {
         let cbs: Vec<LogCb> = self
             .inner
@@ -217,26 +185,16 @@ impl Transaction {
     }
 
     /// Queues `commands` (protocol lines, no trailing newline) as one
-    /// batch and ensures the helper is running (spawning/authenticating
-    /// if needed). `on_finished` fires exactly once, on the main
-    /// thread, when this batch — and only this batch — resolves:
-    /// `true` after every command answered OK, `false` on the first
-    /// ERROR, a helper disconnect, or a spawn failure. Batches queued
-    /// while another is in flight wait their turn; they never merge
-    /// into the running batch's outcome.
+    /// batch and ensures the helper is running. `on_finished` fires
+    /// exactly once when this batch resolves: `true` after every
+    /// command answered OK, `false` on the first ERROR, a disconnect, or
+    /// a spawn failure.
     ///
-    /// Refuses (and logs, rather than silently dropping) any command
-    /// containing a control character. Every caller builds these lines
-    /// by joining package/repo names that ultimately come from repo
-    /// index data, not literal user input — `write_line` below appends
-    /// exactly one `\n` per queued command, so a name with an embedded
-    /// `\n` (or other control character) would otherwise let a single
-    /// malicious/malformed repo entry smuggle a second, unintended
-    /// command into this already-`pkexec`-authenticated session. This
-    /// is the single choke point every command line passes through
-    /// (via `apply_dialog::run`), so it covers every verb — including
-    /// ones like `INSTALL`/`REMOVE` that don't do their own validation
-    /// the way `repo_manager`'s URL entry does.
+    /// Refuses (and logs) any command containing a control character:
+    /// since `write_line` appends exactly one `\n` per command, an
+    /// embedded newline in a package/repo name could smuggle a second
+    /// command into the already-authenticated session. This is the
+    /// single choke point every command line passes through.
     pub fn run_batch(&self, commands: Vec<String>, on_finished: impl FnOnce(bool) + 'static) {
         let mut accepted: VecDeque<String> = VecDeque::with_capacity(commands.len());
         for command in commands {
@@ -277,11 +235,9 @@ impl Transaction {
     }
 
     /// Drains the whole batch queue, resolving every callback with
-    /// failure — spawn failed or the helper disconnected, so none of
-    /// the queued work can run. The queue is snapshotted before any
-    /// callback runs, so a callback is free to call `run_batch` again
-    /// (respawning the helper) without its fresh batch being swept up
-    /// in this failure pass.
+    /// failure. Snapshotted before any callback runs, so a callback is
+    /// free to call `run_batch` again without its fresh batch being
+    /// swept up in this failure pass.
     fn fail_all_batches(&self) {
         let batches = std::mem::take(&mut *self.inner.batches.borrow_mut());
         for batch in batches {
@@ -357,10 +313,8 @@ impl Transaction {
         let stdout = child.stdout.take().expect("helper stdout was piped");
         let stderr = child.stderr.take().expect("helper stderr was piped");
 
-        // Forward stdout+stderr into one channel (functional equivalent
-        // of the original's dup2()-based G_SUBPROCESS_FLAGS_STDERR_MERGE),
-        // then reap the child once both readers finish. Nothing outside
-        // this closure ever touches `child` again.
+        // Forward stdout+stderr into one channel, then reap the child
+        // once both readers finish.
         let (line_tx, line_rx) = mpsc::channel::<String>();
         let tx_out = line_tx.clone();
         let out_handle = thread::spawn(move || {
@@ -433,13 +387,11 @@ impl Transaction {
         }
     }
 
-    /// Advances the queue: sends the front batch's next command, or —
-    /// when the front batch has no commands left — resolves it as
-    /// successful and moves on to the next batch, going `Idle` only
-    /// once the queue is empty. Each completed batch's callback runs
-    /// with no queue borrow held (it may call `run_batch` itself; the
-    /// state is still `Busy` at that point, so the new batch just
-    /// queues and this loop picks it up).
+    /// Advances the queue: sends the front batch's next command, or
+    /// resolves it and moves to the next batch, going `Idle` only once
+    /// the queue is empty. Runs each callback with no queue borrow held
+    /// (it may call `run_batch` itself; state is still `Busy`, so the
+    /// new batch just queues and this loop picks it up).
     fn send_next_command(&self) {
         loop {
             enum Step {
@@ -491,9 +443,8 @@ impl Transaction {
             return;
         }
         if line.starts_with("ERROR") {
-            // Abort only the batch the failed command belongs to —
-            // its remaining commands are dropped with it. Batches
-            // queued behind it are independent requests and still run.
+            // Abort only the batch the failed command belongs to;
+            // batches queued behind it still run.
             let failed = self.inner.batches.borrow_mut().pop_front();
             if let Some(batch) = failed {
                 batch.finish(false);
@@ -510,11 +461,8 @@ impl Transaction {
             return;
         }
         let expected = self.inner.intentional_quit.get();
-        // Still `Spawning` here means `READY` was never received — the
-        // helper process (if it ever even started) never got as far as
-        // `send_next_command`, which is the only place that moves state
-        // out of `Spawning`. That's the distinguishing signal for
-        // "pkexec never authenticated" versus "the helper died later".
+        // Still `Spawning` means `READY` was never received — the only
+        // signal that distinguishes "never authenticated" from "died later".
         let never_authenticated = self.inner.state.get() == TxnState::Spawning;
 
         *self.inner.stdin.borrow_mut() = None;
@@ -533,17 +481,11 @@ impl Transaction {
         };
         self.emit_disconnected(reason);
 
-        // Every unresolved batch — the one mid-flight and any queued
-        // behind it — resolves as failed, so nothing waiting on an
-        // `on_finished` hangs forever. State is already `NotRunning`,
-        // so a callback that retries via `run_batch` respawns cleanly.
         self.fail_all_batches();
     }
 
-    /// Shared by both the idle-timeout and the explicit `shutdown()`
-    /// entry point: tell the helper to exit, then tear our own state
-    /// down immediately rather than waiting on the process's own exit
-    /// timing.
+    /// Shared by the idle-timeout and explicit `shutdown()`: tell the
+    /// helper to exit, then tear our own state down immediately.
     fn initiate_shutdown(&self, reason_log: Option<&str>) {
         self.inner.intentional_quit.set(true);
         if let Some(r) = reason_log {
@@ -593,9 +535,7 @@ fn which(program: &str) -> Option<PathBuf> {
 }
 
 /// A protocol command line is safe to queue iff it contains no control
-/// characters — see `run_batch`'s doc comment for why an embedded
-/// newline (or any other control character) in a package/repo name
-/// must never reach the already-authenticated helper.
+/// characters — see `run_batch`'s doc comment.
 fn command_is_safe(command: &str) -> bool {
     !command.chars().any(char::is_control)
 }

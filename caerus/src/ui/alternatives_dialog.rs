@@ -15,12 +15,10 @@ use std::process::Command;
 use std::rc::Rc;
 
 /// `xbps-alternatives -l` (no group filter) only reports each group's
-/// *current* provider, not the full candidate list — the full list per
-/// group only comes back when a specific group is requested via `-g`
-/// (confirmed empirically: compare plain `-l` against `-g <group> -l`
-/// for the same group). So this overview is only good for building the
-/// left-hand group list; `fetch_candidates` below does the per-group
-/// follow-up query, lazily, once a group is actually selected.
+/// current provider, not the full candidate list — the full list only
+/// comes back when a specific group is requested via `-g`. So this
+/// overview only builds the left-hand group list; the per-group
+/// follow-up query happens lazily once a group is selected.
 fn parse_overview(output: &std::process::Output) -> Vec<(String, String)> {
     let text = String::from_utf8_lossy(&output.stdout);
     let mut out = Vec::new();
@@ -266,11 +264,7 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
     }
     refresh_groups(&inner);
 
-    // Without an explicit focus target, GTK auto-focuses the first
-    // focusable widget on present — the first row of `groups_list` here
-    // — which also auto-selects that group (firing `refresh_providers`
-    // for a group the user never actually clicked). Same class of
-    // unwanted-auto-focus issue `present_focused` exists to avoid
-    // elsewhere in this project's dialogs.
+    // Without an explicit focus target, GTK would auto-focus (and
+    // auto-select) the first `groups_list` row on present.
     present_focused(&dlg, &close_btn);
 }

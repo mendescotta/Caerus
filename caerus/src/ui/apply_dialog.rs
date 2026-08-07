@@ -1,8 +1,7 @@
 //! Shows a modal progress dialog and runs `commands` on `session` — an
-//! existing, caller-owned `Transaction`. The dialog does not create,
-//! destroy, or take ownership of `session`; it stays alive after the
-//! dialog closes, so the next call reuses it without re-authenticating.
-//! Rust translation of `ui/apply_dialog.{h,c}`.
+//! existing, caller-owned `Transaction`. The dialog doesn't own
+//! `session`; it stays alive after the dialog closes so the next call
+//! reuses it without re-authenticating.
 
 use crate::backend::transaction::{DisconnectReason, Transaction};
 use crate::ui::dialog_util::modal_window;
@@ -11,9 +10,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 /// How many packages this batch actually names, summed across every
-/// command that takes package-name arguments (INSTALL/REMOVE/PURGE/HOLD/
-/// UNHOLD) — used only to show a "package N of M" counter; commands with
-/// no package-name concept (SYNC, UPGRADE, ORPHANS, ...) don't contribute.
+/// package-name-taking command, for the "package N of M" counter.
 fn count_target_packages(commands: &[String]) -> usize {
     commands
         .iter()
@@ -51,21 +48,12 @@ fn strip_log_decoration(line: &str) -> String {
 
 /// Extracts the leading `<pkgver>` identifier from an already
 /// decoration-stripped xbps status line, e.g. `foo-1.0_1: unpacking
-/// ...` -> `Some("foo-1.0_1")`. Returns `None` for lines with no such
-/// prefix — banner lines like `Downloading packages`, or anything else
-/// that doesn't name a specific package.
+/// ...` -> `Some("foo-1.0_1")`. Returns `None` for banner lines that
+/// don't name a specific package.
 ///
-/// xbps-install emits *several* differently-worded lines for the same
-/// single package over its lifecycle (confirmed against the literal
-/// format strings embedded in the `xbps-install` binary: `%s:
-/// unpacking ...`, `%s: configuring ...`, `%s: installed
-/// successfully.`, etc — no backticks, unlike an earlier version of
-/// this comment assumed). The progress counter below used to treat
-/// every distinct *raw line* as a new package, which overcounts by
-/// 2-4x and makes "Package N of M" hit its cap — and visually get
-/// stuck there — long before the batch is actually done. Counting
-/// distinct pkgver prefixes instead tracks the real per-package
-/// boundary.
+/// xbps-install emits several differently-worded lines per package over
+/// its lifecycle; counting distinct raw lines instead of distinct
+/// pkgver prefixes overcounts and makes "Package N of M" stall early.
 fn extract_pkgver(line: &str) -> Option<&str> {
     let idx = line.find(": ")?;
     let candidate = &line[..idx];
@@ -76,12 +64,8 @@ fn extract_pkgver(line: &str) -> Option<&str> {
 }
 
 /// The helper emits one line per percentage tick while a package
-/// downloads/installs/verifies — xbps-install's own progress format is
-/// `%s: [%s %d%%] %s ETA: %s` (confirmed against its format strings),
-/// i.e. a plain integer immediately followed by a single `%` somewhere
-/// in the line. Returns the *last* such `<digits>%` run in the line
-/// (the ETA/size fields after it don't contain '%', but this is the
-/// safer direction regardless).
+/// downloads/installs/verifies (xbps-install format: `%s: [%s %d%%] %s
+/// ETA: %s`). Returns the last `<digits>%` run in the line.
 fn extract_percentage(line: &str) -> Option<u8> {
     let bytes = line.as_bytes();
     for (i, &b) in bytes.iter().enumerate().rev() {
@@ -129,15 +113,9 @@ pub fn run(
     action_label.add_css_class("dim-label");
     outer.append(&action_label);
 
-    // Thicker than the GTK4 default (see the `.apply-progress` CSS rule
-    // in window.rs). GtkProgressBar's own `show-text`/`text` property
-    // lays its label out as a *sibling* of the trough (above the bar,
-    // not on top of it — confirmed visually), so getting the text
-    // genuinely inside the bar needs a real overlay: the label is a
-    // separate widget stacked on top of the bar via `GtkOverlay`, kept
-    // in sync manually via `bar_text_label` below. This replaces the
-    // separate progress-count label the dialog used to show above the
-    // bar.
+    // GtkProgressBar's own `show-text` lays the label as a sibling of
+    // the trough, not on top of it — a real `GtkOverlay` is needed to
+    // get text genuinely inside the bar.
     let progress_bar = gtk::ProgressBar::new();
     progress_bar.add_css_class("apply-progress");
     let bar_text_label = gtk::Label::new(None);
@@ -169,12 +147,8 @@ pub fn run(
     close_btn.set_sensitive(false);
     outer.append(&close_btn);
 
-    // Starts as an indeterminate pulse — commands like SYNC/HOLD/ORPHANS
-    // report no percentage at all, so there's nothing better to show
-    // until (if ever) a real one shows up. The moment `append_log` sees
-    // an actual percentage tick (see `extract_percentage`), it flips
-    // `pulsing` to false, which stops this timer for good and switches
-    // the bar to a real fraction from then on.
+    // Indeterminate pulse until `append_log` sees a real percentage tick
+    // (some commands like SYNC/HOLD/ORPHANS never report one).
     let pulsing = Rc::new(Cell::new(true));
     {
         let pulsing = pulsing.clone();
@@ -189,19 +163,12 @@ pub fn run(
     }
 
     // Package counter: counts transitions between distinct `pkgver`
-    // prefixes (see `extract_pkgver`) rather than distinct raw lines, so
-    // the several different status lines xbps prints per package don't
-    // each count as a separate one. Capped at `total_pkgs` as a
-    // last-resort safety net, not the primary correctness mechanism.
+    // prefixes (see `extract_pkgver`), capped at `total_pkgs`.
     let seen_count = Rc::new(Cell::new(0usize));
     let last_pkgver: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
     let last_pct: Rc<Cell<Option<u8>>> = Rc::new(Cell::new(None));
-    // The helper streams the raw underlying command output verbatim,
-    // and a multi-command batch (or the underlying process itself) can
-    // repeat the exact same status line back to back — e.g. a
-    // "[*] Downloading packages" banner or a "foo-1.0_1: unpacking ..."
-    // line showing up twice in a row. Nothing new happened the second
-    // time, so it's suppressed rather than shown twice.
+    // A multi-command batch can repeat the exact same status line back
+    // to back; suppress the repeat instead of showing it twice.
     let last_logged_line: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
 
     let set_bar_text = {
@@ -210,10 +177,6 @@ pub fn run(
         let last_pct = last_pct.clone();
         move || {
             let n = seen_count.get();
-            // A known percentage is always displayed — previously a
-            // multi-package batch whose first progress ticks arrived
-            // before any per-package status line (n still 0) showed
-            // nothing inside the bar despite having a live percentage.
             let text = match (total_pkgs > 1 && n > 0, last_pct.get()) {
                 (true, Some(p)) => format!("Package {n} of {total_pkgs} — {p}%"),
                 (true, None) => format!("Package {n} of {total_pkgs}"),
@@ -224,12 +187,8 @@ pub fn run(
         }
     };
 
-    // Styled log rendering: xbps's raw output is a wall of uniform
-    // monospace; a handful of `GtkTextTag`s make it scannable — errors
-    // red, per-package completions green, "[*]"-style phase banners
-    // bold, and protocol chatter (OK/READY/session notes) dimmed. The
-    // colors are from GNOME's palette midtones, picked to stay legible
-    // on both light and dark backgrounds.
+    // Styled log rendering: errors red, per-package completions green,
+    // phase banners bold, protocol chatter dimmed.
     let buf = text_view.buffer();
     let tag_error = gtk::TextTag::builder().foreground("#ed333b").build();
     let tag_success = gtk::TextTag::builder().foreground("#2ec27e").build();
@@ -248,11 +207,8 @@ pub fn run(
         let last_logged_line = last_logged_line.clone();
         Rc::new(move |line: &str| {
             if let Some(pct) = extract_percentage(line) {
-                // A real progress tick — switch the bar from pulsing to
-                // an actual fraction. Still not logged to the Details
-                // pane individually; there can be dozens of these per
-                // file and the surrounding "foo: unpacking ..." line
-                // already says what's happening.
+                // Not logged to the Details pane individually — there
+                // can be dozens per file.
                 pulsing.set(false);
                 progress_bar.set_fraction(f64::from(pct) / 100.0);
                 last_pct.set(Some(pct));
@@ -275,8 +231,7 @@ pub fn run(
             } else if clean.ends_with("successfully.") {
                 (clean.clone(), Some(&tag_success))
             } else if clean.starts_with('(') {
-                // This dialog's own annotations, e.g. "(privileged
-                // session ended)".
+                // This dialog's own annotations.
                 (clean.clone(), Some(&tag_dim))
             } else {
                 (clean.clone(), None)
@@ -310,14 +265,9 @@ pub fn run(
         })
     };
 
-    // This dialog's two listeners (log + disconnected) live on the
-    // shared, long-lived `session` — not on the dialog itself — so
-    // they must be detached once this batch is done, or they'd keep
-    // firing (against a destroyed dialog's widgets) on every future
-    // batch for the rest of the app's lifetime. The batch's own
-    // `on_finished` closure fires exactly once (success, a failed
-    // command, or a mid-batch disconnect all resolve it), so it's the
-    // one reliable place to detach both.
+    // These listeners live on the shared, long-lived `session`, so they
+    // must be detached once this batch finishes or they'd keep firing
+    // against a destroyed dialog for the rest of the app's lifetime.
     let log_id = {
         let append_log = append_log.clone();
         session.connect_log(move |line| append_log(line))
@@ -350,14 +300,8 @@ pub fn run(
             pulsing.set(false);
             spinner.stop();
             progress_bar.set_fraction(1.0);
-            // The last percentage tick seen is almost never really 100 —
-            // e.g. a package's last log line before "installed
-            // successfully" might be a download tick partway through, or
-            // there may be no percentage-bearing line for it at all — so
-            // leaving that stale number in the overlay text once the
-            // whole batch is done (irrespective of success/failure) reads
-            // as a bug. The bar's fraction above already shows 1.0/full;
-            // the count (if any) is the only part still meaningful here.
+            // The last percentage tick seen is rarely actually 100, so
+            // drop it from the overlay text; the count is still meaningful.
             bar_text_label.set_text(&if total_pkgs > 1 {
                 format!("Package {} of {}", seen_count.get(), total_pkgs)
             } else {
@@ -383,14 +327,9 @@ pub fn run(
         close_btn.connect_clicked(move |_| dlg_c.destroy());
     }
     {
-        // The Close button is disabled while a batch is in flight, but
-        // that alone doesn't stop the window manager's own close
-        // affordance. The underlying xbps operation would still run to
-        // completion regardless (it's driven by the long-lived
-        // session, not the dialog) — but nothing would clear marks or
-        // reload afterward if the dialog (and its `finished` listener)
-        // disappeared early. Block the close request outright while
-        // busy, matching the disabled button.
+        // Disabling the Close button doesn't stop the WM's own close
+        // affordance; block the close request outright while busy so
+        // the dialog (and its finished listener) can't disappear early.
         let close_btn = close_btn;
         dlg.connect_close_request(move |_| {
             if close_btn.is_sensitive() {
@@ -406,9 +345,7 @@ pub fn run(
 }
 
 /// Same as [`run`], but also records the batch to
-/// `crate::backend::history` before `done_cb` fires — the shape every
-/// call site that cares about history needs, so they don't each hand-clone
-/// `commands` into the closure themselves.
+/// `crate::backend::history` before `done_cb` fires.
 pub fn run_recorded(
     parent: Option<&gtk::Window>,
     session: &Transaction,
