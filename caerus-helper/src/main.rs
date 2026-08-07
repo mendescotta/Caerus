@@ -1,13 +1,10 @@
 //! caerus-helper — transaction executor, spawned by caerus via `pkexec`.
 //!
-//! Direct Rust translation of the original C helper (src/helper/
-//! caerus-helper.c). caerus itself runs entirely unprivileged; only this
-//! helper is ever elevated. It has no GTK, no libxbps FFI, and (by
-//! design — see Cargo.toml) no dependencies at all: it is the one
-//! privileged component in the project, so it stays as small and
-//! auditable as possible, exactly like its C predecessor.
+//! caerus itself runs entirely unprivileged; only this helper is ever
+//! elevated. No GTK, no libxbps FFI, and (see Cargo.toml) no
+//! dependencies at all — kept as small and auditable as possible.
 //!
-//! Protocol (line-oriented stdin/stdout), unchanged from the original:
+//! Protocol (line-oriented stdin/stdout):
 //!   READY            — helper ready, sent once at startup
 //!   INSTALL p1 p2    — install (or upgrade) packages
 //!   REMOVE  p1 p2    — remove packages
@@ -48,16 +45,14 @@
 //!   OK               — current command completed successfully
 //!   ERROR <msg>      — current command failed
 
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::os::unix::io::AsRawFd;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
 
 fn assert_root() {
-    // SAFETY: getuid() takes no arguments and cannot fail; it is a
-    // pure syscall wrapper. This is the one unsafe FFI call in the
-    // whole binary (equivalent to the original's getuid() from
-    // <unistd.h>), used only for this same-as-before startup check.
+    // SAFETY: getuid() takes no arguments and cannot fail.
     let uid = unsafe { libc_getuid() };
     if uid != 0 {
         eprintln!("caerus-helper: must run as root");
@@ -65,19 +60,21 @@ fn assert_root() {
     }
 }
 
-// Minimal manual declaration instead of pulling in the `libc` crate for
-// a single syscall — keeps this privileged binary's dependency graph at
+// Minimal manual declarations instead of pulling in the `libc` crate for
+// two syscalls — keeps this privileged binary's dependency graph at
 // exactly zero external crates.
 extern "C" {
     #[link_name = "getuid"]
     fn libc_getuid() -> u32;
+    #[link_name = "flock"]
+    fn libc_flock(fd: i32, operation: i32) -> i32;
 }
 
+const LOCK_EX: i32 = 2;
+
 /// Runs `argv`, streaming its stdout+stderr back to our own stdout as
-/// `LOG <line>` lines (matching the original's combined-pipe behaviour
-/// closely enough for a progress log: both streams are forwarded live,
-/// each line as soon as it's flushed by the child). Returns the child's
-/// exit code, or `None` if it could not even be spawned.
+/// `LOG <line>` lines. Returns the child's exit code, or `None` if it
+/// could not be spawned.
 fn run_xbps(argv: &[&str]) -> Option<i32> {
     let mut child = match Command::new(argv[0])
         .args(&argv[1..])
@@ -97,14 +94,9 @@ fn run_xbps(argv: &[&str]) -> Option<i32> {
     let stdout = child.stdout.take().expect("child stdout was piped");
     let stderr = child.stderr.take().expect("child stderr was piped");
 
-    // Forward both streams concurrently. A channel + two reader threads
-    // is simpler and dependency-free compared to replicating the
-    // original's dup2()-based fd merge, and is functionally equivalent
-    // for our purposes: every line from either stream is relayed live,
-    // just not guaranteed to be in exact chronological interleave order
-    // relative to each other (irrelevant here — nothing downstream
-    // parses ordering between stdout and stderr, only the presence of
-    // each line).
+    // Forward both streams concurrently via a channel + two reader
+    // threads; interleave order between stdout/stderr isn't guaranteed,
+    // which is fine since nothing downstream parses it.
     let (tx, rx) = mpsc::channel::<String>();
 
     let tx_out = tx.clone();
@@ -137,26 +129,16 @@ fn run_xbps(argv: &[&str]) -> Option<i32> {
     child.wait().map_or(None, |status| status.code())
 }
 
-/// Splits whitespace-separated package names out of `rest` (everything
-/// after the command verb), owned `String`s.
+/// Splits whitespace-separated package names out of `rest`.
 ///
-/// Every `argv` built from this helper's output puts a `--` right
-/// before these names (see the `INSTALL`/`REMOVE`/`PURGE`/`HOLD`/
-/// `UNHOLD` handlers below) — package names ultimately come from repo
-/// index data, not literal user input, and without `--` a name starting
-/// with `-` would be parsed by the underlying xbps tool as one of its
-/// own flags (e.g. something resembling `--rootdir=...`) instead of a
-/// package name.
+/// Every argv built from these names includes a `--` right before them,
+/// so a name starting with `-` isn't parsed as an xbps flag.
 fn split_pkgnames(rest: &str) -> Vec<String> {
     rest.split_whitespace().map(str::to_owned).collect()
 }
 
-/// Maps a protocol verb (already stripped of its trailing space and
-/// package-name argument, e.g. `"PURGE"`) to the base xbps argv it
-/// should run, before package names are appended — the exact place a
-/// mismatched flag would silently produce the wrong real-world
-/// `xbps-remove`/`xbps-install`/`xbps-pkgdb` invocation. Kept as a pure
-/// mapping, separate from actually running anything, so it's
+/// Maps a protocol verb to the base xbps argv it should run, before
+/// package names are appended. Kept as a pure mapping so it's
 /// unit-testable without spawning a privileged process.
 fn argv_for(verb: &str) -> Option<&'static [&'static str]> {
     Some(match verb {
@@ -180,8 +162,7 @@ fn argv_for(verb: &str) -> Option<&'static [&'static str]> {
 }
 
 /// Runs `verb`'s mapped argv (see `argv_for`) against `pkgs` and
-/// responds OK/ERROR — the shared body behind every pkg-name-taking
-/// protocol verb below.
+/// responds OK/ERROR.
 fn run_pkg_command(verb: &str, pkgs: &[String], err_msg: &str) {
     let base = argv_for(verb).expect("run_pkg_command called with a known verb");
     let mut argv: Vec<&str> = base.to_vec();
@@ -199,32 +180,50 @@ fn respond_ok_or(success: bool, err_msg: &str) {
     let _ = io::stdout().flush();
 }
 
-/// ADDREPO only ever appends to this caerus-owned file. REMOVEREPO/
-/// ENABLEREPO/DISABLEREPO operate on any `/etc/xbps.d/*.conf`, but only
-/// ever add/remove/comment exact `repository=<url>` lines — never other
-/// content. Vendor files under /usr/share/xbps.d are never edited; a
-/// vendor repo is disabled by writing a same-name override into
-/// /etc/xbps.d (the xbps.d(5) shadowing rule).
+/// ADDREPO only appends to this caerus-owned file. REMOVEREPO/
+/// ENABLEREPO/DISABLEREPO operate on any `/etc/xbps.d/*.conf`, only ever
+/// touching exact `repository=<url>` lines. Vendor files under
+/// /usr/share/xbps.d are never edited; a vendor repo is disabled via a
+/// same-name override in /etc/xbps.d (the xbps.d(5) shadowing rule).
 const MANAGED_REPO_CONF: &str = "/etc/xbps.d/90-caerus.conf";
 const ETC_XBPS_D: &str = "/etc/xbps.d";
 const VENDOR_XBPS_D: &str = "/usr/share/xbps.d";
 
-/// Rejects control characters before either repo function ever touches
-/// the conf file. The GUI's own repo-manager dialog and `Transaction::
-/// add_command`'s blanket check already keep these out of anything sent
-/// down this protocol today, but this is the one privileged component in
-/// the project — it shouldn't rely entirely on a well-behaved caller to
-/// keep an embedded newline from smuggling a second, unintended
+/// Rejects control characters before either repo function touches the
+/// conf file — this is the privileged component, so it shouldn't rely
+/// entirely on the caller to keep a newline from smuggling a second
 /// `repository=...` line into a file it writes as root.
 fn has_control_char(s: &str) -> bool {
     s.chars().any(char::is_control)
+}
+
+/// Opens `path` read/write (creating it if needed) and holds an
+/// exclusive `flock` for the lifetime of the returned `File` — the lock
+/// releases on close/drop. Serializes concurrent caerus-helper instances
+/// against a read-then-write race on the same conf file.
+fn open_locked(path: &std::path::Path) -> Result<std::fs::File, String> {
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false) // caller reads existing content before any write
+        .open(path)
+        .map_err(|e| e.to_string())?;
+    // SAFETY: fd is a valid, open file descriptor for the file's lifetime.
+    if unsafe { libc_flock(file.as_raw_fd(), LOCK_EX) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    Ok(file)
 }
 
 fn add_repo(url: &str) -> Result<(), String> {
     if has_control_char(url) {
         return Err("refusing to add a repository URL with control characters".to_string());
     }
-    let existing = std::fs::read_to_string(MANAGED_REPO_CONF).unwrap_or_default();
+    let mut file = open_locked(std::path::Path::new(MANAGED_REPO_CONF))?;
+    let mut existing = String::new();
+    file.read_to_string(&mut existing)
+        .map_err(|e| e.to_string())?;
     let line = format!("repository={url}");
     if existing.lines().any(|l| l == line) {
         return Ok(()); // already present, nothing to do
@@ -235,7 +234,10 @@ fn add_repo(url: &str) -> Result<(), String> {
     }
     updated.push_str(&line);
     updated.push('\n');
-    std::fs::write(MANAGED_REPO_CONF, updated).map_err(|e| e.to_string())
+    file.set_len(0).map_err(|e| e.to_string())?;
+    file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+    file.write_all(updated.as_bytes())
+        .map_err(|e| e.to_string())
 }
 
 // Hidden dotfiles are skipped — xbps itself ignores them.
@@ -258,6 +260,19 @@ fn conf_paths(dir: &str) -> Vec<std::path::PathBuf> {
     paths
 }
 
+/// Opens an already-existing file read/write, locked (see
+/// `open_locked`), or `None` if it can't be opened — used where a
+/// missing file is a normal "nothing to do" case, not an error.
+fn open_locked_existing(path: &std::path::Path) -> Option<std::fs::File> {
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .ok()?;
+    // SAFETY: fd is a valid, open file descriptor for the file's lifetime.
+    (unsafe { libc_flock(file.as_raw_fd(), LOCK_EX) } == 0).then_some(file)
+}
+
 /// Rewrites `line` occurrences in the file via `map`; Ok(true) if the
 /// file contained the line and was rewritten.
 fn rewrite_conf(
@@ -265,9 +280,12 @@ fn rewrite_conf(
     map: impl Fn(&str) -> Option<String>,
 ) -> Result<bool, String> {
     use std::fmt::Write as _;
-    let Ok(existing) = std::fs::read_to_string(path) else {
+    let Some(mut file) = open_locked_existing(path) else {
         return Ok(false);
     };
+    let mut existing = String::new();
+    file.read_to_string(&mut existing)
+        .map_err(|e| e.to_string())?;
     let mut hit = false;
     let mut updated = String::new();
     for l in existing.lines() {
@@ -284,7 +302,10 @@ fn rewrite_conf(
         }
     }
     if hit {
-        std::fs::write(path, updated).map_err(|e| e.to_string())?;
+        file.set_len(0).map_err(|e| e.to_string())?;
+        file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+        file.write_all(updated.as_bytes())
+            .map_err(|e| e.to_string())?;
     }
     Ok(hit)
 }
@@ -329,7 +350,10 @@ fn toggle_repo(url: &str, enable: bool) -> Result<(), String> {
             continue;
         };
         let target = std::path::Path::new(ETC_XBPS_D).join(name);
-        return std::fs::write(target, copy).map_err(|e| e.to_string());
+        let mut file = open_locked(&target)?;
+        file.set_len(0).map_err(|e| e.to_string())?;
+        file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+        return file.write_all(copy.as_bytes()).map_err(|e| e.to_string());
     }
     Ok(())
 }
@@ -374,12 +398,9 @@ fn main() {
         }
 
         if line == "UPGRADE" {
-            // When the `xbps` package itself has an update pending,
-            // `xbps-install -Su` deliberately updates only xbps and
-            // exits EBUSY (16), expecting to be re-run for the rest of
-            // the system — see xbps-install(1). A CLI user re-runs it by
-            // hand; do that one re-run here instead of surfacing a
-            // baffling "upgrade failed" for documented behavior.
+            // xbps-install -Su updates only xbps first and exits EBUSY
+            // (16) if it self-updated, expecting a re-run — see
+            // xbps-install(1). Do that re-run automatically.
             const EBUSY: i32 = 16;
             let mut code = run_xbps(&["xbps-install", "-y", "-Su"]);
             if code == Some(EBUSY) {
@@ -414,10 +435,8 @@ fn main() {
         }
 
         if let Some(rest) = line.strip_prefix("PURGE ") {
-            // xbps has no dpkg-style "purge config files" concept; -R
-            // recursively drops packages that become orphaned as a
-            // result of this removal, the closest equivalent — same
-            // rationale as the original C helper.
+            // xbps has no dpkg-style "purge config files"; -R recursively
+            // drops packages orphaned by this removal instead.
             let pkgs = split_pkgnames(rest);
             if pkgs.is_empty() {
                 println!("ERROR no packages specified");
@@ -435,8 +454,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            // -I: ignore detected file conflicts — a fallback for when a
-            // plain INSTALL failed because of one, not offered up front.
+            // -I: ignore detected file conflicts.
             run_pkg_command("INSTALL_FORCE", &pkgs, "forced install failed");
             continue;
         }
@@ -448,8 +466,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            // -F: force removal even with unresolved revdeps/shared
-            // libraries — a fallback for when a plain REMOVE failed.
+            // -F: force removal even with unresolved revdeps/shared libs.
             run_pkg_command("REMOVE_FORCE", &pkgs, "forced remove failed");
             continue;
         }
@@ -474,9 +491,8 @@ fn main() {
 
         if line == "CLEANCACHE" {
             // Single -O: drop only cache files superseded by a newer
-            // version. (Doubling it would also drop cached files for
-            // packages that aren't installed at all — not done here to
-            // keep this action's effect predictable/non-destructive.)
+            // version (doubling it would also drop files for
+            // not-installed packages — kept non-destructive).
             let code = run_xbps(&["xbps-remove", "-O"]);
             respond_ok_or(code == Some(0), "cache cleanup failed");
             continue;
@@ -511,8 +527,7 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            // -f forces re-installation of a package xbps otherwise
-            // considers already up to date and does nothing for.
+            // -f forces reinstall of a package xbps considers up to date.
             run_pkg_command("REINSTALL", &pkgs, "reinstall failed");
             continue;
         }
@@ -524,18 +539,13 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
-            // -f forces the reconfigure scripts to actually re-run for a
-            // package xbps otherwise considers already configured.
-            // xbps-reconfigure has no -y/--yes — it never prompts.
+            // -f forces re-run; xbps-reconfigure has no -y — never prompts.
             run_pkg_command("RECONFIGURE", &pkgs, "reconfigure failed");
             continue;
         }
 
         if line == "RECONFIGURE_ALL" {
-            // -f forces every package to be reconfigured even if xbps
-            // considers it already configured; -a means "every installed
-            // package" rather than a specific list — the system-wide
-            // counterpart to the per-package RECONFIGURE above.
+            // -f forces re-run; -a means every installed package.
             let code = run_xbps(&["xbps-reconfigure", "-f", "-a"]);
             respond_ok_or(code == Some(0), "reconfigure-all failed");
             continue;
@@ -548,11 +558,14 @@ fn main() {
                 let _ = io::stdout().flush();
                 continue;
             }
+            if versions.iter().any(|v| v.starts_with('-')) {
+                println!("ERROR kernel version must not start with '-'");
+                let _ = io::stdout().flush();
+                continue;
+            }
             // Not an xbps tool — `vkpurge` re-validates each version
             // against its own removable-kernel list before touching
-            // anything, so passing exactly what our own prior `vkpurge
-            // list` produced (see caerus/src/ui/vkpurge_dialog.rs, an
-            // unprivileged read run directly from the GUI) is safe.
+            // anything.
             let mut argv: Vec<&str> = vec!["vkpurge", "rm"];
             argv.extend(versions.iter().map(String::as_str));
             let code = run_xbps(&argv);
@@ -630,6 +643,11 @@ fn main() {
             let parts: Vec<&str> = rest.split_whitespace().collect();
             if parts.len() != 2 {
                 println!("ERROR expected: ALTERNATIVE <group> <pkgname>");
+                let _ = io::stdout().flush();
+                continue;
+            }
+            if parts.iter().any(|p| p.starts_with('-')) {
+                println!("ERROR group/pkgname must not start with '-'");
                 let _ = io::stdout().flush();
                 continue;
             }
