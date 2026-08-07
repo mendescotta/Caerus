@@ -232,13 +232,9 @@ fn add_new_pattern(inner: &Rc<Inner>, entry: &gtk::Entry) {
     }
 }
 
-/// Prompts for a new name for `old` and applies the rename on Save.
-/// Same shape as `filter_sidebar::show_rename_dialog` (label + entry +
-/// Cancel/Save), minus the "reset to default" option that only makes
-/// sense for repository display names. A rejected rename (invalid or
-/// already taken) is a silent no-op — the dialog just stays open,
-/// matching how `repo_manager`'s add-repository entry rejects invalid
-/// input without inline feedback.
+/// Prompts for a new name for `old` and applies the rename on Save. A
+/// rejected rename (invalid or already taken) is a silent no-op — the
+/// dialog just stays open.
 fn show_rename_filter_dialog(parent: Option<gtk::Window>, inner: &Rc<Inner>, old: String) {
     let (dlg, outer) = modal_window("Rename Filter", parent.as_ref(), false, (360, -1), 10);
 
@@ -343,10 +339,8 @@ pub fn show(
     right.append(&heading_row);
 
     // Exclude/IncludeOnly mode: a two-way segmented toggle via GTK4's
-    // `.linked` style class, matching the button clusters used
-    // elsewhere in the app (see `detail_pane::linked_cluster`).
-    // `set_group` makes the pair mutually exclusive, like radio
-    // buttons.
+    // `.linked` style class. `set_group` makes the pair mutually
+    // exclusive, like radio buttons.
     let mode_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     mode_row.add_css_class("linked");
     let mode_exclude_btn = gtk::ToggleButton::with_label("Hide Matching");
