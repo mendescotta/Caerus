@@ -100,6 +100,14 @@ struct WindowGeometry {
     /// Whether the sidebar shows repositories no longer configured in
     /// xbps.d.
     stale_repos_visible: bool,
+    /// Whether the sidebar is shown at all — previously not persisted
+    /// (always started shown); now tracked like `detail_pane_visible`.
+    sidebar_visible: bool,
+    /// Whether the (visible) sidebar renders as the narrow icon rail
+    /// instead of the full labeled layout. Kept even while the sidebar
+    /// is hidden, so re-showing it via the View menu's "Sidebar" switch
+    /// resumes whichever mode was last active.
+    sidebar_minimal: bool,
 }
 
 /// Persistence keys for the per-section booleans, in `Section::ALL`
@@ -121,6 +129,8 @@ impl Default for WindowGeometry {
             vertical_panel: false,
             status_bar_visible: true,
             stale_repos_visible: true,
+            sidebar_visible: true,
+            sidebar_minimal: false,
         }
     }
 }
@@ -210,6 +220,12 @@ impl WindowGeometry {
                 }
                 continue;
             }
+            if key == "sidebar_minimal" {
+                if let Ok(b) = value.parse::<i32>() {
+                    geometry.sidebar_minimal = b != 0;
+                }
+                continue;
+            }
             if let Ok(b) = value.parse::<i32>().map(|b| b != 0) {
                 if let Some(name) = key.strip_prefix("expanded_") {
                     if let Some(i) = SECTION_KEYS.iter().position(|k| *k == name) {
@@ -233,6 +249,10 @@ impl WindowGeometry {
                         }
                         "stale_repos" => {
                             geometry.stale_repos_visible = b;
+                            continue;
+                        }
+                        "sidebar" => {
+                            geometry.sidebar_visible = b;
                             continue;
                         }
                         _ => {}
@@ -264,14 +284,15 @@ impl WindowGeometry {
             let _ = std::fs::create_dir_all(parent);
         }
         let mut contents = format!(
-            "width={}\nheight={}\nsidebar_pos={}\ndetail_pos={}\nsync_at_launch={}\nsearch_name_only_default={}\nvertical_panel={}\n",
+            "width={}\nheight={}\nsidebar_pos={}\ndetail_pos={}\nsync_at_launch={}\nsearch_name_only_default={}\nvertical_panel={}\nsidebar_minimal={}\n",
             self.width,
             self.height,
             self.sidebar_pos,
             self.detail_pos,
             i32::from(self.sync_at_launch),
             i32::from(self.search_name_only_default),
-            i32::from(self.vertical_panel)
+            i32::from(self.vertical_panel),
+            i32::from(self.sidebar_minimal)
         );
         for (i, key) in SECTION_KEYS.iter().enumerate() {
             contents.push_str(&format!(
@@ -281,10 +302,11 @@ impl WindowGeometry {
             ));
         }
         contents.push_str(&format!(
-            "visible_detail_pane={}\nvisible_status_bar={}\nvisible_stale_repos={}\n",
+            "visible_detail_pane={}\nvisible_status_bar={}\nvisible_stale_repos={}\nvisible_sidebar={}\n",
             i32::from(self.detail_pane_visible),
             i32::from(self.status_bar_visible),
-            i32::from(self.stale_repos_visible)
+            i32::from(self.stale_repos_visible),
+            i32::from(self.sidebar_visible)
         ));
         let _ = std::fs::write(&path, contents);
     }
