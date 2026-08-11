@@ -90,19 +90,13 @@ fn run_xbps(argv: &[&str]) -> Option<i32> {
         }
     };
 
-    let stdout = match child.stdout.take() {
-        Some(s) => s,
-        None => {
-            eprintln!("caerus-helper: child stdout was not piped");
-            return None;
-        }
+    let Some(stdout) = child.stdout.take() else {
+        eprintln!("caerus-helper: child stdout was not piped");
+        return None;
     };
-    let stderr = match child.stderr.take() {
-        Some(s) => s,
-        None => {
-            eprintln!("caerus-helper: child stderr was not piped");
-            return None;
-        }
+    let Some(stderr) = child.stderr.take() else {
+        eprintln!("caerus-helper: child stderr was not piped");
+        return None;
     };
 
     // Forward both streams concurrently via a channel + two reader
@@ -175,9 +169,10 @@ fn argv_for(verb: &str) -> Option<&'static [&'static str]> {
 /// Runs `verb`'s mapped argv (see `argv_for`) against `pkgs` and
 /// responds OK/ERROR.
 fn run_pkg_command(verb: &str, pkgs: &[String], err_msg: &str) {
-    let base = match argv_for(verb) {
-        Some(b) => b,
-        None => { eprintln!("caerus-helper: unknown verb: {}", verb); respond_ok_or(false, err_msg); return; }
+    let Some(base) = argv_for(verb) else {
+        eprintln!("caerus-helper: unknown verb: {verb}");
+        respond_ok_or(false, err_msg);
+        return;
     };
     let mut argv: Vec<&str> = base.to_vec();
     argv.extend(pkgs.iter().map(String::as_str));
