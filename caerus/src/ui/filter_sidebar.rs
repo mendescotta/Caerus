@@ -126,6 +126,9 @@ struct Inner {
     /// every visible section since a hidden disclosure triangle can't be
     /// clicked).
     expanded_snapshot: RefCell<[bool; 4]>,
+    /// Whether rail mode is currently active — lets `set_minimal` and
+    /// `is_expanded` tell a real mode change from a redundant call.
+    minimal: std::cell::Cell<bool>,
 }
 
 fn repo_display_text(inner: &Inner, url: &str) -> String {
@@ -253,7 +256,7 @@ fn make_text_row(label: &str) -> gtk::ListBoxRow {
     row_box.set_margin_end(8);
     row_box.set_margin_top(5);
     row_box.set_margin_bottom(5);
-    row_box.append(&gtk::Image::from_icon_name("folder-remote-symbolic"));
+    row_box.append(&gtk::Image::from_icon_name("network-server-symbolic"));
     let l = gtk::Label::new(Some(label));
     l.set_xalign(0.0);
     l.set_hexpand(true);
@@ -272,7 +275,7 @@ fn build_repo_row(inner: &Rc<Inner>, url: String, stale: bool) -> gtk::ListBoxRo
     row_box.set_margin_end(8);
     row_box.set_margin_top(5);
     row_box.set_margin_bottom(5);
-    row_box.append(&gtk::Image::from_icon_name("folder-remote-symbolic"));
+    row_box.append(&gtk::Image::from_icon_name("network-server-symbolic"));
 
     let l = gtk::Label::new(Some(&repo_display_text(inner, &url)));
     l.set_xalign(0.0);
@@ -422,11 +425,18 @@ fn refresh_custom_rows(inner: &Rc<Inner>) {
         // even when the logical selection didn't change.
         inner.preset_lb.select_row(Some(&row));
     }
+
+    // Freshly-built rows always come back in full-mode dress — reapply
+    // rail-mode row-hiding if that's the active mode.
+    set_rows_minimal(&inner.preset_lb, inner.minimal.get());
 }
 
 /// Rail width when minimal; the sidebar's normal width otherwise (see
-/// `FilterSidebar::new`'s `set_width_request(190)`).
-const RAIL_WIDTH: i32 = 56;
+/// `FilterSidebar::new`'s `set_width_request(190)`). `pub(crate)` so
+/// `window.rs` can drive `main_paned`'s divider to match — a widget's
+/// `width_request` is only a minimum, not enough on its own to narrow an
+/// already-positioned `GtkPaned`.
+pub(crate) const RAIL_WIDTH: i32 = 56;
 const FULL_WIDTH: i32 = 190;
 
 impl FilterSidebar {
@@ -592,6 +602,7 @@ impl FilterSidebar {
             on_action: RefCell::new(Vec::new()),
             sections: [filters_section, repos_section, maint_section, tools_section],
             expanded_snapshot: RefCell::new([true; 4]),
+            minimal: std::cell::Cell::new(false),
         });
 
         // Action row dispatch: each action ListBox row maps by index to
@@ -738,10 +749,17 @@ impl FilterSidebar {
         &self.inner.sections[section.index()].container
     }
 
+    /// While minimal, every section is force-expanded on screen (so its
+    /// icons show), so the live revealer state doesn't reflect the user's
+    /// real choice — return the pre-minimal snapshot instead.
     pub fn is_expanded(&self, section: Section) -> bool {
-        self.inner.sections[section.index()]
-            .revealer
-            .reveals_child()
+        if self.inner.minimal.get() {
+            self.inner.expanded_snapshot.borrow()[section.index()]
+        } else {
+            self.inner.sections[section.index()]
+                .revealer
+                .reveals_child()
+        }
     }
 
     pub fn set_expanded(&self, section: Section, expanded: bool) {
@@ -758,6 +776,11 @@ impl FilterSidebar {
     /// (a hidden triangle can't be clicked to re-expand) with their prior
     /// expanded state restored on the way back out.
     pub fn set_minimal(&self, minimal: bool) {
+        if self.inner.minimal.get() == minimal {
+            return;
+        }
+        self.inner.minimal.set(minimal);
+
         self.inner
             .widget
             .set_width_request(if minimal { RAIL_WIDTH } else { FULL_WIDTH });
@@ -777,8 +800,8 @@ impl FilterSidebar {
 
         if !minimal {
             let snapshot = *self.inner.expanded_snapshot.borrow();
-            for (section, expanded) in self.inner.sections.iter().zip(snapshot) {
-                section.revealer.set_reveal_child(expanded);
+            for (i, expanded) in snapshot.into_iter().enumerate() {
+                self.set_expanded(Section::ALL[i], expanded);
             }
         }
 
@@ -883,4 +906,8 @@ fn rebuild_repo_rows(inner: &Rc<Inner>) {
         // "row-selected" with the restored (or "All") value.
         inner.repo_lb.select_row(Some(&row));
     }
+
+    // Freshly-built rows always come back in full-mode dress — reapply
+    // rail-mode row-hiding if that's the active mode.
+    set_rows_minimal(&inner.repo_lb, inner.minimal.get());
 }
