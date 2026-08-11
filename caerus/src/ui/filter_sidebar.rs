@@ -553,30 +553,36 @@ impl FilterSidebar {
         let tools_lb = gtk::ListBox::new();
         tools_lb.set_selection_mode(gtk::SelectionMode::None);
         tools_lb.add_css_class("navigation-sidebar");
-        let tools_actions: &[(&str, &str, SidebarAction)] = &[
+        let tools_actions: &[(&str, &str, &str, SidebarAction)] = &[
             (
                 "edit-find-symbolic",
                 "Find Owning Package\u{2026}",
+                "Look up which installed package owns a given file path",
                 SidebarAction::FindOwner,
             ),
             (
                 "object-flip-horizontal-symbolic",
                 "Alternatives\u{2026}",
+                "Manage system alternative groups — switch which provider is active for a given command or service",
                 SidebarAction::Alternatives,
             ),
             (
                 "network-server-symbolic",
                 "Manage Repositories\u{2026}",
+                "Add, remove, or reorder package sources used for syncing and installing",
                 SidebarAction::ManageRepos,
             ),
             (
                 "document-open-recent-symbolic",
                 "Transaction History\u{2026}",
+                "Browse past install, remove, and upgrade transactions",
                 SidebarAction::History,
             ),
         ];
-        for (icon, label, _) in tools_actions {
-            tools_lb.append(&make_action_row(icon, label));
+        for (icon, label, tooltip, _) in tools_actions {
+            let row = make_action_row(icon, label);
+            row.set_tooltip_text(Some(tooltip));
+            tools_lb.append(&row);
         }
 
         let tools_section = build_section(Section::Tools.title(), &tools_lb);
@@ -623,7 +629,7 @@ impl FilterSidebar {
             });
         }
         {
-            let actions: Vec<SidebarAction> = tools_actions.iter().map(|&(_, _, a)| a).collect();
+            let actions: Vec<SidebarAction> = tools_actions.iter().map(|&(_, _, _, a)| a).collect();
             let inner_weak = Rc::downgrade(&inner);
             tools_lb.connect_row_activated(move |_, row| {
                 let Some(inner) = inner_weak.upgrade() else {

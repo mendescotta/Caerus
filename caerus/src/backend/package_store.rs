@@ -60,7 +60,7 @@ pub fn package_obj_at(list: &gio::ListStore, i: u32) -> Option<PackageObject> {
     match obj.downcast::<PackageObject>() {
         Ok(po) => Some(po),
         Err(_) => {
-            eprintln!("caerus: expected PackageObject in ListStore at index {}", i);
+            eprintln!("caerus: expected PackageObject in ListStore at index {i}");
             None
         }
     }
@@ -745,9 +745,10 @@ unsafe extern "C" fn pkgdb_cb(
         );
     }
 
-// AUTOFIX: Consider replacing `.unwrap()` with `match ... { Some(x) => x, None => { eprintln!(\"...\"); return; } }` or `if let Some(x) = ...` depending on context. Found: `let p = ht.get_mut(&pkgname).unwrap();`
-
-    let p = ht.get_mut(&pkgname).unwrap();
+    let Some(p) = ht.get_mut(&pkgname) else {
+        eprintln!("caerus: expected package {pkgname} in hash table");
+        return 0;
+    };
     p.version_installed = Some(ver.clone());
     // pkgdb's own "repository" is more authoritative than a
     // currently-configured repo that happens to carry a matching pkgver.
@@ -1341,6 +1342,8 @@ unsafe fn run_preview_ops(
                 pkgname,
                 pkgver,
                 action: TransAction::from_raw(ttype),
+                arch: dict_str(pkgd, "architecture"),
+                repository: dict_str(pkgd, "repository"),
                 installed_size,
                 download_size,
             });

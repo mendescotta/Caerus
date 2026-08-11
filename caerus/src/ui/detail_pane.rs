@@ -661,7 +661,7 @@ impl DetailPane {
         empty_page.set_halign(gtk::Align::Center);
         empty_page.set_vexpand(true);
         empty_page.set_hexpand(true);
-        let empty_icon = gtk::Image::from_icon_name("view-list-symbolic");
+        let empty_icon = gtk::Image::from_icon_name("package-x-generic-symbolic");
         empty_icon.set_pixel_size(40);
         empty_icon.add_css_class("dim-label");
         let empty_title = gtk::Label::new(Some("Select a package to view details"));

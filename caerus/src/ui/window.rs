@@ -363,12 +363,20 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     let btn_reload = gtk::Button::from_icon_name("view-refresh-symbolic");
     btn_reload.set_tooltip_text(Some("Reload local package list without syncing"));
     let btn_mark_upgrades = gtk::Button::with_label("Mark All Upgrades");
+    btn_mark_upgrades.add_css_class("flat");
+    if let Some(l) = btn_mark_upgrades.child().and_downcast::<gtk::Label>() {
+        l.set_xalign(0.0);
+    }
     btn_mark_upgrades.set_tooltip_text(Some(
         "Queue every upgradable package as a pending mark, reviewed and applied via Apply \
          — unlike the app menu's Full System Upgrade, this can be combined with other \
          pending install/remove marks and reviewed before anything runs.",
     ));
     let btn_unmark_all = gtk::Button::with_label("Unmark All");
+    btn_unmark_all.add_css_class("flat");
+    if let Some(l) = btn_unmark_all.child().and_downcast::<gtk::Label>() {
+        l.set_xalign(0.0);
+    }
     btn_unmark_all.set_sensitive(false);
     btn_unmark_all.set_tooltip_text(Some(
         "Clear every pending Install/Upgrade/Remove/Purge mark",
@@ -377,8 +385,6 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     header.pack_start(&spinner);
     header.pack_start(&btn_update);
     header.pack_start(&btn_reload);
-    header.pack_start(&btn_mark_upgrades);
-    header.pack_start(&btn_unmark_all);
 
     let btn_apply = gtk::Button::new();
     btn_apply.set_sensitive(false);
@@ -575,90 +581,7 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
 
 fn install_css(window: &gtk::ApplicationWindow) {
     let css = gtk::CssProvider::new();
-    css.load_from_string(
-        ".statusbar {
-  background: @headerbar_bg_color;
-  border-top: 1px solid @borders; }
-.section-header {
-  /* No horizontal padding: must align to the same left edge as rows below. */
-  font-weight: bold; padding: 4px 0;
-  opacity: 0.55; font-size: 0.78em;
-  letter-spacing: 0.06em; }
-.detail-name { font-size: 1.35em; font-weight: 800; }
-.chip {
-  border-radius: 99px; padding: 1px 10px;
-  font-size: 0.82em; font-weight: 600;
-  background: alpha(currentColor, 0.13); }
-.chip-ok   { color: @success_color; }
-.chip-warn { color: @warning_color; }
-.chip-err  { color: @error_color; }
-.count-pill {
-  border-radius: 99px; padding: 0px 8px;
-  font-size: 0.78em;
-  background: alpha(currentColor, 0.13); }
-.inline-link {
-  padding: 0; min-height: 0; }
-/* Detail pane cards — see detail_pane.rs. */
-.card {
-  border: 1px solid @borders;
-  border-radius: 10px;
-  padding: 10px 14px 14px;
-  background: alpha(@theme_fg_color, 0.035); }
-.card-header {
-  font-weight: bold; font-size: 0.78em;
-  letter-spacing: 0.06em; text-transform: uppercase;
-  opacity: 0.85; color: @accent_color; }
-.pkg-icon {
-  border-radius: 12px; padding: 10px;
-  border: 1px solid @borders;
-  background: alpha(@theme_fg_color, 0.05); }
-/* Secondary icon-button strip in the header card. */
-.actions-secondary {
-  border-top: 1px solid @borders;
-  padding-top: 10px; }
-.icon-btn {
-  min-width: 32px; min-height: 32px; padding: 0;
-  background: alpha(currentColor, 0.08);
-  border: 1px solid alpha(currentColor, 0.18); }
-.icon-btn:hover {
-  background: alpha(currentColor, 0.18);
-  border-color: alpha(currentColor, 0.32); }
-.state-dot {
-  min-width: 8px; min-height: 8px; border-radius: 99px;
-  margin: 2px; }
-.state-dot.off { background: alpha(currentColor, 0.25); }
-.state-dot.on  { background: @accent_color; }
-/* Provides & Requires card: wrapping tag chips per subgroup. */
-.chip-flow, .chip-flow flowboxchild {
-  padding: 0; margin: 0; min-width: 0; min-height: 0; }
-.plain-tag {
-  font-family: monospace; font-size: 0.85em;
-  padding: 2px 8px; border-radius: 6px;
-  background: alpha(currentColor, 0.08);
-  border: 1px solid alpha(currentColor, 0.18); }
-.plain-tag-conflict {
-  color: @error_color; border-color: alpha(@error_color, 0.4); }
-.pkg-marked   { font-weight: bold; }
-.pkg-installed  { color: @success_color; }
-.pkg-upgradable { color: @warning_color; }
-window.utility-dialog {
-  border-radius: 12px; }
-progressbar.apply-progress trough {
-  min-height: 24px; border-radius: 99px;
-  background: alpha(@theme_fg_color, 0.08);
-  box-shadow: inset 0 1px 2px alpha(black, 0.15); }
-progressbar.apply-progress trough progress {
-  min-height: 24px; border-radius: 99px;
-  background-image: linear-gradient(to bottom,
-    alpha(@accent_bg_color, 0.95), @accent_bg_color);
-  transition: all 200ms ease-out; }
-.apply-progress-text {
-  font-size: 0.8em; font-weight: bold; color: white;
-  text-shadow: 0 0 2px rgba(0,0,0,0.9), 0 1px 2px rgba(0,0,0,0.8),
-               0 -1px 2px rgba(0,0,0,0.8); }
-.utility-dialog-content button {
-  border-radius: 8px; }",
-    );
+    css.load_from_string(include_str!("style.css"));
     gtk::style_context_add_provider_for_display(
         &gtk::prelude::WidgetExt::display(window),
         &css,
@@ -748,7 +671,7 @@ fn bundled_icons_dir() -> Option<std::path::PathBuf> {
 
 fn flat_menu_button(label: &str) -> gtk::Button {
     let btn = gtk::Button::with_label(label);
-    btn.set_has_frame(false);
+    btn.add_css_class("flat");
     if let Some(l) = btn.child().and_downcast::<gtk::Label>() {
         l.set_xalign(0.0);
     }
@@ -760,7 +683,7 @@ fn flat_menu_button(label: &str) -> gtk::Button {
 fn menu_page_header(stack: &gtk::Stack, title: &str) -> gtk::Box {
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     let back = gtk::Button::with_label("\u{2039}"); // ‹
-    back.set_has_frame(false);
+    back.add_css_class("flat");
     {
         let stack = stack.clone();
         back.connect_clicked(move |_| stack.set_visible_child_name("root"));
@@ -895,7 +818,7 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
 
     let nav_row = |label: &str, target: &'static str| -> gtk::Button {
         let btn = gtk::Button::new();
-        btn.set_has_frame(false);
+        btn.add_css_class("flat");
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let l = gtk::Label::new(Some(label));
         l.set_xalign(0.0);
@@ -915,6 +838,43 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
     root.append(&nav_row("Keyboard Shortcuts", "shortcuts"));
     root.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
 
+    {
+        let state2 = state.clone();
+        let popover = popover.clone();
+        state.btn_mark_upgrades.connect_clicked(move |_| {
+            popover.popdown();
+            let mut names = std::collections::HashSet::new();
+            let list = state2.store.list();
+            let n = list.n_items();
+            for i in 0..n {
+                if let Some(obj) =
+                    crate::backend::package_store::package_obj_at(&list, i)
+                {
+                    let p = obj.pkg();
+                    if p.state == PkgState::Upgradable && p.mark == PkgMark::None {
+                        names.insert(p.name.clone());
+                    }
+                }
+            }
+            state2.store.set_marks(&names, PkgMark::Upgrade);
+            update_status_bar(&state2);
+        });
+    }
+    root.append(&state.btn_mark_upgrades);
+
+    {
+        let state2 = state.clone();
+        let popover = popover.clone();
+        state.btn_unmark_all.connect_clicked(move |_| {
+            popover.popdown();
+            state2.store.clear_all_marks();
+            update_status_bar(&state2);
+        });
+    }
+    root.append(&state.btn_unmark_all);
+
+    root.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+
     let btn_about = flat_menu_button("About Caerus");
     {
         let window = state.window.clone();
@@ -928,7 +888,7 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
     root.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
 
     let btn_quit = gtk::Button::new();
-    btn_quit.set_has_frame(false);
+    btn_quit.add_css_class("flat");
     {
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let l = gtk::Label::new(Some("Quit"));
@@ -1079,7 +1039,8 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
     }
     settings.append(&search_row);
 
-    let (auto_close_row, sw_auto_close) = switch_row("Close dialogs automatically on success", None);
+    let (auto_close_row, sw_auto_close) =
+        switch_row("Close dialogs automatically on success", None);
     auto_close_row.set_tooltip_text(Some(
         "When enabled, progress dialogs (install, upgrade, remove, purge, \u{2026}) close \
          themselves as soon as they finish successfully, instead of waiting for you to click \
@@ -1548,35 +1509,6 @@ fn wire_up(state: &Rc<WindowState>) {
         let btn_toggle_sidebar = state.btn_toggle_sidebar.clone();
         let state = state.clone();
         btn_toggle_sidebar.connect_clicked(move |_| cycle_sidebar_mode(&state));
-    }
-    {
-        let btn_mark_upgrades = state.btn_mark_upgrades.clone();
-        let state = state.clone();
-        btn_mark_upgrades.connect_clicked(move |_| {
-            // Collected first, then applied in one `set_marks` pass to
-            // avoid one list rescan per name.
-            let mut names = std::collections::HashSet::new();
-            let list = state.store.list();
-            let n = list.n_items();
-            for i in 0..n {
-                if let Some(obj) = crate::backend::package_store::package_obj_at(&list, i) {
-                    let p = obj.pkg();
-                    if p.state == PkgState::Upgradable && p.mark == PkgMark::None {
-                        names.insert(p.name.clone());
-                    }
-                }
-            }
-            state.store.set_marks(&names, PkgMark::Upgrade);
-            update_status_bar(&state);
-        });
-    }
-    {
-        let btn_unmark_all = state.btn_unmark_all.clone();
-        let state = state.clone();
-        btn_unmark_all.connect_clicked(move |_| {
-            state.store.clear_all_marks();
-            update_status_bar(&state);
-        });
     }
     {
         let btn_apply = state.btn_apply.clone();
