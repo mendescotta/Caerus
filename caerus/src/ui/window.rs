@@ -78,6 +78,11 @@ struct WindowState {
     /// position because that's overwritten with a *width* while in
     /// right-dock mode; see `apply_panel_orientation`.
     default_detail_pos: std::cell::Cell<i32>,
+    /// `main_paned`'s divider position for full (non-rail) sidebar mode —
+    /// kept separately from the live `main_paned` position because that's
+    /// overwritten with the rail width while minimal; see
+    /// `apply_sidebar_mode`. Same technique as `default_detail_pos`.
+    default_sidebar_pos: std::cell::Cell<i32>,
 }
 
 /// Window size + paned-divider positions, persisted across launches.
@@ -340,7 +345,6 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
 
     let btn_toggle_sidebar = gtk::Button::new();
     btn_toggle_sidebar.set_icon_name("sidebar-show-symbolic");
-    btn_toggle_sidebar.set_tooltip_text(Some("Show/hide the filter sidebar"));
     header.pack_start(&btn_toggle_sidebar);
 
     let spinner = gtk::Spinner::new();
@@ -497,7 +501,11 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         btn_toggle_sidebar: btn_toggle_sidebar.clone(),
         sw_sidebar_visible: sw_sidebar_visible.clone(),
         sw_sidebar_minimal: sw_sidebar_minimal.clone(),
-        sidebar_minimal: std::cell::Cell::new(geometry.sidebar_minimal),
+        // Seeded `false` regardless of `geometry.sidebar_minimal` so the
+        // explicit `apply_sidebar_mode` call below (which applies the
+        // loaded value) sees it as a real Full->Minimal transition and
+        // captures `default_sidebar_pos` correctly.
+        sidebar_minimal: std::cell::Cell::new(false),
         btn_toggle_detail_pane: btn_toggle_detail_pane.clone(),
         status_bar: status_bar.clone(),
         search_entry,
@@ -509,6 +517,7 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         sync_at_launch: std::cell::Cell::new(geometry.sync_at_launch),
         search_name_only_default: std::cell::Cell::new(geometry.search_name_only_default),
         default_detail_pos: std::cell::Cell::new(geometry.detail_pos),
+        default_sidebar_pos: std::cell::Cell::new(geometry.sidebar_pos),
     });
 
     wire_up(&state);
@@ -783,13 +792,34 @@ fn switch_row(label: &str, accel: Option<&str>) -> (gtk::Box, gtk::Switch) {
 /// Single funnel for every sidebar-mode change (header button, F9, and
 /// both View-menu switches all call into this) — applies the widget
 /// state and re-syncs the two switches + button tooltip to match.
-/// Calling `Switch::set_active` with the value it already holds does
-/// not re-fire `notify::active`, so this can't loop even though the
-/// switches' own handlers call back into this function.
+/// Re-entrant calls into this function (via the switches' own
+/// `connect_active_notify`) always converge — each nested call's target
+/// state already matches what's being applied, so further nesting stops.
 fn apply_sidebar_mode(state: &Rc<WindowState>, visible: bool, minimal: bool) {
+    // `width_request` alone won't move an already-positioned `GtkPaned`
+    // divider (it's only a minimum), so drive `main_paned`'s position
+    // directly — same technique `apply_panel_orientation` uses for the
+    // detail pane's docked-right width. Capture the full-mode width
+    // before narrowing it, so leaving minimal can restore it.
+    let was_minimal = state.sidebar_minimal.get();
+    if minimal && !was_minimal {
+        state.default_sidebar_pos.set(state.main_paned.position());
+    }
+
     state.sidebar.widget().set_visible(visible);
     state.sidebar.set_minimal(minimal);
     state.sidebar_minimal.set(minimal);
+
+    if minimal {
+        state
+            .main_paned
+            .set_position(crate::ui::filter_sidebar::RAIL_WIDTH);
+    } else if was_minimal {
+        state
+            .main_paned
+            .set_position(state.default_sidebar_pos.get());
+    }
+
     state
         .btn_toggle_sidebar
         .set_tooltip_text(Some(match (visible, minimal) {
@@ -1552,7 +1582,15 @@ fn wire_up(state: &Rc<WindowState>) {
             WindowGeometry {
                 width: win.width(),
                 height: win.height(),
-                sidebar_pos: state.main_paned.position(),
+                // `main_paned.position()` is only a meaningful full-width
+                // sidebar width outside rail mode — while minimal it's the
+                // rail width instead (see `apply_sidebar_mode`), so fall
+                // back to the remembered full-mode width in that case.
+                sidebar_pos: if state.sidebar_minimal.get() {
+                    state.default_sidebar_pos.get()
+                } else {
+                    state.main_paned.position()
+                },
                 // `right_paned.position()` is only a meaningful bottom-dock
                 // height while actually in that orientation — in
                 // right-dock mode it's a width instead (see
