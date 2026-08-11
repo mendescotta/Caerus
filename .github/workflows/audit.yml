@@ -1,0 +1,30 @@
+name: Audit
+
+on:
+  schedule:
+    - cron: '0 4 * * 0' # weekly
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep || true
+
+      - name: Make audit script executable
+        run: chmod +x scripts/audit.sh || true
+
+      - name: Run audit
+        run: ./scripts/audit.sh
+
+      - name: Upload audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-report
+          path: audit-report.json

@@ -4,6 +4,7 @@ members = [
     "xbps-sys",
     "caerus",
     "caerus-helper",
+    "tools/autofix",
 ]
 
 [workspace.package]

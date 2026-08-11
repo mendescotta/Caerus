@@ -60,7 +60,7 @@ pub fn package_obj_at(list: &gio::ListStore, i: u32) -> Option<PackageObject> {
     match obj.downcast::<PackageObject>() {
         Ok(po) => Some(po),
         Err(_) => {
-            eprintln!("caerus: expected PackageObject in ListStore at index {}", i);
+            eprintln!("caerus: expected PackageObject in ListStore at index {i}");
             None
         }
     }
