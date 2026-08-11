@@ -847,9 +847,7 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
             let list = state2.store.list();
             let n = list.n_items();
             for i in 0..n {
-                if let Some(obj) =
-                    crate::backend::package_store::package_obj_at(&list, i)
-                {
+                if let Some(obj) = crate::backend::package_store::package_obj_at(&list, i) {
                     let p = obj.pkg();
                     if p.state == PkgState::Upgradable && p.mark == PkgMark::None {
                         names.insert(p.name.clone());
