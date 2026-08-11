@@ -40,7 +40,7 @@ caerus/adwaita`, needs `libadwaita-devel`) that swaps in libadwaita
 widgets where available — build and clippy both configurations if you
 touch anything gated behind `#[cfg(feature = "adwaita")]`, since CI does.
 
-## Safe automation workflow (Option 2)
+## Safe automation workflow
 
 Caerus uses a conservative review-first workflow for code hardening:
 

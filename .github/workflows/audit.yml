@@ -5,6 +5,9 @@ on:
     - cron: '0 4 * * 0' # weekly
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   audit:
     runs-on: ubuntu-latest
