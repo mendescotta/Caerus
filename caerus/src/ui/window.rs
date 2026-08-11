@@ -73,6 +73,7 @@ struct WindowState {
     /// Whether "search by name only" starts active at next launch — see
     /// `WindowGeometry`.
     search_name_only_default: std::cell::Cell<bool>,
+    auto_close_on_success: std::cell::Cell<bool>,
     /// `right_paned`'s divider position for bottom-dock mode (the pkg
     /// list's height) — kept separately from the live `right_paned`
     /// position because that's overwritten with a *width* while in
@@ -123,6 +124,7 @@ struct WindowGeometry {
     /// is hidden, so re-showing it via the View menu's "Sidebar" switch
     /// resumes whichever mode was last active.
     sidebar_minimal: bool,
+    auto_close_on_success: bool,
 }
 
 /// Persistence keys for the per-section booleans, in `Section::ALL`
@@ -146,6 +148,7 @@ impl Default for WindowGeometry {
             stale_repos_visible: true,
             sidebar_visible: true,
             sidebar_minimal: false,
+            auto_close_on_success: false,
         }
     }
 }
@@ -241,6 +244,12 @@ impl WindowGeometry {
                 }
                 continue;
             }
+            if key == "auto_close_on_success" {
+                if let Ok(b) = value.parse::<i32>() {
+                    geometry.auto_close_on_success = b != 0;
+                }
+                continue;
+            }
             if let Ok(b) = value.parse::<i32>().map(|b| b != 0) {
                 if let Some(name) = key.strip_prefix("expanded_") {
                     if let Some(i) = SECTION_KEYS.iter().position(|k| *k == name) {
@@ -299,7 +308,7 @@ impl WindowGeometry {
             let _ = std::fs::create_dir_all(parent);
         }
         let mut contents = format!(
-            "width={}\nheight={}\nsidebar_pos={}\ndetail_pos={}\nsync_at_launch={}\nsearch_name_only_default={}\nvertical_panel={}\nsidebar_minimal={}\n",
+            "width={}\nheight={}\nsidebar_pos={}\ndetail_pos={}\nsync_at_launch={}\nsearch_name_only_default={}\nvertical_panel={}\nsidebar_minimal={}\nauto_close_on_success={}\n",
             self.width,
             self.height,
             self.sidebar_pos,
@@ -307,7 +316,8 @@ impl WindowGeometry {
             i32::from(self.sync_at_launch),
             i32::from(self.search_name_only_default),
             i32::from(self.vertical_panel),
-            i32::from(self.sidebar_minimal)
+            i32::from(self.sidebar_minimal),
+            i32::from(self.auto_close_on_success)
         );
         for (i, key) in SECTION_KEYS.iter().enumerate() {
             contents.push_str(&format!(
@@ -516,6 +526,7 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         selected_pkg: RefCell::new(None),
         sync_at_launch: std::cell::Cell::new(geometry.sync_at_launch),
         search_name_only_default: std::cell::Cell::new(geometry.search_name_only_default),
+        auto_close_on_success: std::cell::Cell::new(geometry.auto_close_on_success),
         default_detail_pos: std::cell::Cell::new(geometry.detail_pos),
         default_sidebar_pos: std::cell::Cell::new(geometry.sidebar_pos),
     });
@@ -546,6 +557,7 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         .sidebar
         .set_show_stale_repositories(geometry.stale_repos_visible);
     apply_sidebar_mode(&state, geometry.sidebar_visible, geometry.sidebar_minimal);
+    crate::ui::apply_dialog::set_auto_close_on_success(geometry.auto_close_on_success);
 
     populate_menu_popover(&state);
 
@@ -629,14 +641,23 @@ fn install_css(window: &gtk::ApplicationWindow) {
 .pkg-marked   { font-weight: bold; }
 .pkg-installed  { color: @success_color; }
 .pkg-upgradable { color: @warning_color; }
+window.utility-dialog {
+  border-radius: 12px; }
 progressbar.apply-progress trough {
-  min-height: 22px; }
+  min-height: 24px; border-radius: 99px;
+  background: alpha(@theme_fg_color, 0.08);
+  box-shadow: inset 0 1px 2px alpha(black, 0.15); }
 progressbar.apply-progress trough progress {
-  min-height: 22px; }
+  min-height: 24px; border-radius: 99px;
+  background-image: linear-gradient(to bottom,
+    alpha(@accent_bg_color, 0.95), @accent_bg_color);
+  transition: all 200ms ease-out; }
 .apply-progress-text {
   font-size: 0.8em; font-weight: bold; color: white;
   text-shadow: 0 0 2px rgba(0,0,0,0.9), 0 1px 2px rgba(0,0,0,0.8),
-               0 -1px 2px rgba(0,0,0,0.8); }",
+               0 -1px 2px rgba(0,0,0,0.8); }
+.utility-dialog-content button {
+  border-radius: 8px; }",
     );
     gtk::style_context_add_provider_for_display(
         &gtk::prelude::WidgetExt::display(window),
@@ -1057,6 +1078,23 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
         });
     }
     settings.append(&search_row);
+
+    let (auto_close_row, sw_auto_close) = switch_row("Close dialogs automatically on success", None);
+    auto_close_row.set_tooltip_text(Some(
+        "When enabled, progress dialogs (install, upgrade, remove, purge, \u{2026}) close \
+         themselves as soon as they finish successfully, instead of waiting for you to click \
+         Close. Dialogs that finish with errors always stay open.",
+    ));
+    sw_auto_close.set_active(state.auto_close_on_success.get());
+    {
+        let state = state.clone();
+        sw_auto_close.connect_active_notify(move |sw| {
+            let enabled = sw.is_active();
+            state.auto_close_on_success.set(enabled);
+            crate::ui::apply_dialog::set_auto_close_on_success(enabled);
+        });
+    }
+    settings.append(&auto_close_row);
     stack.add_named(&settings, Some("settings"));
 
     // ── Keyboard Shortcuts page ── (essentials; Ctrl+? opens the full
@@ -1612,6 +1650,7 @@ fn wire_up(state: &Rc<WindowState>) {
                 stale_repos_visible: state.sidebar.show_stale_repositories(),
                 sidebar_visible: state.sidebar.widget().get_visible(),
                 sidebar_minimal: state.sidebar_minimal.get(),
+                auto_close_on_success: state.auto_close_on_success.get(),
             }
             .save();
             state.session.shutdown();
