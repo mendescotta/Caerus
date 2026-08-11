@@ -32,10 +32,10 @@ struct Match {
 fn main() -> anyhow::Result<()> {
     let opts = Opts::parse();
     let patterns = vec![
-        ("unwrap", Regex::new(r"\b([a-zA-Z0-9_\\.\\)\\>]+)\\.unwrap\\(\\)")?),
-        ("expect", Regex::new(r"\b([a-zA-Z0-9_\\.\\)\\>]+)\\.expect\\(.*?\\)")?),
-        ("downcast_unwrap", Regex::new(r"downcast::<([A-Za-z0-9_:]+)>\\(\\)\\.unwrap\\(\\)")?),
-        ("downcast_ref", Regex::new(r"downcast_ref::<([A-Za-z0-9_:]+)>\\(\\)\\)" )?),
+        ("unwrap", Regex::new(r"\b([a-zA-Z0-9_.)>]+)\.unwrap\(\)")?),
+        ("expect", Regex::new(r"\b([a-zA-Z0-9_.)>]+)\.expect\(.*?\)")?),
+        ("downcast_unwrap", Regex::new(r"downcast::<([A-Za-z0-9_:]+)>\(\)\.unwrap\(\)")?),
+        ("downcast_ref", Regex::new(r"downcast_ref::<([A-Za-z0-9_:]+)>\(\)")?),
     ];
 
     let mut matches: Vec<Match> = Vec::new();
