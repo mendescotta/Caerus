@@ -38,6 +38,10 @@ struct WindowState {
     /// shortcuts), populated by `populate_menu_popover`.
     menu_stack: gtk::Stack,
     btn_toggle_sidebar: gtk::ToggleButton,
+    /// Right-side counterpart to `btn_toggle_sidebar`: show/hide the
+    /// detail pane. Bound bidirectionally to the View menu's "Detail
+    /// Pane" switch, same pattern as the sidebar's button+switch pair.
+    btn_toggle_detail_pane: gtk::ToggleButton,
     status_bar: gtk::Box,
     search_entry: gtk::SearchEntry,
     btn_search_name_only: gtk::ToggleButton,
@@ -59,6 +63,11 @@ struct WindowState {
     /// Whether "search by name only" starts active at next launch — see
     /// `WindowGeometry`.
     search_name_only_default: std::cell::Cell<bool>,
+    /// `right_paned`'s divider position for bottom-dock mode (the pkg
+    /// list's height) — kept separately from the live `right_paned`
+    /// position because that's overwritten with a *width* while in
+    /// right-dock mode; see `apply_panel_orientation`.
+    default_detail_pos: std::cell::Cell<i32>,
 }
 
 /// Window size + paned-divider positions, persisted across launches.
@@ -82,6 +91,11 @@ struct WindowGeometry {
     /// order.
     section_visible: [bool; 4],
     detail_pane_visible: bool,
+    /// `false` (default) = detail pane docked below the package list,
+    /// full width, cards in a 2-row grid. `true` = docked to the right as
+    /// a narrow column, cards in a single-column stack. Drives both
+    /// `right_paned`'s orientation and `DetailPane::set_horizontal`.
+    vertical_panel: bool,
     status_bar_visible: bool,
     /// Whether the sidebar shows repositories no longer configured in
     /// xbps.d.
@@ -104,10 +118,54 @@ impl Default for WindowGeometry {
             section_expanded: [true; 4],
             section_visible: [true; 4],
             detail_pane_visible: true,
+            vertical_panel: false,
             status_bar_visible: true,
             stale_repos_visible: true,
         }
     }
+}
+
+/// Target width of the detail pane when docked to the right (vertical
+/// panel mode) — a narrow column, not a 50/50 split.
+const VERTICAL_PANEL_DETAIL_WIDTH: i32 = 380;
+
+/// Applies the panel-dock orientation to `right_paned` and matches
+/// `detail_pane`'s card layout to it. `right_paned`'s divider position is
+/// the *start* child's (`pkg_list`'s) size along the active axis — reusing
+/// `detail_pos` (a saved top-pane *height* from bottom-dock mode) as a
+/// left-pane *width* in right-dock mode would squeeze the package list to
+/// whatever arbitrary pixel value was last saved for a completely
+/// different axis, potentially down to a sliver. Right-dock mode instead
+/// derives the position from the pane's actual available width, so the
+/// package list always gets the lion's share and the detail pane stays a
+/// fixed `VERTICAL_PANEL_DETAIL_WIDTH`-wide column — the same
+/// doesn't-cover-the-list behavior as the Filters sidebar.
+/// `available_width_hint` is used only when `right_paned` isn't realized
+/// yet (its `.width()` reads 0 before the window is first shown, e.g. at
+/// startup) — pass the best known estimate of the pane's eventual width.
+fn apply_panel_orientation(
+    right_paned: &gtk::Paned,
+    detail_pane: &DetailPane,
+    vertical: bool,
+    detail_pos: i32,
+    available_width_hint: i32,
+) {
+    right_paned.set_orientation(if vertical {
+        gtk::Orientation::Horizontal
+    } else {
+        gtk::Orientation::Vertical
+    });
+    if vertical {
+        let avail = if right_paned.width() > 0 {
+            right_paned.width()
+        } else {
+            available_width_hint
+        };
+        right_paned.set_position((avail - VERTICAL_PANEL_DETAIL_WIDTH).max(200));
+    } else {
+        right_paned.set_position(detail_pos);
+    }
+    detail_pane.set_horizontal(!vertical);
 }
 
 fn state_file_path() -> Option<std::path::PathBuf> {
@@ -143,6 +201,12 @@ impl WindowGeometry {
             if key == "search_name_only_default" {
                 if let Ok(b) = value.parse::<i32>() {
                     geometry.search_name_only_default = b != 0;
+                }
+                continue;
+            }
+            if key == "vertical_panel" {
+                if let Ok(b) = value.parse::<i32>() {
+                    geometry.vertical_panel = b != 0;
                 }
                 continue;
             }
@@ -200,13 +264,14 @@ impl WindowGeometry {
             let _ = std::fs::create_dir_all(parent);
         }
         let mut contents = format!(
-            "width={}\nheight={}\nsidebar_pos={}\ndetail_pos={}\nsync_at_launch={}\nsearch_name_only_default={}\n",
+            "width={}\nheight={}\nsidebar_pos={}\ndetail_pos={}\nsync_at_launch={}\nsearch_name_only_default={}\nvertical_panel={}\n",
             self.width,
             self.height,
             self.sidebar_pos,
             self.detail_pos,
             i32::from(self.sync_at_launch),
-            i32::from(self.search_name_only_default)
+            i32::from(self.search_name_only_default),
+            i32::from(self.vertical_panel)
         );
         for (i, key) in SECTION_KEYS.iter().enumerate() {
             contents.push_str(&format!(
@@ -288,6 +353,15 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     search_entry.set_width_request(220);
     search_entry.set_placeholder_text(Some("Search packages\u{2026}"));
 
+    // Right-side counterpart to `btn_toggle_sidebar`: show/hide the
+    // detail pane. Packed first among the `pack_end` widgets so it lands
+    // at the outermost right edge, past the search bar.
+    let btn_toggle_detail_pane = gtk::ToggleButton::new();
+    btn_toggle_detail_pane.set_icon_name("sidebar-show-right-symbolic");
+    btn_toggle_detail_pane.set_active(geometry.detail_pane_visible);
+    btn_toggle_detail_pane.set_tooltip_text(Some("Show/hide the detail panel"));
+    header.pack_end(&btn_toggle_detail_pane);
+
     header.pack_end(&search_entry);
     header.pack_end(&btn_search_name_only);
     header.pack_end(&btn_apply);
@@ -314,15 +388,33 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     }
     let pkg_list = PackageList::new(store.clone());
     let detail_pane = DetailPane::new(store.clone());
+    {
+        let detail_pane_widget = detail_pane.widget().clone();
+        btn_toggle_detail_pane.connect_toggled(move |btn| {
+            detail_pane_widget.set_visible(btn.is_active());
+        });
+    }
 
+    // `right_paned`'s orientation is the panel-dock switch: `Vertical`
+    // stacks pkg_list/detail_pane top/bottom (default, detail pane docked
+    // below, full width); `Horizontal` puts them side by side (detail
+    // pane docked to the right, narrow column, like the Filters sidebar —
+    // it doesn't cover the package list). Same start/end children either
+    // way — only the axis flips.
     let right_paned = gtk::Paned::new(gtk::Orientation::Vertical);
-    right_paned.set_position(geometry.detail_pos);
     right_paned.set_resize_start_child(true);
     right_paned.set_shrink_start_child(false);
     right_paned.set_resize_end_child(false);
     right_paned.set_shrink_end_child(false);
     right_paned.set_start_child(Some(pkg_list.widget()));
     right_paned.set_end_child(Some(detail_pane.widget()));
+    apply_panel_orientation(
+        &right_paned,
+        &detail_pane,
+        geometry.vertical_panel,
+        geometry.detail_pos,
+        geometry.width - geometry.sidebar_pos,
+    );
 
     let main_paned = gtk::Paned::new(gtk::Orientation::Horizontal);
     main_paned.set_position(geometry.sidebar_pos);
@@ -375,6 +467,7 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         menu_button,
         menu_stack,
         btn_toggle_sidebar: btn_toggle_sidebar.clone(),
+        btn_toggle_detail_pane: btn_toggle_detail_pane.clone(),
         status_bar: status_bar.clone(),
         search_entry,
         btn_search_name_only,
@@ -384,6 +477,7 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         selected_pkg: RefCell::new(None),
         sync_at_launch: std::cell::Cell::new(geometry.sync_at_launch),
         search_name_only_default: std::cell::Cell::new(geometry.search_name_only_default),
+        default_detail_pos: std::cell::Cell::new(geometry.detail_pos),
     });
 
     wire_up(&state);
@@ -517,6 +611,7 @@ const USED_SYMBOLIC_ICONS: &[&str] = &[
     "software-update-urgent-symbolic",
     "view-refresh-symbolic",
     "sidebar-show-symbolic",
+    "sidebar-show-right-symbolic",
     "edit-find-symbolic",
     "open-menu-symbolic",
     "user-trash-symbolic",
@@ -766,13 +861,33 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
     view.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     let (detail_row, sw_detail) = switch_row("Detail Pane", None);
     state
-        .detail_pane
-        .widget()
-        .bind_property("visible", &sw_detail, "active")
+        .btn_toggle_detail_pane
+        .bind_property("active", &sw_detail, "active")
         .bidirectional()
         .sync_create()
         .build();
     view.append(&detail_row);
+
+    let (vertical_row, sw_vertical) = switch_row("Vertical Panel", None);
+    vertical_row.set_tooltip_text(Some(
+        "Dock the detail panel to the right as a narrow column instead of below the \
+         package list",
+    ));
+    sw_vertical.set_active(state.right_paned.orientation() == gtk::Orientation::Horizontal);
+    {
+        let state = state.clone();
+        sw_vertical.connect_active_notify(move |sw| {
+            let vertical = sw.is_active();
+            apply_panel_orientation(
+                &state.right_paned,
+                &state.detail_pane,
+                vertical,
+                state.default_detail_pos.get(),
+                state.right_paned.width(),
+            );
+        });
+    }
+    view.append(&vertical_row);
 
     let (status_row, sw_status) = switch_row("Status Bar", None);
     state
@@ -1338,13 +1453,23 @@ fn wire_up(state: &Rc<WindowState>) {
                 width: win.width(),
                 height: win.height(),
                 sidebar_pos: state.main_paned.position(),
-                detail_pos: state.right_paned.position(),
+                // `right_paned.position()` is only a meaningful bottom-dock
+                // height while actually in that orientation — in
+                // right-dock mode it's a width instead (see
+                // `apply_panel_orientation`), so fall back to whatever the
+                // bottom-dock height was before switching.
+                detail_pos: if state.right_paned.orientation() == gtk::Orientation::Vertical {
+                    state.right_paned.position()
+                } else {
+                    state.default_detail_pos.get()
+                },
                 sync_at_launch: state.sync_at_launch.get(),
                 search_name_only_default: state.search_name_only_default.get(),
                 section_expanded: Section::ALL.map(|s| state.sidebar.is_expanded(s)),
                 section_visible: Section::ALL
                     .map(|s| state.sidebar.section_widget(s).get_visible()),
-                detail_pane_visible: state.detail_pane.widget().get_visible(),
+                detail_pane_visible: state.btn_toggle_detail_pane.is_active(),
+                vertical_panel: state.right_paned.orientation() == gtk::Orientation::Horizontal,
                 status_bar_visible: state.status_bar.get_visible(),
                 stale_repos_visible: state.sidebar.show_stale_repositories(),
             }
