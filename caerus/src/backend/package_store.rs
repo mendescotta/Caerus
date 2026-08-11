@@ -746,7 +746,7 @@ unsafe extern "C" fn pkgdb_cb(
     }
 
     let Some(p) = ht.get_mut(&pkgname) else {
-        eprintln!("caerus: pkgname disappeared from hash table: {pkgname}");
+        eprintln!("caerus: expected package {pkgname} in hash table");
         return 0;
     };
     p.version_installed = Some(ver.clone());
@@ -1342,6 +1342,8 @@ unsafe fn run_preview_ops(
                 pkgname,
                 pkgver,
                 action: TransAction::from_raw(ttype),
+                arch: dict_str(pkgd, "architecture"),
+                repository: dict_str(pkgd, "repository"),
                 installed_size,
                 download_size,
             });
