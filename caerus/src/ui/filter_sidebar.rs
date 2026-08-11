@@ -101,6 +101,7 @@ struct SectionWidgets {
 struct Inner {
     widget: gtk::Box,
     preset_lb: gtk::ListBox,
+    edit_filters_lb: gtk::ListBox,
     custom_filters: Rc<RefCell<CustomFilters>>,
     repo_lb: gtk::ListBox,
     /// Row `i + 1` of `repo_lb` corresponds to `repo_names[i]`; row 0
@@ -114,10 +115,17 @@ struct Inner {
     /// User-chosen display names, keyed by repository URL — right-click
     /// a repository row to set one.
     display_names: RefCell<RepoNames>,
+    maint_lb: gtk::ListBox,
+    tools_lb: gtk::ListBox,
     on_filter_changed: FilterChangedCbs,
     on_repository_changed: RepositoryChangedCbs,
     on_action: ActionCbs,
     sections: [SectionWidgets; 4],
+    /// Snapshot of each section's `is_expanded()` taken when entering
+    /// minimal mode, restored when leaving it (rail mode force-expands
+    /// every visible section since a hidden disclosure triangle can't be
+    /// clicked).
+    expanded_snapshot: RefCell<[bool; 4]>,
 }
 
 fn repo_display_text(inner: &Inner, url: &str) -> String {
@@ -416,6 +424,11 @@ fn refresh_custom_rows(inner: &Rc<Inner>) {
     }
 }
 
+/// Rail width when minimal; the sidebar's normal width otherwise (see
+/// `FilterSidebar::new`'s `set_width_request(190)`).
+const RAIL_WIDTH: i32 = 56;
+const FULL_WIDTH: i32 = 190;
+
 impl FilterSidebar {
     pub fn new() -> Self {
         let widget = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -565,16 +578,20 @@ impl FilterSidebar {
         let inner = Rc::new(Inner {
             widget,
             preset_lb: preset_lb.clone(),
+            edit_filters_lb: edit_filters_lb.clone(),
             custom_filters,
             repo_lb: repo_lb.clone(),
             repo_names: RefCell::new(Vec::new()),
             all_repos: RefCell::new(Vec::new()),
             show_stale: std::cell::Cell::new(true),
             display_names: RefCell::new(RepoNames::load()),
+            maint_lb: maint_lb.clone(),
+            tools_lb: tools_lb.clone(),
             on_filter_changed: RefCell::new(Vec::new()),
             on_repository_changed: RefCell::new(Vec::new()),
             on_action: RefCell::new(Vec::new()),
             sections: [filters_section, repos_section, maint_section, tools_section],
+            expanded_snapshot: RefCell::new([true; 4]),
         });
 
         // Action row dispatch: each action ListBox row maps by index to
@@ -735,6 +752,43 @@ impl FilterSidebar {
             .set_text(if expanded { "\u{25be}" } else { "\u{25b8}" });
     }
 
+    /// Switches between the full labeled sidebar and a narrow icon-only
+    /// rail. Section headers/triangles are replaced by thin separators;
+    /// every row's label hides and its icon centers; sections force-expand
+    /// (a hidden triangle can't be clicked to re-expand) with their prior
+    /// expanded state restored on the way back out.
+    pub fn set_minimal(&self, minimal: bool) {
+        self.inner
+            .widget
+            .set_width_request(if minimal { RAIL_WIDTH } else { FULL_WIDTH });
+
+        if minimal {
+            *self.inner.expanded_snapshot.borrow_mut() =
+                std::array::from_fn(|i| self.inner.sections[i].revealer.reveals_child());
+        }
+
+        for section in &self.inner.sections {
+            section.header.set_visible(!minimal);
+            section.rail_separator.set_visible(minimal);
+            if minimal {
+                section.revealer.set_reveal_child(true);
+            }
+        }
+
+        if !minimal {
+            let snapshot = *self.inner.expanded_snapshot.borrow();
+            for (section, expanded) in self.inner.sections.iter().zip(snapshot) {
+                section.revealer.set_reveal_child(expanded);
+            }
+        }
+
+        set_rows_minimal(&self.inner.preset_lb, minimal);
+        set_rows_minimal(&self.inner.edit_filters_lb, minimal);
+        set_rows_minimal(&self.inner.repo_lb, minimal);
+        set_rows_minimal(&self.inner.maint_lb, minimal);
+        set_rows_minimal(&self.inner.tools_lb, minimal);
+    }
+
     /// Rebuilds the repository rows from a freshly-loaded package set.
     /// `configured` = URLs present in xbps.d conf files; anything else
     /// is marked stale. Selection carries over by name across the
@@ -764,6 +818,30 @@ impl FilterSidebar {
         if self.inner.show_stale.replace(show) != show {
             rebuild_repo_rows(&self.inner);
         }
+    }
+}
+
+/// Hides (or restores) every row's label in `listbox` and centers the
+/// remaining icon. Relies on every row built by this module having its
+/// label as the last child of the row's content box (see `make_row` /
+/// `build_repo_row` etc.) — safe because Task 1 made that shape uniform
+/// across every row builder in this file.
+fn set_rows_minimal(listbox: &gtk::ListBox, minimal: bool) {
+    let mut child = listbox.first_child();
+    while let Some(widget) = child {
+        child = widget.next_sibling();
+        let Some(row) = widget.downcast_ref::<gtk::ListBoxRow>() else {
+            continue;
+        };
+        let Some(row_box) = row.child() else { continue };
+        if let Some(label) = row_box.last_child() {
+            label.set_visible(!minimal);
+        }
+        row_box.set_halign(if minimal {
+            gtk::Align::Center
+        } else {
+            gtk::Align::Fill
+        });
     }
 }
 
