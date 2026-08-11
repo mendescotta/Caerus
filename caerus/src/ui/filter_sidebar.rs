@@ -94,6 +94,8 @@ struct SectionWidgets {
     container: gtk::Box,
     revealer: gtk::Revealer,
     triangle: gtk::Label,
+    header: gtk::Box,
+    rail_separator: gtk::Separator,
 }
 
 struct Inner {
@@ -168,13 +170,21 @@ fn build_section(title: &str, content: &impl IsA<gtk::Widget>) -> SectionWidgets
         header.add_controller(gesture);
     }
 
+    let rail_separator = gtk::Separator::new(gtk::Orientation::Horizontal);
+    rail_separator.set_visible(false);
+    rail_separator.set_margin_top(4);
+    rail_separator.set_margin_bottom(4);
+
     container.append(&header);
+    container.append(&rail_separator);
     container.append(&revealer);
 
     SectionWidgets {
         container,
         revealer,
         triangle,
+        header,
+        rail_separator,
     }
 }
 
