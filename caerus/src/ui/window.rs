@@ -1079,7 +1079,8 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
     }
     settings.append(&search_row);
 
-    let (auto_close_row, sw_auto_close) = switch_row("Close dialogs automatically on success", None);
+    let (auto_close_row, sw_auto_close) =
+        switch_row("Close dialogs automatically on success", None);
     auto_close_row.set_tooltip_text(Some(
         "When enabled, progress dialogs (install, upgrade, remove, purge, \u{2026}) close \
          themselves as soon as they finish successfully, instead of waiting for you to click \

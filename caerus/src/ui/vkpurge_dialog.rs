@@ -170,9 +170,11 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
             // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let cb = match item.child().and_downcast::<gtk::CheckButton>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::CheckButton child in ./caerus/src/ui/vkpurge_dialog.rs"); return; } };`
 
             let Some(cb) = item.child().and_downcast::<gtk::CheckButton>() else {
-                    eprintln!("caerus: expected gtk::CheckButton child in ./caerus/src/ui/vkpurge_dialog.rs");
-                    return;
-                };
+                eprintln!(
+                    "caerus: expected gtk::CheckButton child in ./caerus/src/ui/vkpurge_dialog.rs"
+                );
+                return;
+            };
             cb.set_active(obj.checked());
         },
     );
@@ -192,9 +194,9 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
             // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = match item.child().and_downcast::<gtk::Label>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/vkpurge_dialog.rs"); return; } };`
 
             let Some(l) = item.child().and_downcast::<gtk::Label>() else {
-                    eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/vkpurge_dialog.rs");
-                    return;
-                };
+                eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/vkpurge_dialog.rs");
+                return;
+            };
             l.set_text(&obj.version());
         },
     );
