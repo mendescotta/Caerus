@@ -198,8 +198,9 @@ fn show_impact_dialog(
         let cb = cb.clone();
         let dlg = dlg.clone();
         remove_btn.connect_clicked(move |_| {
-            cb(true);
             dlg.destroy();
+            let cb = cb.clone();
+            glib::source::idle_add_local_once(move || cb(true));
         });
     }
     {

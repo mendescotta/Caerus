@@ -1341,8 +1341,6 @@ unsafe fn run_preview_ops(
                 pkgname,
                 pkgver,
                 action: TransAction::from_raw(ttype),
-                arch: dict_str(pkgd, "architecture"),
-                repository: dict_str(pkgd, "repository"),
                 installed_size,
                 download_size,
             });
