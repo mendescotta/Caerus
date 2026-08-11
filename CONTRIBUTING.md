@@ -40,10 +40,12 @@ caerus/adwaita`, needs `libadwaita-devel`) that swaps in libadwaita
 widgets where available — build and clippy both configurations if you
 touch anything gated behind `#[cfg(feature = "adwaita")]`, since CI does.
 
-## Safe automation workflow
+## Safe automation workflow (Option 2)
 
 Caerus uses a conservative review-first workflow for code hardening:
 
+- keep active work on the single `0.5-dev` branch
+- do not create competing task branches for each change set
 - run the audit scripts to generate a report, not to rewrite code
 - review the matches in `audit-report.json` and `.github/auto-fixes/*.md`
 - patch only the small code paths involved, in isolated commits or PRs

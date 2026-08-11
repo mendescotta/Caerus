@@ -1,11 +1,7 @@
-name: Autofix
+name: Autofix review
 
 on:
   workflow_dispatch:
-
-permissions:
-  contents: write
-  pull-requests: write
 
 jobs:
   autofix:
@@ -14,22 +10,21 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y ripgrep || true
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
 
       - name: Make autofix script executable
-        run: chmod +x scripts/autofix.sh || true
+        run: chmod +x scripts/autofix.sh
 
-      - name: Run autofix generator
+      - name: Run autofix review generator
         run: ./scripts/autofix.sh
 
-      - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v5
+      - name: Upload review artifacts
+        uses: actions/upload-artifact@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore(autofix): audit report and suggested fixes"
-          branch: "autofix-${{ github.run_id }}"
-          title: "Autofix: audit report and suggested fixes"
-          draft: true
-          body: |
-            Automated audit run produced an audit report and a suggested-fixes document.
-            This PR contains diagnostic output and suggested locations for manual hardening.
+          name: autofix-review-artifacts
+          path: |
+            audit-report.json
+            .github/auto-fixes/*.md
+
+      - name: Note branch policy
+        run: echo "All active work stays on the 0.5-dev branch; this workflow only produces review artifacts, never competing task branches."
