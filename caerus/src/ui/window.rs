@@ -1556,12 +1556,10 @@ fn wire_up(state: &Rc<WindowState>) {
             // Collected first, then applied in one `set_marks` pass to
             // avoid one list rescan per name.
             let mut names = std::collections::HashSet::new();
-            let n = state.store.list().n_items();
+            let list = state.store.list();
+            let n = list.n_items();
             for i in 0..n {
-                if let Some(obj) = state.store.list().item(i) {
-                    let obj = obj
-                        .downcast::<crate::backend::package::PackageObject>()
-                        .unwrap();
+                if let Some(obj) = crate::backend::package_store::package_obj_at(&list, i) {
                     let p = obj.pkg();
                     if p.state == PkgState::Upgradable && p.mark == PkgMark::None {
                         names.insert(p.name.clone());
@@ -1873,12 +1871,10 @@ fn on_full_upgrade_clicked(state: &Rc<WindowState>) {
 /// caerus since then.
 fn on_remove_orphans_clicked(state: &Rc<WindowState>) {
     let mut orphans = Vec::new();
-    let n = state.store.list().n_items();
+    let list = state.store.list();
+    let n = list.n_items();
     for i in 0..n {
-        if let Some(obj) = state.store.list().item(i) {
-            let obj = obj
-                .downcast::<crate::backend::package::PackageObject>()
-                .unwrap();
+        if let Some(obj) = crate::backend::package_store::package_obj_at(&list, i) {
             if obj.pkg().is_orphan {
                 orphans.push(obj.name());
             }
