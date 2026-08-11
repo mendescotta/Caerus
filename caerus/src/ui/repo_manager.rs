@@ -39,7 +39,7 @@ fn confirm_add_repo(parent: Option<&gtk::Window>, url: &str, cb: impl Fn(bool) +
 
     let (btn_box, cancel_btn) = cancel_button_row(4);
     let add_btn = gtk::Button::with_label("Add Repository");
-    add_btn.add_css_class("destructive-action");
+    add_btn.add_css_class("suggested-action");
     btn_box.append(&add_btn);
     outer.append(&btn_box);
 

@@ -946,7 +946,7 @@ fn show_context_menu(
     let selected = Rc::new(selected);
     for (label, mark) in items {
         let btn = gtk::Button::with_label(&label);
-        btn.set_has_frame(false);
+        btn.add_css_class("flat");
         if let Some(l) = btn.child().and_downcast::<gtk::Label>() {
             l.set_xalign(0.0);
         }
