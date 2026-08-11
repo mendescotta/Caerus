@@ -37,7 +37,17 @@ struct WindowState {
     /// The hamburger popover's page stack (root / view / settings /
     /// shortcuts), populated by `populate_menu_popover`.
     menu_stack: gtk::Stack,
-    btn_toggle_sidebar: gtk::ToggleButton,
+    btn_toggle_sidebar: gtk::Button,
+    /// Independent of `btn_toggle_sidebar`'s click-cycle — the View
+    /// menu's "Sidebar" and "Minimal Sidebar" switches, kept in sync
+    /// with the button and each other via `apply_sidebar_mode`.
+    sw_sidebar_visible: gtk::Switch,
+    sw_sidebar_minimal: gtk::Switch,
+    /// Current rail-mode flag, kept even while the sidebar is hidden —
+    /// mirrors `WindowGeometry::sidebar_minimal`. Visibility itself is
+    /// read directly from `sidebar.widget().get_visible()`, matching
+    /// the existing pattern for `detail_pane_visible`.
+    sidebar_minimal: std::cell::Cell<bool>,
     /// Right-side counterpart to `btn_toggle_sidebar`: show/hide the
     /// detail pane. Bound bidirectionally to the View menu's "Detail
     /// Pane" switch, same pattern as the sidebar's button+switch pair.
@@ -328,9 +338,8 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     title_label.add_css_class("title");
     header.set_title_widget(Some(&title_label));
 
-    let btn_toggle_sidebar = gtk::ToggleButton::new();
+    let btn_toggle_sidebar = gtk::Button::new();
     btn_toggle_sidebar.set_icon_name("sidebar-show-symbolic");
-    btn_toggle_sidebar.set_active(true);
     btn_toggle_sidebar.set_tooltip_text(Some("Show/hide the filter sidebar"));
     header.pack_start(&btn_toggle_sidebar);
 
@@ -402,12 +411,6 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
 
     // ── Body ──
     let sidebar = FilterSidebar::new();
-    {
-        let sidebar_widget = sidebar.widget().clone();
-        btn_toggle_sidebar.connect_toggled(move |btn| {
-            sidebar_widget.set_visible(btn.is_active());
-        });
-    }
     let pkg_list = PackageList::new(store.clone());
     let detail_pane = DetailPane::new(store.clone());
     {
@@ -470,6 +473,9 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     #[cfg(not(feature = "adwaita"))]
     window.set_child(Some(&root_box));
 
+    let sw_sidebar_visible = gtk::Switch::new();
+    let sw_sidebar_minimal = gtk::Switch::new();
+
     let state = Rc::new(WindowState {
         window: window.clone(),
         store,
@@ -489,6 +495,9 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         menu_button,
         menu_stack,
         btn_toggle_sidebar: btn_toggle_sidebar.clone(),
+        sw_sidebar_visible: sw_sidebar_visible.clone(),
+        sw_sidebar_minimal: sw_sidebar_minimal.clone(),
+        sidebar_minimal: std::cell::Cell::new(geometry.sidebar_minimal),
         btn_toggle_detail_pane: btn_toggle_detail_pane.clone(),
         status_bar: status_bar.clone(),
         search_entry,
@@ -735,8 +744,11 @@ fn menu_page_header(stack: &gtk::Stack, title: &str) -> gtk::Box {
 }
 
 /// A switch row for the View/Settings pages: label, optional keycap
-/// hint, switch. Returns the row and its switch for binding.
-fn switch_row(label: &str, accel: Option<&str>) -> (gtk::Box, gtk::Switch) {
+/// hint, switch. Builds the row around an existing switch — use this
+/// when the switch must be reachable outside `populate_menu_popover`
+/// (e.g. driven by a header button too); `switch_row` below is the
+/// common case that doesn't need that.
+fn switch_row_with(switch: &gtk::Switch, label: &str, accel: Option<&str>) -> gtk::Box {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     row.set_margin_start(8);
     row.set_margin_end(8);
@@ -754,9 +766,16 @@ fn switch_row(label: &str, accel: Option<&str>) -> (gtk::Box, gtk::Switch) {
         row.append(&kbd);
     }
 
-    let switch = gtk::Switch::new();
     switch.set_valign(gtk::Align::Center);
-    row.append(&switch);
+    row.append(switch);
+    row
+}
+
+/// A switch row that owns its own fresh switch — the common case.
+/// Returns the row and the switch for binding.
+fn switch_row(label: &str, accel: Option<&str>) -> (gtk::Box, gtk::Switch) {
+    let switch = gtk::Switch::new();
+    let row = switch_row_with(&switch, label, accel);
     (row, switch)
 }
 
@@ -844,14 +863,28 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
     view.set_width_request(250);
     view.append(&menu_page_header(stack, "View"));
 
-    let (sidebar_row, sw_sidebar) = switch_row("Sidebar", Some("F9"));
-    state
-        .btn_toggle_sidebar
-        .bind_property("active", &sw_sidebar, "active")
-        .bidirectional()
-        .sync_create()
-        .build();
+    let sidebar_row = switch_row_with(&state.sw_sidebar_visible, "Sidebar", Some("F9"));
+    {
+        let state = state.clone();
+        state.sw_sidebar_visible.connect_active_notify(move |sw| {
+            apply_sidebar_mode(&state, sw.is_active(), state.sidebar_minimal.get());
+        });
+    }
     view.append(&sidebar_row);
+
+    let minimal_row = switch_row_with(&state.sw_sidebar_minimal, "Minimal Sidebar", None);
+    {
+        let state = state.clone();
+        state.sw_sidebar_minimal.connect_active_notify(move |sw| {
+            let minimal = sw.is_active();
+            // Turning minimal ON also shows the sidebar (it's the only
+            // way to reach Minimal directly from Hidden); turning it
+            // OFF just drops back to whatever visibility already was.
+            let visible = state.sidebar.widget().get_visible() || minimal;
+            apply_sidebar_mode(&state, visible, minimal);
+        });
+    }
+    view.append(&minimal_row);
     view.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
 
     for section in crate::ui::filter_sidebar::Section::ALL {
