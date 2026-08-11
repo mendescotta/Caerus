@@ -91,8 +91,14 @@ fn run_xbps(argv: &[&str]) -> Option<i32> {
         }
     };
 
-    let stdout = child.stdout.take().expect("child stdout was piped");
-    let stderr = child.stderr.take().expect("child stderr was piped");
+    let stdout = match child.stdout.take() {
+        Some(s) => s,
+        None => { println!("ERROR child stdout was not piped"); let _ = io::stdout().flush(); return None; }
+    };
+    let stderr = match child.stderr.take() {
+        Some(s) => s,
+        None => { println!("ERROR child stderr was not piped"); let _ = io::stdout().flush(); return None; }
+    };
 
     // Forward both streams concurrently via a channel + two reader
     // threads; interleave order between stdout/stderr isn't guaranteed,
@@ -164,7 +170,10 @@ fn argv_for(verb: &str) -> Option<&'static [&'static str]> {
 /// Runs `verb`'s mapped argv (see `argv_for`) against `pkgs` and
 /// responds OK/ERROR.
 fn run_pkg_command(verb: &str, pkgs: &[String], err_msg: &str) {
-    let base = argv_for(verb).expect("run_pkg_command called with a known verb");
+    let base = match argv_for(verb) {
+        Some(b) => b,
+        None => { eprintln!("caerus-helper: unknown verb: {}", verb); respond_ok_or(false, err_msg); return; }
+    };
     let mut argv: Vec<&str> = base.to_vec();
     argv.extend(pkgs.iter().map(String::as_str));
     let code = run_xbps(&argv);

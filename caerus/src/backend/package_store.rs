@@ -137,10 +137,16 @@ impl PackageStore {
                             let old_n = inner.list.n_items();
                             for i in 0..old_n {
                                 if let Some(obj) = inner.list.item(i) {
-                                    let obj = obj.downcast_ref::<PackageObject>().unwrap();
-                                    let p = obj.pkg();
-                                    if p.mark != PkgMark::None {
-                                        old_marks.insert(p.name.clone(), p.mark);
+                                    match obj.downcast_ref::<PackageObject>() {
+                                        Some(obj_ref) => {
+                                            let p = obj_ref.pkg();
+                                            if p.mark != PkgMark::None {
+                                                old_marks.insert(p.name.clone(), p.mark);
+                                            }
+                                        }
+                                        None => {
+                                            eprintln!("caerus: expected PackageObject in ListStore at index {}", i);
+                                        }
                                     }
                                 }
                             }
@@ -208,7 +214,11 @@ impl PackageStore {
         let n = self.inner.list.n_items();
         for i in 0..n {
             if let Some(obj) = self.inner.list.item(i) {
-                f(obj.downcast_ref::<PackageObject>().unwrap());
+                if let Some(pkg_obj) = obj.downcast_ref::<PackageObject>() {
+                    f(pkg_obj);
+                } else {
+                    eprintln!("caerus: expected PackageObject in ListStore at index {}", i);
+                }
             }
         }
     }
@@ -294,15 +304,21 @@ impl PackageStore {
         let n = self.inner.list.n_items();
         for i in 0..n {
             if let Some(obj) = self.inner.list.item(i) {
-                let obj = obj.downcast_ref::<PackageObject>().unwrap();
-                if obj.name() == pkgname {
-                    // GtkColumnView's model chain compares item(i) pointer
-                    // identity to decide whether to rebind a row, so an
-                    // in-place mutation wouldn't trigger a visible refresh.
-                    let mut pkg = obj.pkg().clone();
-                    pkg.mark = mark;
-                    self.inner.list.splice(i, 1, &[PackageObject::new(pkg)]);
-                    return;
+                match obj.downcast_ref::<PackageObject>() {
+                    Some(obj_ref) => {
+                        if obj_ref.name() == pkgname {
+                            // GtkColumnView's model chain compares item(i) pointer
+                            // identity to decide whether to rebind a row, so an
+                            // in-place mutation wouldn't trigger a visible refresh.
+                            let mut pkg = obj_ref.pkg().clone();
+                            pkg.mark = mark;
+                            self.inner.list.splice(i, 1, &[PackageObject::new(pkg)]);
+                            return;
+                        }
+                    }
+                    None => {
+                        eprintln!("caerus: expected PackageObject in ListStore at index {}", i);
+                    }
                 }
             }
         }
@@ -321,11 +337,17 @@ impl PackageStore {
         let n = self.inner.list.n_items();
         for i in 0..n {
             if let Some(obj) = self.inner.list.item(i) {
-                let obj = obj.downcast_ref::<PackageObject>().unwrap();
-                if pkgnames.contains(&obj.name()) {
-                    let mut pkg = obj.pkg().clone();
-                    pkg.mark = mark;
-                    self.inner.list.splice(i, 1, &[PackageObject::new(pkg)]);
+                match obj.downcast_ref::<PackageObject>() {
+                    Some(obj_ref) => {
+                        if pkgnames.contains(&obj_ref.name()) {
+                            let mut pkg = obj_ref.pkg().clone();
+                            pkg.mark = mark;
+                            self.inner.list.splice(i, 1, &[PackageObject::new(pkg)]);
+                        }
+                    }
+                    None => {
+                        eprintln!("caerus: expected PackageObject in ListStore at index {}", i);
+                    }
                 }
             }
         }
@@ -345,11 +367,17 @@ impl PackageStore {
         let n = self.inner.list.n_items();
         for i in 0..n {
             if let Some(obj) = self.inner.list.item(i) {
-                let obj = obj.downcast_ref::<PackageObject>().unwrap();
-                if obj.pkg().mark != PkgMark::None {
-                    let mut pkg = obj.pkg().clone();
-                    pkg.mark = PkgMark::None;
-                    self.inner.list.splice(i, 1, &[PackageObject::new(pkg)]);
+                match obj.downcast_ref::<PackageObject>() {
+                    Some(obj_ref) => {
+                        if obj_ref.pkg().mark != PkgMark::None {
+                            let mut pkg = obj_ref.pkg().clone();
+                            pkg.mark = PkgMark::None;
+                            self.inner.list.splice(i, 1, &[PackageObject::new(pkg)]);
+                        }
+                    }
+                    None => {
+                        eprintln!("caerus: expected PackageObject in ListStore at index {}", i);
+                    }
                 }
             }
         }

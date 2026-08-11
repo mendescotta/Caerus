@@ -1521,12 +1521,16 @@ fn wire_up(state: &Rc<WindowState>) {
             let n = state.store.list().n_items();
             for i in 0..n {
                 if let Some(obj) = state.store.list().item(i) {
-                    let obj = obj
-                        .downcast::<crate::backend::package::PackageObject>()
-                        .unwrap();
-                    let p = obj.pkg();
-                    if p.state == PkgState::Upgradable && p.mark == PkgMark::None {
-                        names.insert(p.name.clone());
+                    match obj.downcast::<crate::backend::package::PackageObject>() {
+                        Ok(obj) => {
+                            let p = obj.pkg();
+                            if p.state == PkgState::Upgradable && p.mark == PkgMark::None {
+                                names.insert(p.name.clone());
+                            }
+                        }
+                        Err(_) => {
+                            eprintln!("caerus: expected PackageObject in list at index {}", i);
+                        }
                     }
                 }
             }
@@ -1837,11 +1841,15 @@ fn on_remove_orphans_clicked(state: &Rc<WindowState>) {
     let n = state.store.list().n_items();
     for i in 0..n {
         if let Some(obj) = state.store.list().item(i) {
-            let obj = obj
-                .downcast::<crate::backend::package::PackageObject>()
-                .unwrap();
-            if obj.pkg().is_orphan {
-                orphans.push(obj.name());
+            match obj.downcast::<crate::backend::package::PackageObject>() {
+                Ok(obj) => {
+                    if obj.pkg().is_orphan {
+                        orphans.push(obj.name());
+                    }
+                }
+                Err(_) => {
+                    eprintln!("caerus: expected PackageObject in list at index {}", i);
+                }
             }
         }
     }
