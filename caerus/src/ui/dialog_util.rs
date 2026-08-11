@@ -20,6 +20,7 @@ pub fn modal_window(
 ) -> (gtk::Window, gtk::Box) {
     let dlg = gtk::Window::new();
     dlg.set_title(Some(title));
+    dlg.add_css_class("utility-dialog");
     if let Some(p) = parent {
         dlg.set_transient_for(Some(p));
     }
@@ -28,10 +29,11 @@ pub fn modal_window(
     dlg.set_default_size(default_size.0, default_size.1);
 
     let outer = gtk::Box::new(gtk::Orientation::Vertical, spacing);
-    outer.set_margin_start(16);
-    outer.set_margin_end(16);
-    outer.set_margin_top(16);
-    outer.set_margin_bottom(16);
+    outer.add_css_class("utility-dialog-content");
+    outer.set_margin_start(20);
+    outer.set_margin_end(20);
+    outer.set_margin_top(20);
+    outer.set_margin_bottom(20);
     dlg.set_child(Some(&outer));
 
     let key = gtk::EventControllerKey::new();

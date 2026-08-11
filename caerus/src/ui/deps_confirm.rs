@@ -92,11 +92,16 @@ fn show_deps_dialog(
         let cb = cb.clone();
         let dlg = dlg.clone();
         install_btn.connect_clicked(move |_| {
-            for d in deps.iter() {
-                store.set_mark(d, PkgMark::Install);
-            }
-            cb(true);
             dlg.destroy();
+            let store = store.clone();
+            let cb = cb.clone();
+            let deps = deps.clone();
+            glib::source::idle_add_local_once(move || {
+                for d in deps.iter() {
+                    store.set_mark(d, PkgMark::Install);
+                }
+                cb(true);
+            });
         });
     }
     {

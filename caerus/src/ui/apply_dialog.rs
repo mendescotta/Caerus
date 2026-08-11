@@ -9,6 +9,14 @@ use gtk::prelude::*;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+thread_local! {
+    static AUTO_CLOSE_ON_SUCCESS: Cell<bool> = const { Cell::new(false) };
+}
+
+pub fn set_auto_close_on_success(enabled: bool) {
+    AUTO_CLOSE_ON_SUCCESS.set(enabled);
+}
+
 /// How many packages this batch actually names, summed across every
 /// package-name-taking command, for the "package N of M" counter.
 fn count_target_packages(commands: &[String]) -> usize {
@@ -296,6 +304,7 @@ pub fn run(
         let status_label = status_label;
         let close_btn = close_btn.clone();
         let session_for_cleanup = session.clone();
+        let dlg_for_close = dlg.clone();
         move |success: bool| {
             pulsing.set(false);
             spinner.stop();
@@ -319,6 +328,10 @@ pub fn run(
 
             session_for_cleanup.disconnect_log(log_id);
             session_for_cleanup.disconnect_disconnected(disconnected_id);
+
+            if success && AUTO_CLOSE_ON_SUCCESS.get() {
+                dlg_for_close.destroy();
+            }
         }
     };
 
