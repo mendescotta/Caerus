@@ -934,12 +934,12 @@ fn lookup_current_pkg(inner: &Inner) -> Option<Package> {
     let n = inner.store.list().n_items();
     for i in 0..n {
         if let Some(obj) = inner.store.list().item(i) {
-// AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let obj = obj.downcast::<PackageObject>().unwrap();`
-            
-            let obj = match obj.downcast::<PackageObject>() {
-                Ok(po) => po,
-                Err(_) => { eprintln!("caerus: lookup_current_pkg saw non-PackageObject"); continue; }
-            };
+            // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let obj = obj.downcast::<PackageObject>().unwrap();`
+
+            let Ok(obj) = obj.downcast::<PackageObject>() else {
+                    eprintln!("caerus: lookup_current_pkg saw non-PackageObject");
+                    continue;
+                };
             if obj.name() == name {
                 return Some(obj.pkg().clone());
             }

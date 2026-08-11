@@ -57,13 +57,11 @@ enum Cmd {
 /// `None` if the item is missing or of the wrong type.
 pub fn package_obj_at(list: &gio::ListStore, i: u32) -> Option<PackageObject> {
     let obj = list.item(i)?;
-    match obj.downcast::<PackageObject>() {
-        Ok(po) => Some(po),
-        Err(_) => {
-            eprintln!("caerus: expected PackageObject in ListStore at index {}", i);
-            None
-        }
-    }
+    let Ok(po) = obj.downcast::<PackageObject>() else {
+        eprintln!("caerus: expected PackageObject in ListStore at index {i}");
+        return None;
+    };
+    Some(po)
 }
 
 /// Whether a carried-over mark still makes sense given the package's
@@ -747,10 +745,8 @@ unsafe extern "C" fn pkgdb_cb(
 
     // AUTOFIX: Consider replacing `.unwrap()` with `match ... { Some(x) => x, None => { eprintln!(\"...\"); return; } }` or `if let Some(x) = ...` depending on context. Found: `let p = ht.get_mut(&pkgname).unwrap();`
 
-    let p = if let Some(p) = ht.get_mut(&pkgname) {
-        p
-    } else {
-        eprintln!("caerus: expected package {} in hash table", pkgname);
+    let Some(p) = ht.get_mut(&pkgname) else {
+        eprintln!("caerus: expected package {pkgname} in hash table");
         return 0;
     };
     p.version_installed = Some(ver.clone());
