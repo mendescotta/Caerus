@@ -54,6 +54,8 @@ impl KernelObject {
 }
 
 fn kernel_of(obj: &glib::Object) -> KernelObject {
+// AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `obj.clone().downcast::<KernelObject>().unwrap()`
+
     obj.clone().downcast::<KernelObject>().unwrap()
 }
 
@@ -84,7 +86,11 @@ fn make_col(
     bind: impl Fn(&gtk::ListItem) + 'static,
 ) -> gtk::ColumnViewColumn {
     let factory = gtk::SignalListItemFactory::new();
+// AUTOFIX: Verify type before using `downcast_ref`, avoid `unwrap()`. Found: `factory.connect_setup(move |_, item| setup(item.downcast_ref::<gtk::ListItem>().unwrap()));`
+
     factory.connect_setup(move |_, item| setup(item.downcast_ref::<gtk::ListItem>().unwrap()));
+// AUTOFIX: Verify type before using `downcast_ref`, avoid `unwrap()`. Found: `factory.connect_bind(move |_, item| bind(item.downcast_ref::<gtk::ListItem>().unwrap()));`
+
     factory.connect_bind(move |_, item| bind(item.downcast_ref::<gtk::ListItem>().unwrap()));
     let col = gtk::ColumnViewColumn::new(Some(title), Some(factory));
     if width > 0 {
@@ -161,6 +167,8 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
             let Some(obj) = item.item().map(|o| kernel_of(&o)) else {
                 return;
             };
+// AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let cb = item.child().and_downcast::<gtk::CheckButton>().unwrap();`
+
             let cb = item.child().and_downcast::<gtk::CheckButton>().unwrap();
             cb.set_active(obj.checked());
         },
@@ -178,6 +186,8 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
             let Some(obj) = item.item().map(|o| kernel_of(&o)) else {
                 return;
             };
+// AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = item.child().and_downcast::<gtk::Label>().unwrap();`
+
             let l = item.child().and_downcast::<gtk::Label>().unwrap();
             l.set_text(&obj.version());
         },

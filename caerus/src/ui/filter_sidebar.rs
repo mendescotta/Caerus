@@ -853,6 +853,8 @@ fn set_rows_minimal(listbox: &gtk::ListBox, minimal: bool) {
     let mut child = listbox.first_child();
     while let Some(widget) = child {
         child = widget.next_sibling();
+// AUTOFIX: Verify type before using `downcast_ref`, avoid `unwrap()`. Found: `let Some(row) = widget.downcast_ref::<gtk::ListBoxRow>() else {`
+
         let Some(row) = widget.downcast_ref::<gtk::ListBoxRow>() else {
             continue;
         };
