@@ -21,7 +21,7 @@ echo
 echo "## Audit findings"
 echo
 echo '```'
-rg -n --no-heading -S -g '!:target' -g '!.git' \
+rg -n --no-heading -S -g '!target/' -g '!.git/' \
   -e 'unwrap\(' -e 'expect\(' -e 'downcast\(' -e 'downcast_ref' -e 'panic!' -e 'unsafe' -e 'TODO' || true
 echo '```'
 } > "$suggested"

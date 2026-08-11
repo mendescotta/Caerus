@@ -453,9 +453,9 @@ fn build(inner: Rc<Inner>) {
                 // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let cb = match item.child().and_downcast::<gtk::CheckButton>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::CheckButton child in ./caerus/src/ui/package_list.rs"); return; } };`
 
                 let Some(cb) = item.child().and_downcast::<gtk::CheckButton>() else {
-                        eprintln!("caerus: expected gtk::CheckButton child in ./caerus/src/ui/package_list.rs");
-                        return;
-                    };
+                    eprintln!("caerus: expected gtk::CheckButton child in ./caerus/src/ui/package_list.rs");
+                    return;
+                };
                 let p = obj.pkg();
 
                 // Mirrors `on_checkbox_toggled`'s branching. Essential
@@ -500,9 +500,9 @@ fn build(inner: Rc<Inner>) {
             // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let img = match item.child().and_downcast::<gtk::Image>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::Image child in ./caerus/src/ui/package_list.rs"); return; } };`
 
             let Some(img) = item.child().and_downcast::<gtk::Image>() else {
-                    eprintln!("caerus: expected gtk::Image child in ./caerus/src/ui/package_list.rs");
-                    return;
-                };
+                eprintln!("caerus: expected gtk::Image child in ./caerus/src/ui/package_list.rs");
+                return;
+            };
             let p = obj.pkg();
             match pkg_state_icon(p.state, p.mark) {
                 Some(icon) => {
@@ -570,9 +570,9 @@ fn build(inner: Rc<Inner>) {
             // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = match item.child().and_downcast::<gtk::Label>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs"); return; } };`
 
             let Some(l) = item.child().and_downcast::<gtk::Label>() else {
-                    eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
-                    return;
-                };
+                eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
+                return;
+            };
             let p = obj.pkg();
             l.set_text(&p.name);
             if p.mark == PkgMark::None {
@@ -607,9 +607,9 @@ fn build(inner: Rc<Inner>) {
             // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = match item.child().and_downcast::<gtk::Label>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs"); return; } };`
 
             let Some(l) = item.child().and_downcast::<gtk::Label>() else {
-                    eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
-                    return;
-                };
+                eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
+                return;
+            };
             l.set_text(&obj.pkg().short_desc);
         },
     );
@@ -628,9 +628,9 @@ fn build(inner: Rc<Inner>) {
         // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = match item.child().and_downcast::<gtk::Label>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs"); return; } };`
 
         let Some(l) = item.child().and_downcast::<gtk::Label>() else {
-                eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
-                return;
-            };
+            eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
+            return;
+        };
         let p = obj.pkg();
         if let Some(v) = &p.version_installed {
             l.set_text(v);
@@ -656,9 +656,9 @@ fn build(inner: Rc<Inner>) {
         // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = match item.child().and_downcast::<gtk::Label>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs"); return; } };`
 
         let Some(l) = item.child().and_downcast::<gtk::Label>() else {
-                eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
-                return;
-            };
+            eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
+            return;
+        };
         let p = obj.pkg();
         l.set_text(p.version_available.as_deref().unwrap_or("\u{2014}"));
         if p.state == PkgState::Upgradable {
@@ -683,9 +683,9 @@ fn build(inner: Rc<Inner>) {
         // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = match item.child().and_downcast::<gtk::Label>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs"); return; } };`
 
         let Some(l) = item.child().and_downcast::<gtk::Label>() else {
-                eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
-                return;
-            };
+            eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
+            return;
+        };
         let p = obj.pkg();
         l.set_text(&if p.install_size > 0 {
             pkg_format_size(p.install_size)
@@ -703,9 +703,9 @@ fn build(inner: Rc<Inner>) {
         // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = match item.child().and_downcast::<gtk::Label>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs"); return; } };`
 
         let Some(l) = item.child().and_downcast::<gtk::Label>() else {
-                eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
-                return;
-            };
+            eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
+            return;
+        };
         let p = obj.pkg();
         l.set_text(&if p.download_size > 0 {
             pkg_format_size(p.download_size)

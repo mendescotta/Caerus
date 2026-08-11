@@ -4,7 +4,9 @@ on:
   schedule:
     - cron: '0 4 * * 0' # weekly
   pull_request:
-    branches: [ "0.5-dev" ]
+
+permissions:
+  contents: read
 
 jobs:
   audit:

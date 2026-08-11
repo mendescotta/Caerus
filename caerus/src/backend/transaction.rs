@@ -310,17 +310,17 @@ impl Transaction {
         };
 
         let Some(stdin) = child.stdin.take() else {
-                self.emit_log("ERROR helper stdin was not piped");
-                return false;
-            };
+            self.emit_log("ERROR helper stdin was not piped");
+            return false;
+        };
         let Some(stdout) = child.stdout.take() else {
-                self.emit_log("ERROR helper stdout was not piped");
-                return false;
-            };
+            self.emit_log("ERROR helper stdout was not piped");
+            return false;
+        };
         let Some(stderr) = child.stderr.take() else {
-                self.emit_log("ERROR helper stderr was not piped");
-                return false;
-            };
+            self.emit_log("ERROR helper stderr was not piped");
+            return false;
+        };
 
         // Forward stdout+stderr into one channel, then reap the child
         // once both readers finish.

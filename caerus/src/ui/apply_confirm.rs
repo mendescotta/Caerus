@@ -2,8 +2,7 @@
 //! before the privileged batch is queued. When a real `libxbps`-computed
 //! preview is available (see `backend::transaction_preview`, built from
 //! `xbps_transaction_prepare()`), shows actual per-package sizes/
-//! versions/actions and a "Copy Dry-Run Output" button; otherwise falls
-//! back to plain grouped name lists.
+//! versions/actions; otherwise falls back to plain grouped name lists.
 
 use crate::backend::package::pkg_format_size;
 use crate::backend::transaction_preview::{TransAction, TransactionError, TransactionPreview};

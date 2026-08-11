@@ -661,7 +661,7 @@ impl DetailPane {
         empty_page.set_halign(gtk::Align::Center);
         empty_page.set_vexpand(true);
         empty_page.set_hexpand(true);
-        let empty_icon = gtk::Image::from_icon_name("view-list-symbolic");
+        let empty_icon = gtk::Image::from_icon_name("package-x-generic-symbolic");
         empty_icon.set_pixel_size(40);
         empty_icon.add_css_class("dim-label");
         let empty_title = gtk::Label::new(Some("Select a package to view details"));
@@ -931,15 +931,10 @@ fn wire_buttons(inner: &Rc<Inner>) {
 /// since a caller's `Package` may be stale after a mark change elsewhere.
 fn lookup_current_pkg(inner: &Inner) -> Option<Package> {
     let name = inner.current_pkgname.borrow().clone()?;
-    let n = inner.store.list().n_items();
+    let list = inner.store.list();
+    let n = list.n_items();
     for i in 0..n {
-        if let Some(obj) = inner.store.list().item(i) {
-            // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let obj = obj.downcast::<PackageObject>().unwrap();`
-
-            let Ok(obj) = obj.downcast::<PackageObject>() else {
-                    eprintln!("caerus: lookup_current_pkg saw non-PackageObject");
-                    continue;
-                };
+        if let Some(obj) = crate::backend::package_store::package_obj_at(&list, i) {
             if obj.name() == name {
                 return Some(obj.pkg().clone());
             }
