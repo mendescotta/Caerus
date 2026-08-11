@@ -2,20 +2,10 @@ name: Autofix review
 
 on:
   workflow_dispatch:
-    inputs:
-      create_pr:
-        description: 'Create a draft PR from the generated audit artifacts.'
-        required: false
-        default: false
-        type: boolean
 
 jobs:
   autofix:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-
     steps:
       - uses: actions/checkout@v4
 
@@ -36,16 +26,5 @@ jobs:
             audit-report.json
             .github/auto-fixes/*.md
 
-      - name: Create draft PR
-        if: ${{ inputs.create_pr }}
-        uses: peter-evans/create-pull-request@v7
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          draft: true
-          commit-message: "chore: review audit artifacts"
-          branch: "autofix-review-${{ github.run_id }}"
-          title: "Autofix review: audit report"
-          body: |
-            This PR contains a generated audit report and suggested-fix notes.
-            It is intentionally review-only. Keep the changes small and human-reviewed.
-            Do not merge without inspection of the underlying code paths.
+      - name: Note branch policy
+        run: echo "All active work stays on the 0.5-dev branch; this workflow only produces review artifacts, never competing task branches."

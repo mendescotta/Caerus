@@ -44,6 +44,8 @@ touch anything gated behind `#[cfg(feature = "adwaita")]`, since CI does.
 
 Caerus uses a conservative review-first workflow for code hardening:
 
+- keep active work on the single `0.5-dev` branch
+- do not create competing task branches for each change set
 - run the audit scripts to generate a report, not to rewrite code
 - review the matches in `audit-report.json` and `.github/auto-fixes/*.md`
 - patch only the small code paths involved, in isolated commits or PRs
