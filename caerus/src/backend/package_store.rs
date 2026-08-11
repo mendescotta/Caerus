@@ -745,11 +745,13 @@ unsafe extern "C" fn pkgdb_cb(
         );
     }
 
-// AUTOFIX: Consider replacing `.unwrap()` with `match ... { Some(x) => x, None => { eprintln!(\"...\"); return; } }` or `if let Some(x) = ...` depending on context. Found: `let p = ht.get_mut(&pkgname).unwrap();`
+    // AUTOFIX: Consider replacing `.unwrap()` with `match ... { Some(x) => x, None => { eprintln!(\"...\"); return; } }` or `if let Some(x) = ...` depending on context. Found: `let p = ht.get_mut(&pkgname).unwrap();`
 
-    let p = match ht.get_mut(&pkgname) {
-        Some(p) => p,
-        None => { eprintln!("caerus: expected package {} in hash table", pkgname); continue; }
+    let p = if let Some(p) = ht.get_mut(&pkgname) {
+        p
+    } else {
+        eprintln!("caerus: expected package {} in hash table", pkgname);
+        return 0;
     };
     p.version_installed = Some(ver.clone());
     // pkgdb's own "repository" is more authoritative than a
