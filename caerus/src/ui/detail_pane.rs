@@ -931,10 +931,10 @@ fn wire_buttons(inner: &Rc<Inner>) {
 /// since a caller's `Package` may be stale after a mark change elsewhere.
 fn lookup_current_pkg(inner: &Inner) -> Option<Package> {
     let name = inner.current_pkgname.borrow().clone()?;
-    let n = inner.store.list().n_items();
+    let list = inner.store.list();
+    let n = list.n_items();
     for i in 0..n {
-        if let Some(obj) = inner.store.list().item(i) {
-            let obj = obj.downcast::<PackageObject>().unwrap();
+        if let Some(obj) = crate::backend::package_store::package_obj_at(&list, i) {
             if obj.name() == name {
                 return Some(obj.pkg().clone());
             }
