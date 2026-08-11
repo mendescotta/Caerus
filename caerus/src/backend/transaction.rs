@@ -309,9 +309,27 @@ impl Transaction {
             }
         };
 
-        let stdin = child.stdin.take().expect("helper stdin was piped");
-        let stdout = child.stdout.take().expect("helper stdout was piped");
-        let stderr = child.stderr.take().expect("helper stderr was piped");
+        let stdin = match child.stdin.take() {
+            Some(s) => s,
+            None => {
+                self.emit_log("ERROR helper stdin was not piped");
+                return false;
+            }
+        };
+        let stdout = match child.stdout.take() {
+            Some(s) => s,
+            None => {
+                self.emit_log("ERROR helper stdout was not piped");
+                return false;
+            }
+        };
+        let stderr = match child.stderr.take() {
+            Some(s) => s,
+            None => {
+                self.emit_log("ERROR helper stderr was not piped");
+                return false;
+            }
+        };
 
         // Forward stdout+stderr into one channel, then reap the child
         // once both readers finish.
@@ -405,7 +423,10 @@ impl Transaction {
                     None => Step::QueueEmpty,
                     Some(front) => match front.commands.pop_front() {
                         Some(cmd) => Step::Send(cmd),
-                        None => Step::Completed(batches.pop_front().expect("front batch exists")),
+                        None => match batches.pop_front() {
+                            Some(b) => Step::Completed(b),
+                            None => Step::QueueEmpty,
+                        },
                     },
                 }
             };
