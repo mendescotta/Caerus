@@ -85,19 +85,24 @@ fn run_xbps(argv: &[&str]) -> Option<i32> {
     {
         Ok(c) => c,
         Err(e) => {
-            println!("ERROR spawn {}: {}", argv[0], e);
-            let _ = io::stdout().flush();
+            eprintln!("caerus-helper: spawn {}: {}", argv[0], e);
             return None;
         }
     };
 
     let stdout = match child.stdout.take() {
         Some(s) => s,
-        None => { println!("ERROR child stdout was not piped"); let _ = io::stdout().flush(); return None; }
+        None => {
+            eprintln!("caerus-helper: child stdout was not piped");
+            return None;
+        }
     };
     let stderr = match child.stderr.take() {
         Some(s) => s,
-        None => { println!("ERROR child stderr was not piped"); let _ = io::stdout().flush(); return None; }
+        None => {
+            eprintln!("caerus-helper: child stderr was not piped");
+            return None;
+        }
     };
 
     // Forward both streams concurrently via a channel + two reader
