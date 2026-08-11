@@ -55,8 +55,6 @@ const fn ord(c: CmpOrdering) -> gtk::Ordering {
 }
 
 fn pkg_of(obj: &glib::Object) -> PackageObject {
-// AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `obj.clone().downcast::<PackageObject>().unwrap()`
-
     obj.clone().downcast::<PackageObject>().unwrap()
 }
 
@@ -111,11 +109,7 @@ fn make_col(
     bind: impl Fn(&gtk::ListItem) + 'static,
 ) -> gtk::ColumnViewColumn {
     let factory = gtk::SignalListItemFactory::new();
-// AUTOFIX: Verify type before using `downcast_ref`, avoid `unwrap()`. Found: `factory.connect_setup(move |_, item| setup(item.downcast_ref::<gtk::ListItem>().unwrap()));`
-
     factory.connect_setup(move |_, item| setup(item.downcast_ref::<gtk::ListItem>().unwrap()));
-// AUTOFIX: Verify type before using `downcast_ref`, avoid `unwrap()`. Found: `factory.connect_bind(move |_, item| bind(item.downcast_ref::<gtk::ListItem>().unwrap()));`
-
     factory.connect_bind(move |_, item| bind(item.downcast_ref::<gtk::ListItem>().unwrap()));
 
     let col = gtk::ColumnViewColumn::new(Some(title), Some(factory));
@@ -450,9 +444,10 @@ fn build(inner: Rc<Inner>) {
                 let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
                     return;
                 };
-// AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let cb = item.child().and_downcast::<gtk::CheckButton>().unwrap();`
-
-                let cb = item.child().and_downcast::<gtk::CheckButton>().unwrap();
+                let Some(cb) = item.child().and_downcast::<gtk::CheckButton>() else {
+                    eprintln!("caerus: expected gtk::CheckButton child in package_list");
+                    return;
+                };
                 let p = obj.pkg();
 
                 // Mirrors `on_checkbox_toggled`'s branching. Essential
@@ -494,9 +489,10 @@ fn build(inner: Rc<Inner>) {
             let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
                 return;
             };
-// AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let img = item.child().and_downcast::<gtk::Image>().unwrap();`
-
-            let img = item.child().and_downcast::<gtk::Image>().unwrap();
+            let Some(img) = item.child().and_downcast::<gtk::Image>() else {
+                eprintln!("caerus: expected gtk::Image child in package_list");
+                return;
+            };
             let p = obj.pkg();
             match pkg_state_icon(p.state, p.mark) {
                 Some(icon) => {
@@ -561,9 +557,10 @@ fn build(inner: Rc<Inner>) {
             let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
                 return;
             };
-// AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = item.child().and_downcast::<gtk::Label>().unwrap();`
-
-            let l = item.child().and_downcast::<gtk::Label>().unwrap();
+            let Some(l) = item.child().and_downcast::<gtk::Label>() else {
+                eprintln!("caerus: expected gtk::Label child in package_list");
+                return;
+            };
             let p = obj.pkg();
             l.set_text(&p.name);
             if p.mark == PkgMark::None {
@@ -595,9 +592,10 @@ fn build(inner: Rc<Inner>) {
             let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
                 return;
             };
-// AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = item.child().and_downcast::<gtk::Label>().unwrap();`
-
-            let l = item.child().and_downcast::<gtk::Label>().unwrap();
+            let Some(l) = item.child().and_downcast::<gtk::Label>() else {
+                eprintln!("caerus: expected gtk::Label child in package_list");
+                return;
+            };
             l.set_text(&obj.pkg().short_desc);
         },
     );
@@ -613,9 +611,10 @@ fn build(inner: Rc<Inner>) {
         let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
             return;
         };
-// AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = item.child().and_downcast::<gtk::Label>().unwrap();`
-
-        let l = item.child().and_downcast::<gtk::Label>().unwrap();
+        let Some(l) = item.child().and_downcast::<gtk::Label>() else {
+            eprintln!("caerus: expected gtk::Label child in package_list");
+            return;
+        };
         let p = obj.pkg();
         if let Some(v) = &p.version_installed {
             l.set_text(v);
@@ -638,9 +637,10 @@ fn build(inner: Rc<Inner>) {
         let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
             return;
         };
-// AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = item.child().and_downcast::<gtk::Label>().unwrap();`
-
-        let l = item.child().and_downcast::<gtk::Label>().unwrap();
+        let Some(l) = item.child().and_downcast::<gtk::Label>() else {
+            eprintln!("caerus: expected gtk::Label child in package_list");
+            return;
+        };
         let p = obj.pkg();
         l.set_text(p.version_available.as_deref().unwrap_or("\u{2014}"));
         if p.state == PkgState::Upgradable {
@@ -662,9 +662,10 @@ fn build(inner: Rc<Inner>) {
         let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
             return;
         };
-// AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = item.child().and_downcast::<gtk::Label>().unwrap();`
-
-        let l = item.child().and_downcast::<gtk::Label>().unwrap();
+        let Some(l) = item.child().and_downcast::<gtk::Label>() else {
+            eprintln!("caerus: expected gtk::Label child in package_list");
+            return;
+        };
         let p = obj.pkg();
         l.set_text(&if p.install_size > 0 {
             pkg_format_size(p.install_size)
@@ -679,9 +680,10 @@ fn build(inner: Rc<Inner>) {
         let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
             return;
         };
-// AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = item.child().and_downcast::<gtk::Label>().unwrap();`
-
-        let l = item.child().and_downcast::<gtk::Label>().unwrap();
+        let Some(l) = item.child().and_downcast::<gtk::Label>() else {
+            eprintln!("caerus: expected gtk::Label child in package_list");
+            return;
+        };
         let p = obj.pkg();
         l.set_text(&if p.download_size > 0 {
             pkg_format_size(p.download_size)
@@ -968,7 +970,7 @@ fn show_context_menu(
     let selected = Rc::new(selected);
     for (label, mark) in items {
         let btn = gtk::Button::with_label(&label);
-        btn.set_has_frame(false);
+        btn.add_css_class("flat");
         if let Some(l) = btn.child().and_downcast::<gtk::Label>() {
             l.set_xalign(0.0);
         }
