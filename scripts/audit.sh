@@ -19,8 +19,8 @@ if ! command -v rg >/dev/null 2>&1; then
 fi
 
 # Run ripgrep JSON output across the repo (excluding .git and target directories).
-rg --json -n -S -g '!:target' -g '!.git' \
+rg --json -n -S -g '!target/' -g '!.git/' \
   -e "${patterns[0]}" -e "${patterns[1]}" -e "${patterns[2]}" -e "${patterns[3]}" -e "${patterns[4]}" -e "${patterns[5]}" -e "${patterns[6]}" \
-  || true > audit-report.json
+  > audit-report.json || true
 
 echo "Wrote audit-report.json (may be empty)."

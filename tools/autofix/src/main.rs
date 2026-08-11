@@ -33,30 +33,45 @@ fn main() -> anyhow::Result<()> {
     let opts = Opts::parse();
     let patterns = vec![
         ("unwrap", Regex::new(r"\b([a-zA-Z0-9_.)>]+)\.unwrap\(\)")?),
-        ("expect", Regex::new(r"\b([a-zA-Z0-9_.)>]+)\.expect\(.*?\)")?),
-        ("downcast_unwrap", Regex::new(r"downcast::<([A-Za-z0-9_:]+)>\(\)\.unwrap\(\)")?),
-        ("downcast_ref", Regex::new(r"downcast_ref::<([A-Za-z0-9_:]+)>\(\)")?),
+        (
+            "expect",
+            Regex::new(r"\b([a-zA-Z0-9_.)>]+)\.expect\(.*?\)")?,
+        ),
+        (
+            "downcast_unwrap",
+            Regex::new(r"downcast::<([A-Za-z0-9_:]+)>\(\)\.unwrap\(\)")?,
+        ),
+        (
+            "downcast_ref",
+            Regex::new(r"downcast_ref::<([A-Za-z0-9_:]+)>\(\)")?,
+        ),
     ];
 
     let mut matches: Vec<Match> = Vec::new();
 
     for entry in WalkDir::new(&opts.path).into_iter().filter_map(Result::ok) {
         let p = entry.path();
-        if !p.is_file() { continue; }
+        if !p.is_file() {
+            continue;
+        }
         let s = p.to_string_lossy();
-        if !s.ends_with(".rs") { continue; }
-        if s.contains("/target/") || s.contains("/.git/") { continue; }
+        if !s.ends_with(".rs") {
+            continue;
+        }
+        if s.contains("/target/") || s.contains("/.git/") {
+            continue;
+        }
         let content = fs::read_to_string(p)?;
         for (pat_name, re) in &patterns {
             for (ln, line) in content.lines().enumerate() {
                 if let Some(m) = re.captures(line) {
                     let m0 = m.get(0).unwrap();
-                    let col = m0.start()+1;
+                    let col = m0.start() + 1;
                     let found = m0.as_str().to_string();
-                    let suggestion = suggest_fix(p.to_string_lossy().as_ref(), &line, pat_name);
+                    let suggestion = suggest_fix(p.to_string_lossy().as_ref(), line, pat_name);
                     matches.push(Match {
                         file: s.to_string(),
-                        line: ln+1,
+                        line: ln + 1,
                         column: col,
                         text: found,
                         pattern: pat_name.to_string(),
