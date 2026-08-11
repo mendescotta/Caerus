@@ -161,7 +161,10 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
             let Some(obj) = item.item().map(|o| kernel_of(&o)) else {
                 return;
             };
-            let cb = item.child().and_downcast::<gtk::CheckButton>().unwrap();
+            let Some(cb) = item.child().and_downcast::<gtk::CheckButton>() else {
+                eprintln!("caerus: expected gtk::CheckButton child in vkpurge_dialog");
+                return;
+            };
             cb.set_active(obj.checked());
         },
     );
@@ -178,7 +181,10 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
             let Some(obj) = item.item().map(|o| kernel_of(&o)) else {
                 return;
             };
-            let l = item.child().and_downcast::<gtk::Label>().unwrap();
+            let Some(l) = item.child().and_downcast::<gtk::Label>() else {
+                eprintln!("caerus: expected gtk::Label child in vkpurge_dialog");
+                return;
+            };
             l.set_text(&obj.version());
         },
     );
