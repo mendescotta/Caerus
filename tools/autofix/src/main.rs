@@ -21,6 +21,10 @@ struct Opts {
     /// Apply comments inline to files (inserts TODO comment above each match)
     #[arg(long, default_value_t = false)]
     apply: bool,
+
+    /// Apply safe downcast unwrap rewrites (very conservative)
+    #[arg(long, default_value_t = false)]
+    apply_safe: bool,
 }
 
 #[derive(Serialize)]
@@ -82,6 +86,11 @@ fn main() -> anyhow::Result<()> {
         println!("Applied comments to files (in-place).");
     }
 
+    if opts.apply_safe {
+        apply_safe_edits()?;
+        println!("Applied conservative safe rewrites (in-place).");
+    }
+
     Ok(())
 }
 
@@ -109,6 +118,34 @@ fn apply_comments(matches: &Vec<Match>) -> anyhow::Result<()> {
         }
         let new = lines.join("\n");
         fs::write(path, new)?;
+    }
+    Ok(())
+}
+
+fn apply_safe_edits() -> anyhow::Result<()> {
+    use regex::Regex;
+    use std::collections::BTreeMap;
+    let pattern = Regex::new(r"let\s+([A-Za-z0-9_]+)\s*=\s*item\.child\(\)\.and_downcast::<([A-Za-z0-9_:]+)>\(\)\.unwrap\(\)\s*;")?;
+    let mut changed_files: BTreeMap<String, String> = BTreeMap::new();
+    for entry in WalkDir::new(".").into_iter().filter_map(Result::ok) {
+        let p = entry.path();
+        if !p.is_file() { continue; }
+        let s = p.to_string_lossy();
+        if !s.ends_with(".rs") { continue; }
+        if s.contains("/target/") || s.contains("/.git/") { continue; }
+        let content = fs::read_to_string(p)?;
+        if !pattern.is_match(&content) { continue; }
+        let new = pattern.replace_all(&content, |caps: &regex::Captures| {
+            let var = &caps[1];
+            let ty = &caps[2];
+            let msg = format!("caerus: expected {} child in {}", ty, s);
+            format!("let {var} = match item.child().and_downcast::<{ty}>() {{ Some(v) => v, None => {{ eprintln!(\"{}\"); return; }} }};", msg)
+        });
+        changed_files.insert(s.to_string(), new.to_string());
+    }
+    for (file, new_content) in changed_files {
+        fs::write(&file, new_content)?;
+        println!("Patched {}", file);
     }
     Ok(())
 }
