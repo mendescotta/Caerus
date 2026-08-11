@@ -50,7 +50,7 @@ struct WindowState {
     sidebar_minimal: std::cell::Cell<bool>,
     /// Right-side counterpart to `btn_toggle_sidebar`: show/hide the
     /// detail pane. Bound bidirectionally to the View menu's "Detail
-    /// Pane" switch, same pattern as the sidebar's button+switch pair.
+    /// Pane" switch.
     btn_toggle_detail_pane: gtk::ToggleButton,
     status_bar: gtk::Box,
     search_entry: gtk::SearchEntry,
@@ -536,6 +536,7 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     state
         .sidebar
         .set_show_stale_repositories(geometry.stale_repos_visible);
+    apply_sidebar_mode(&state, geometry.sidebar_visible, geometry.sidebar_minimal);
 
     populate_menu_popover(&state);
 
@@ -779,6 +780,45 @@ fn switch_row(label: &str, accel: Option<&str>) -> (gtk::Box, gtk::Switch) {
     (row, switch)
 }
 
+/// Single funnel for every sidebar-mode change (header button, F9, and
+/// both View-menu switches all call into this) — applies the widget
+/// state and re-syncs the two switches + button tooltip to match.
+/// Calling `Switch::set_active` with the value it already holds does
+/// not re-fire `notify::active`, so this can't loop even though the
+/// switches' own handlers call back into this function.
+fn apply_sidebar_mode(state: &Rc<WindowState>, visible: bool, minimal: bool) {
+    state.sidebar.widget().set_visible(visible);
+    state.sidebar.set_minimal(minimal);
+    state.sidebar_minimal.set(minimal);
+    state
+        .btn_toggle_sidebar
+        .set_tooltip_text(Some(match (visible, minimal) {
+            (true, false) => "Show Minimal Sidebar (F9)",
+            (true, true) => "Hide Sidebar (F9)",
+            (false, _) => "Show Sidebar (F9)",
+        }));
+    state.sw_sidebar_visible.set_active(visible);
+    state.sw_sidebar_minimal.set_active(minimal);
+}
+
+/// The header button's / F9's fixed 3-state cycle: Full -> Minimal ->
+/// Hidden -> Full. Reaching Minimal or Full from Hidden any other way
+/// (the View-menu switches) is handled separately in
+/// `populate_menu_popover` — this cycle only defines what a *click*
+/// does.
+fn cycle_sidebar_mode(state: &Rc<WindowState>) {
+    let visible = state.sidebar.widget().get_visible();
+    let minimal = state.sidebar_minimal.get();
+    let (next_visible, next_minimal) = if !visible {
+        (true, false)
+    } else if !minimal {
+        (true, true)
+    } else {
+        (false, minimal)
+    };
+    apply_sidebar_mode(state, next_visible, next_minimal);
+}
+
 /// Builds the hamburger popover: a `gtk::Stack` of pages — root (View ▸ /
 /// Settings ▸ / Keyboard Shortcuts ▸ / About / Quit) plus three slide-in
 /// pages whose boolean controls are all switches.
@@ -865,8 +905,9 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
 
     let sidebar_row = switch_row_with(&state.sw_sidebar_visible, "Sidebar", Some("F9"));
     {
+        let sw_sidebar_visible = state.sw_sidebar_visible.clone();
         let state = state.clone();
-        state.sw_sidebar_visible.connect_active_notify(move |sw| {
+        sw_sidebar_visible.connect_active_notify(move |sw| {
             apply_sidebar_mode(&state, sw.is_active(), state.sidebar_minimal.get());
         });
     }
@@ -874,8 +915,9 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
 
     let minimal_row = switch_row_with(&state.sw_sidebar_minimal, "Minimal Sidebar", None);
     {
+        let sw_sidebar_minimal = state.sw_sidebar_minimal.clone();
         let state = state.clone();
-        state.sw_sidebar_minimal.connect_active_notify(move |sw| {
+        sw_sidebar_minimal.connect_active_notify(move |sw| {
             let minimal = sw.is_active();
             // Turning minimal ON also shows the sidebar (it's the only
             // way to reach Minimal directly from Hidden); turning it
@@ -1141,9 +1183,7 @@ fn wire_keyboard_shortcuts(state: &Rc<WindowState>) {
                 glib::Propagation::Stop
             }
             gtk::gdk::Key::F9 => {
-                state
-                    .btn_toggle_sidebar
-                    .set_active(!state.btn_toggle_sidebar.is_active());
+                cycle_sidebar_mode(&state);
                 glib::Propagation::Stop
             }
             // Ctrl+? — the full shortcuts overlay.
@@ -1437,6 +1477,11 @@ fn wire_up(state: &Rc<WindowState>) {
         });
     }
     {
+        let btn_toggle_sidebar = state.btn_toggle_sidebar.clone();
+        let state = state.clone();
+        btn_toggle_sidebar.connect_clicked(move |_| cycle_sidebar_mode(&state));
+    }
+    {
         let btn_mark_upgrades = state.btn_mark_upgrades.clone();
         let state = state.clone();
         btn_mark_upgrades.connect_clicked(move |_| {
@@ -1527,6 +1572,8 @@ fn wire_up(state: &Rc<WindowState>) {
                 vertical_panel: state.right_paned.orientation() == gtk::Orientation::Horizontal,
                 status_bar_visible: state.status_bar.get_visible(),
                 stale_repos_visible: state.sidebar.show_stale_repositories(),
+                sidebar_visible: state.sidebar.widget().get_visible(),
+                sidebar_minimal: state.sidebar_minimal.get(),
             }
             .save();
             state.session.shutdown();
