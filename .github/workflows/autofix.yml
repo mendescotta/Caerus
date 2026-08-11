@@ -1,0 +1,30 @@
+name: Autofix
+
+on:
+  workflow_dispatch:
+
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep || true
+
+      - name: Make autofix script executable
+        run: chmod +x scripts/autofix.sh || true
+
+      - name: Run autofix generator
+        run: ./scripts/autofix.sh
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(autofix): audit report and suggested fixes"
+          branch: "autofix-${{ github.run_id }}"
+          title: "Autofix: audit report and suggested fixes"
+          body: |
+            Automated audit run produced an audit report and a suggested-fixes document.
+            This PR contains diagnostic output and suggested locations for manual hardening.
