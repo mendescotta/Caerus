@@ -12,25 +12,37 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/void-linux/void-linux:latest-full-x86_64
+
     steps:
+      - name: Install build dependencies
+        run: |
+          xbps-install -Sy
+          xbps-install -uy xbps
+          xbps-install -Suy
+          xbps-install -y base-devel libxbps-devel gtk4-devel libadwaita-devel pkg-config rust cargo git clang zstd
+
       - uses: actions/checkout@v4
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
         with:
-          components: rustfmt, clippy
+          cache-on-failure: true
 
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev || true
+      - name: Build
+        run: cargo build --verbose
 
-      - name: cargo fmt check
-        run: cargo fmt --all -- --check
+      - name: Run tests
+        run: cargo test --verbose
 
-      - name: cargo clippy
+      - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: cargo test
-        run: cargo test --workspace --all-features --locked
+      - name: Formatting
+        run: cargo fmt --check
 
-      - name: cargo check
-        run: cargo check --workspace --all-features --locked
+      - name: Build with adwaita feature
+        run: cargo build --verbose --features caerus/adwaita
+
+      - name: Clippy with adwaita feature
+        run: cargo clippy --workspace --all-targets --features caerus/adwaita -- -D warnings

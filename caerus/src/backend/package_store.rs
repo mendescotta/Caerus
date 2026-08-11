@@ -745,7 +745,10 @@ unsafe extern "C" fn pkgdb_cb(
         );
     }
 
-    let p = ht.get_mut(&pkgname).unwrap();
+    let Some(p) = ht.get_mut(&pkgname) else {
+        eprintln!("caerus: pkgname disappeared from hash table: {pkgname}");
+        return 0;
+    };
     p.version_installed = Some(ver.clone());
     // pkgdb's own "repository" is more authoritative than a
     // currently-configured repo that happens to carry a matching pkgver.
