@@ -199,6 +199,7 @@ fn make_row(icon: &str, label: &str) -> gtk::ListBoxRow {
 
     let row = gtk::ListBoxRow::new();
     row.set_child(Some(&row_box));
+    row.set_tooltip_text(Some(label));
     row
 }
 
@@ -224,52 +225,55 @@ fn make_custom_filter_row(name: &str, kind: FilterKind) -> gtk::ListBoxRow {
 
     let row = gtk::ListBoxRow::new();
     row.set_child(Some(&row_box));
+    row.set_tooltip_text(Some(name));
     row
 }
 
-/// Repository rows have no natural icon (repos are arbitrary
-/// user-configured URIs/paths) and can be long, so this variant skips
-/// the icon and ellipsizes instead.
 fn make_text_row(label: &str) -> gtk::ListBoxRow {
+    let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    row_box.set_margin_start(8);
+    row_box.set_margin_end(8);
+    row_box.set_margin_top(5);
+    row_box.set_margin_bottom(5);
+    row_box.append(&gtk::Image::from_icon_name("folder-remote-symbolic"));
     let l = gtk::Label::new(Some(label));
     l.set_xalign(0.0);
     l.set_hexpand(true);
     l.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
-    l.set_margin_start(8);
-    l.set_margin_end(8);
-    l.set_margin_top(5);
-    l.set_margin_bottom(5);
+    row_box.append(&l);
 
     let row = gtk::ListBoxRow::new();
-    row.set_child(Some(&l));
+    row.set_child(Some(&row_box));
+    row.set_tooltip_text(Some(label));
     row
 }
 
-/// A repository row: same look as `make_text_row`, plus a right-click
-/// gesture opening a rename dialog for `url` and a tooltip showing the
-/// full URL (the visible text may be a custom name or the
-/// scheme-stripped URL, either of which can be a truncated/altered
-/// view of it).
 fn build_repo_row(inner: &Rc<Inner>, url: String, stale: bool) -> gtk::ListBoxRow {
+    let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    row_box.set_margin_start(8);
+    row_box.set_margin_end(8);
+    row_box.set_margin_top(5);
+    row_box.set_margin_bottom(5);
+    row_box.append(&gtk::Image::from_icon_name("folder-remote-symbolic"));
+
     let l = gtk::Label::new(Some(&repo_display_text(inner, &url)));
     l.set_xalign(0.0);
     l.set_hexpand(true);
     l.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
-    l.set_margin_start(8);
-    l.set_margin_end(8);
-    l.set_margin_top(5);
-    l.set_margin_bottom(5);
     if stale {
         l.add_css_class("dim-label");
-        l.set_tooltip_text(Some(&format!(
+    }
+    row_box.append(&l);
+
+    let row = gtk::ListBoxRow::new();
+    row.set_child(Some(&row_box));
+    if stale {
+        row.set_tooltip_text(Some(&format!(
             "{url}\nNot currently configured — packages were installed from it in the past"
         )));
     } else {
-        l.set_tooltip_text(Some(&url));
+        row.set_tooltip_text(Some(&url));
     }
-
-    let row = gtk::ListBoxRow::new();
-    row.set_child(Some(&l));
 
     let gesture = gtk::GestureClick::new();
     gesture.set_button(gtk::gdk::BUTTON_SECONDARY);
@@ -280,7 +284,7 @@ fn build_repo_row(inner: &Rc<Inner>, url: String, stale: bool) -> gtk::ListBoxRo
         let root = widget.root().and_downcast::<gtk::Window>();
         show_rename_dialog(root, &inner, url.clone(), &label);
     });
-    l.add_controller(gesture);
+    row_box.add_controller(gesture);
 
     row
 }
