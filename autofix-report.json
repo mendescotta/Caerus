@@ -1,0 +1,170 @@
+[
+  {
+    "file": "./caerus/src/ui/detail_pane.rs",
+    "line": 937,
+    "column": 27,
+    "text": "downcast::<PackageObject>().unwrap()",
+    "pattern": "downcast_unwrap",
+    "suggestion": "Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let obj = obj.downcast::<PackageObject>().unwrap();`"
+  },
+  {
+    "file": "./caerus/src/ui/filter_sidebar.rs",
+    "line": 856,
+    "column": 32,
+    "text": "downcast_ref::<gtk::ListBoxRow>()",
+    "pattern": "downcast_ref",
+    "suggestion": "Verify type before using `downcast_ref`, avoid `unwrap()`. Found: `let Some(row) = widget.downcast_ref::<gtk::ListBoxRow>() else {`"
+  },
+  {
+    "file": "./caerus/src/ui/package_list.rs",
+    "line": 58,
+    "column": 17,
+    "text": "downcast::<PackageObject>().unwrap()",
+    "pattern": "downcast_unwrap",
+    "suggestion": "Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `obj.clone().downcast::<PackageObject>().unwrap()`"
+  },
+  {
+    "file": "./caerus/src/ui/package_list.rs",
+    "line": 447,
+    "column": 43,
+    "text": "downcast::<gtk::CheckButton>().unwrap()",
+    "pattern": "downcast_unwrap",
+    "suggestion": "Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let cb = item.child().and_downcast::<gtk::CheckButton>().unwrap();`"
+  },
+  {
+    "file": "./caerus/src/ui/package_list.rs",
+    "line": 489,
+    "column": 40,
+    "text": "downcast::<gtk::Image>().unwrap()",
+    "pattern": "downcast_unwrap",
+    "suggestion": "Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let img = item.child().and_downcast::<gtk::Image>().unwrap();`"
+  },
+  {
+    "file": "./caerus/src/ui/package_list.rs",
+    "line": 554,
+    "column": 38,
+    "text": "downcast::<gtk::Label>().unwrap()",
+    "pattern": "downcast_unwrap",
+    "suggestion": "Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = item.child().and_downcast::<gtk::Label>().unwrap();`"
+  },
+  {
+    "file": "./caerus/src/ui/package_list.rs",
+    "line": 586,
+    "column": 38,
+    "text": "downcast::<gtk::Label>().unwrap()",
+    "pattern": "downcast_unwrap",
+    "suggestion": "Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = item.child().and_downcast::<gtk::Label>().unwrap();`"
+  },
+  {
+    "file": "./caerus/src/ui/package_list.rs",
+    "line": 602,
+    "column": 34,
+    "text": "downcast::<gtk::Label>().unwrap()",
+    "pattern": "downcast_unwrap",
+    "suggestion": "Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = item.child().and_downcast::<gtk::Label>().unwrap();`"
+  },
+  {
+    "file": "./caerus/src/ui/package_list.rs",
+    "line": 625,
+    "column": 34,
+    "text": "downcast::<gtk::Label>().unwrap()",
+    "pattern": "downcast_unwrap",
+    "suggestion": "Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = item.child().and_downcast::<gtk::Label>().unwrap();`"
+  },
+  {
+    "file": "./caerus/src/ui/package_list.rs",
+    "line": 647,
+    "column": 34,
+    "text": "downcast::<gtk::Label>().unwrap()",
+    "pattern": "downcast_unwrap",
+    "suggestion": "Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = item.child().and_downcast::<gtk::Label>().unwrap();`"
+  },
+  {
+    "file": "./caerus/src/ui/package_list.rs",
+    "line": 662,
+    "column": 34,
+    "text": "downcast::<gtk::Label>().unwrap()",
+    "pattern": "downcast_unwrap",
+    "suggestion": "Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = item.child().and_downcast::<gtk::Label>().unwrap();`"
+  },
+  {
+    "file": "./caerus/src/ui/package_list.rs",
+    "line": 112,
+    "column": 53,
+    "text": "downcast_ref::<gtk::ListItem>()",
+    "pattern": "downcast_ref",
+    "suggestion": "Verify type before using `downcast_ref`, avoid `unwrap()`. Found: `factory.connect_setup(move |_, item| setup(item.downcast_ref::<gtk::ListItem>().unwrap()));`"
+  },
+  {
+    "file": "./caerus/src/ui/package_list.rs",
+    "line": 113,
+    "column": 51,
+    "text": "downcast_ref::<gtk::ListItem>()",
+    "pattern": "downcast_ref",
+    "suggestion": "Verify type before using `downcast_ref`, avoid `unwrap()`. Found: `factory.connect_bind(move |_, item| bind(item.downcast_ref::<gtk::ListItem>().unwrap()));`"
+  },
+  {
+    "file": "./caerus/src/ui/vkpurge_dialog.rs",
+    "line": 57,
+    "column": 17,
+    "text": "downcast::<KernelObject>().unwrap()",
+    "pattern": "downcast_unwrap",
+    "suggestion": "Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `obj.clone().downcast::<KernelObject>().unwrap()`"
+  },
+  {
+    "file": "./caerus/src/ui/vkpurge_dialog.rs",
+    "line": 164,
+    "column": 39,
+    "text": "downcast::<gtk::CheckButton>().unwrap()",
+    "pattern": "downcast_unwrap",
+    "suggestion": "Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let cb = item.child().and_downcast::<gtk::CheckButton>().unwrap();`"
+  },
+  {
+    "file": "./caerus/src/ui/vkpurge_dialog.rs",
+    "line": 181,
+    "column": 38,
+    "text": "downcast::<gtk::Label>().unwrap()",
+    "pattern": "downcast_unwrap",
+    "suggestion": "Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = item.child().and_downcast::<gtk::Label>().unwrap();`"
+  },
+  {
+    "file": "./caerus/src/ui/vkpurge_dialog.rs",
+    "line": 87,
+    "column": 53,
+    "text": "downcast_ref::<gtk::ListItem>()",
+    "pattern": "downcast_ref",
+    "suggestion": "Verify type before using `downcast_ref`, avoid `unwrap()`. Found: `factory.connect_setup(move |_, item| setup(item.downcast_ref::<gtk::ListItem>().unwrap()));`"
+  },
+  {
+    "file": "./caerus/src/ui/vkpurge_dialog.rs",
+    "line": 88,
+    "column": 51,
+    "text": "downcast_ref::<gtk::ListItem>()",
+    "pattern": "downcast_ref",
+    "suggestion": "Verify type before using `downcast_ref`, avoid `unwrap()`. Found: `factory.connect_bind(move |_, item| bind(item.downcast_ref::<gtk::ListItem>().unwrap()));`"
+  },
+  {
+    "file": "./caerus/src/backend/package_store.rs",
+    "line": 748,
+    "column": 25,
+    "text": "pkgname).unwrap()",
+    "pattern": "unwrap",
+    "suggestion": "Consider replacing `.unwrap()` with `match ... { Some(x) => x, None => { eprintln!(\\\"...\\\"); return; } }` or `if let Some(x) = ...` depending on context. Found: `let p = ht.get_mut(&pkgname).unwrap();`"
+  },
+  {
+    "file": "./tools/autofix/src/main.rs",
+    "line": 57,
+    "column": 36,
+    "text": "0).unwrap()",
+    "pattern": "unwrap",
+    "suggestion": "Consider replacing `.unwrap()` with `match ... { Some(x) => x, None => { eprintln!(\\\"...\\\"); return; } }` or `if let Some(x) = ...` depending on context. Found: `let m0 = m.get(0).unwrap();`"
+  },
+  {
+    "file": "./tools/autofix/src/main.rs",
+    "line": 118,
+    "column": 48,
+    "text": "downcast::<T>().unwrap()",
+    "pattern": "downcast_unwrap",
+    "suggestion": "Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `\"downcast_unwrap\" => format!(\"Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `{}`\", line.trim()),`"
+  }
+]

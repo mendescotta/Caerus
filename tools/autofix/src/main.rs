@@ -54,6 +54,8 @@ fn main() -> anyhow::Result<()> {
         for (pat_name, re) in &patterns {
             for (ln, line) in content.lines().enumerate() {
                 if let Some(m) = re.captures(line) {
+// AUTOFIX: Consider replacing `.unwrap()` with `match ... { Some(x) => x, None => { eprintln!(\"...\"); return; } }` or `if let Some(x) = ...` depending on context. Found: `let m0 = m.get(0).unwrap();`
+
                     let m0 = m.get(0).unwrap();
                     let col = m0.start()+1;
                     let found = m0.as_str().to_string();
@@ -101,7 +103,7 @@ fn apply_comments(matches: &Vec<Match>) -> anyhow::Result<()> {
         for m in muts_sorted {
             let idx = if m.line == 0 { 0 } else { m.line - 1 };
             if idx <= lines.len() {
-                let comment = format!("// AUTOFIX: {}\n", m.suggestion.replace('\n',' '));
+                let comment = format!("// AUTOFIX: {}\n", m.suggestion.replace('\n'," "));
                 lines.insert(idx, comment);
             }
         }
@@ -115,6 +117,8 @@ fn suggest_fix(_file: &str, line: &str, pat: &str) -> String {
     match pat {
         "unwrap" => format!("Consider replacing `.unwrap()` with `match ... {{ Some(x) => x, None => {{ eprintln!(\\\"...\\\"); return; }} }}` or `if let Some(x) = ...` depending on context. Found: `{}`", line.trim()),
         "expect" => format!("Consider handling the error instead of `.expect(...)`. Found: `{}`", line.trim()),
+// AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `"downcast_unwrap" => format!("Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `{}`", line.trim()),`
+
         "downcast_unwrap" => format!("Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `{}`", line.trim()),
         "downcast_ref" => format!("Verify type before using `downcast_ref`, avoid `unwrap()`. Found: `{}`", line.trim()),
         _ => "".to_string(),
