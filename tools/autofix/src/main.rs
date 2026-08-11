@@ -17,6 +17,10 @@ struct Opts {
     /// Dry run only (do not apply anything)
     #[arg(long, default_value_t = true)]
     dry_run: bool,
+
+    /// Apply comments inline to files (inserts TODO comment above each match)
+    #[arg(long, default_value_t = false)]
+    apply: bool,
 }
 
 #[derive(Serialize)]
@@ -70,6 +74,40 @@ fn main() -> anyhow::Result<()> {
     let json = serde_json::to_string_pretty(&matches)?;
     fs::write(&opts.out, &json)?;
     println!("Wrote {} matches to {}", matches.len(), &opts.out);
+
+    if opts.apply {
+        apply_comments(&matches)?;
+        println!("Applied comments to files (in-place).");
+    }
+
+    Ok(())
+}
+
+fn apply_comments(matches: &Vec<Match>) -> anyhow::Result<()> {
+    use std::collections::BTreeMap;
+    // Group matches by file
+    let mut by_file: BTreeMap<String, Vec<&Match>> = BTreeMap::new();
+    for m in matches {
+        by_file.entry(m.file.clone()).or_default().push(m);
+    }
+    for (file, muts) in by_file {
+        // Read file
+        let path = std::path::Path::new(&file);
+        let content = fs::read_to_string(path)?;
+        let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+        // Sort matches descending by line so insertions don't shift later indices
+        let mut muts_sorted = muts.clone();
+        muts_sorted.sort_by(|a, b| b.line.cmp(&a.line));
+        for m in muts_sorted {
+            let idx = if m.line == 0 { 0 } else { m.line - 1 };
+            if idx <= lines.len() {
+                let comment = format!("// AUTOFIX: {}\n", m.suggestion.replace('\n',' '));
+                lines.insert(idx, comment);
+            }
+        }
+        let new = lines.join("\n");
+        fs::write(path, new)?;
+    }
     Ok(())
 }
 
