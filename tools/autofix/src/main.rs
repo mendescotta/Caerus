@@ -84,7 +84,7 @@ fn main() -> anyhow::Result<()> {
 
     let json = serde_json::to_string_pretty(&matches)?;
     fs::write(&opts.out, &json)?;
-    println!("Wrote {} matches to {}", matches.len(), &opts.out);
+    println!("Wrote {} matches to {}", matches.len(), opts.out);
     Ok(())
 }
 
