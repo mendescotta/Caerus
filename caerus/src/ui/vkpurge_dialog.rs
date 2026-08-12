@@ -187,8 +187,7 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
                 return;
             };
 
-            let Some(l) = item.child().and_downcast::<gtk::Label>() else {
-                eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/vkpurge_dialog.rs");
+            let Some(l) = crate::ui::dialog_util::expect_item_child::<gtk::Label>(item) else {
                 return;
             };
             l.set_text(&obj.version());

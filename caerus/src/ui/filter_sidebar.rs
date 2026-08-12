@@ -20,7 +20,7 @@ type ActionCbs = RefCell<Vec<Box<dyn Fn(SidebarAction)>>>;
 /// `preset_lb`, before any custom filter rows. Must match the number of
 /// `preset_lb.append(&make_row(...))` calls in `FilterSidebar::new` and
 /// `FilterMode::from_row_index`'s range.
-const NUM_PRESET_ROWS: i32 = 7;
+const NUM_PRESET_ROWS: i32 = 8;
 
 /// An operational command living in the sidebar's MAINTENANCE / TOOLS
 /// sections (or the REPOSITORIES section's manage row). The sidebar only
@@ -462,6 +462,7 @@ impl FilterSidebar {
         preset_lb.append(&make_row("media-playback-pause-symbolic", "On Hold"));
         preset_lb.append(&make_row("starred-symbolic", "Marked"));
         preset_lb.append(&make_row("edit-clear-symbolic", "Orphaned"));
+        preset_lb.append(&make_row("repo-lock-symbolic", "Repo-Locked"));
 
         // Separator above the first custom-filter row, if any — cleared
         // for every other row so it doesn't linger on stale rows after a
@@ -859,8 +860,6 @@ fn set_rows_minimal(listbox: &gtk::ListBox, minimal: bool) {
     let mut child = listbox.first_child();
     while let Some(widget) = child {
         child = widget.next_sibling();
-        // AUTOFIX: Verify type before using `downcast_ref`, avoid `unwrap()`. Found: `let Some(row) = widget.downcast_ref::<gtk::ListBoxRow>() else {`
-
         let Some(row) = widget.downcast_ref::<gtk::ListBoxRow>() else {
             continue;
         };

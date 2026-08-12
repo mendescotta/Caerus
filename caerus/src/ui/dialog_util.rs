@@ -125,6 +125,24 @@ pub fn present_focused(dlg: &gtk::Window, widget: &impl IsA<gtk::Widget>) {
     widget.grab_focus();
 }
 
+/// Downcasts a `gtk::ListItem`'s child to `T`, logging the call site and
+/// returning `None` if a `connect_setup`/`connect_bind` factory callback
+/// is ever handed an unexpected widget type — should never happen (the
+/// factory always builds/binds the same widget tree), but a clear log
+/// line beats a silent no-op if it ever does.
+#[track_caller]
+pub fn expect_item_child<T: IsA<gtk::Widget>>(item: &gtk::ListItem) -> Option<T> {
+    let child = item.child().and_downcast::<T>();
+    if child.is_none() {
+        eprintln!(
+            "caerus: expected {} child at {}",
+            std::any::type_name::<T>(),
+            std::panic::Location::caller()
+        );
+    }
+    child
+}
+
 /// Runs `cmd.output()` on a background thread and hands the result to
 /// `on_done` back on the GTK main thread, for read-only one-shot
 /// subprocess queries that would otherwise block the main thread.
