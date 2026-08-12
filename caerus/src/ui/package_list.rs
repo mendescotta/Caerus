@@ -366,6 +366,7 @@ fn build(inner: Rc<Inner>) {
                 ActiveFilter::Preset(FilterMode::OnHold) => p.state == PkgState::OnHold,
                 ActiveFilter::Preset(FilterMode::Marked) => p.mark != PkgMark::None,
                 ActiveFilter::Preset(FilterMode::Orphaned) => p.is_orphan,
+                ActiveFilter::Preset(FilterMode::RepoLocked) => p.is_repolocked,
                 ActiveFilter::Custom { patterns, kind, .. } => {
                     !filter_hides(*kind, patterns, &p.name)
                 }
@@ -447,8 +448,8 @@ fn build(inner: Rc<Inner>) {
                     return;
                 };
 
-                let Some(cb) = item.child().and_downcast::<gtk::CheckButton>() else {
-                    eprintln!("caerus: expected gtk::CheckButton child in ./caerus/src/ui/package_list.rs");
+                let Some(cb) = crate::ui::dialog_util::expect_item_child::<gtk::CheckButton>(item)
+                else {
                     return;
                 };
                 let p = obj.pkg();
@@ -493,8 +494,7 @@ fn build(inner: Rc<Inner>) {
                 return;
             };
 
-            let Some(img) = item.child().and_downcast::<gtk::Image>() else {
-                eprintln!("caerus: expected gtk::Image child in ./caerus/src/ui/package_list.rs");
+            let Some(img) = crate::ui::dialog_util::expect_item_child::<gtk::Image>(item) else {
                 return;
             };
             let p = obj.pkg();
@@ -562,8 +562,7 @@ fn build(inner: Rc<Inner>) {
                 return;
             };
 
-            let Some(l) = item.child().and_downcast::<gtk::Label>() else {
-                eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
+            let Some(l) = crate::ui::dialog_util::expect_item_child::<gtk::Label>(item) else {
                 return;
             };
             let p = obj.pkg();
@@ -598,8 +597,7 @@ fn build(inner: Rc<Inner>) {
                 return;
             };
 
-            let Some(l) = item.child().and_downcast::<gtk::Label>() else {
-                eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
+            let Some(l) = crate::ui::dialog_util::expect_item_child::<gtk::Label>(item) else {
                 return;
             };
             l.set_text(&obj.pkg().short_desc);
@@ -618,8 +616,7 @@ fn build(inner: Rc<Inner>) {
             return;
         };
 
-        let Some(l) = item.child().and_downcast::<gtk::Label>() else {
-            eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
+        let Some(l) = crate::ui::dialog_util::expect_item_child::<gtk::Label>(item) else {
             return;
         };
         let p = obj.pkg();
@@ -645,8 +642,7 @@ fn build(inner: Rc<Inner>) {
             return;
         };
 
-        let Some(l) = item.child().and_downcast::<gtk::Label>() else {
-            eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
+        let Some(l) = crate::ui::dialog_util::expect_item_child::<gtk::Label>(item) else {
             return;
         };
         let p = obj.pkg();
@@ -671,8 +667,7 @@ fn build(inner: Rc<Inner>) {
             return;
         };
 
-        let Some(l) = item.child().and_downcast::<gtk::Label>() else {
-            eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
+        let Some(l) = crate::ui::dialog_util::expect_item_child::<gtk::Label>(item) else {
             return;
         };
         let p = obj.pkg();
@@ -690,8 +685,7 @@ fn build(inner: Rc<Inner>) {
             return;
         };
 
-        let Some(l) = item.child().and_downcast::<gtk::Label>() else {
-            eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
+        let Some(l) = crate::ui::dialog_util::expect_item_child::<gtk::Label>(item) else {
             return;
         };
         let p = obj.pkg();
