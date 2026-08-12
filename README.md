@@ -26,18 +26,8 @@ A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
   Marked / Orphaned) and by repository
 - Custom filters: named sets of exclude patterns (`lib*`, `*-devel`, plain
   text), shown as sidebar rows with a built-in editor
-- Detail pane: description, tags, size, maintainer, dependencies, reverse
-  dependencies, provides/conflicts/replaces, shared-library requirements,
-  and an on-demand file list
 - Install / Upgrade / Remove / Purge / Hold / Unhold, with multi-select and
   bulk actions
-- Detail pane secondary actions, always visible as grouped button
-  clusters (no "More" menu to open): Reinstall, Reconfigure, Download
-  Only, Repo-Lock/Release Repo-Lock, and Mark as Manually/Automatically
-  Installed
-- Real transaction preview before applying anything — actual sizes,
-  ordering, and conflicts from `libxbps` itself, with a "Copy Dry-Run
-  Output" button
 - Offers to retry with force (ignoring file conflicts or unresolved
   dependencies) if an Apply batch fails
 - Warns before a removal that would cascade to dependent packages, showing
@@ -50,11 +40,6 @@ A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
   packages providing the same files (`xbps-alternatives`)
 - Add, remove, and enable/disable repositories, with an optional custom
   display name each
-- Keyboard shortcuts (Ctrl+F search, F5 reload, Delete to mark for removal,
-  Ctrl+A select all, Escape to clear search, Ctrl+Q to quit)
-- App menu with View toggles and settings (sync-at-launch, default search
-  mode, auto-close dialogs on success); sidebar sections collapse
-  individually, and F9 cycles it through full / icon-rail / hidden
 - Optional libadwaita look (`--features adwaita` at build time — see
   [Build and install](#build-and-install))
 
