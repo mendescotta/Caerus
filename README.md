@@ -53,7 +53,8 @@ A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
 - Keyboard shortcuts (Ctrl+F search, F5 reload, Delete to mark for removal,
   Ctrl+A select all, Escape to clear search, Ctrl+Q to quit)
 - App menu with View toggles and settings (sync-at-launch, default search
-  mode); sidebar sections collapse individually, F9 hides the sidebar
+  mode, auto-close dialogs on success); sidebar sections collapse
+  individually, and F9 cycles it through full / icon-rail / hidden
 - Optional libadwaita look (`--features adwaita` at build time — see
   [Build and install](#build-and-install))
 

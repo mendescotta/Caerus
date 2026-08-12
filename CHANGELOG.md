@@ -4,6 +4,33 @@ All notable changes to Caerus are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); dates are release dates,
 not commit dates.
 
+## [0.6.0] - 2026-08-12
+
+Bug-fix and stability release: crash fixes, a CI/lint pass, and a bad
+merge that had silently reverted two shipped features got corrected.
+
+### Fixed
+- Two GTK segfaults in the remove/dependency confirmation dialogs, caused
+  by mutating a widget after it was destroyed inside the same callback.
+- A crash when installing or removing certain packages.
+- Bundled symbolic icons never actually resolving via the hicolor
+  fallback path.
+- Transaction preview falsely reporting an error on exact-version-pinned
+  reverse dependencies.
+- Sidebar icon-rail (minimal) mode could corrupt its own state and leave
+  stale styling after switching sidebar modes.
+- `caerus-helper` now locks repository-config writes and validates
+  `ALTERNATIVE`/`VKPURGE` arguments, closing a race/injection edge case.
+- Several panics on unexpected GTK downcast failures hardened into
+  graceful fallbacks instead of `unwrap()`.
+- A squashed merge had reverted the CSS-extraction commit and silently
+  dropped the "close dialogs automatically on success" setting; both are
+  restored.
+
+### Changed
+- CI now runs clippy, fmt, and both build feature sets (plain / adwaita)
+  on every push, plus a dependency-audit workflow.
+
 ## [0.5.0] - 2026-07-16
 
 Sidebar-first redesign, custom filters, repository toggles.
