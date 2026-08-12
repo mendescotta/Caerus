@@ -38,6 +38,7 @@ pub enum FilterMode {
     OnHold = 4,
     Marked = 5,
     Orphaned = 6,
+    RepoLocked = 7,
 }
 
 impl FilterMode {
@@ -49,6 +50,7 @@ impl FilterMode {
             4 => Self::OnHold,
             5 => Self::Marked,
             6 => Self::Orphaned,
+            7 => Self::RepoLocked,
             _ => Self::All,
         }
     }
