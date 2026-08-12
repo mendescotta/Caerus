@@ -45,19 +45,6 @@ impl TransAction {
             _ => Self::Unknown,
         }
     }
-
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Install => "install",
-            Self::Reinstall => "reinstall",
-            Self::Update => "update",
-            Self::Configure => "configure",
-            Self::Remove => "remove",
-            Self::Hold => "hold",
-            Self::Download => "download",
-            Self::Unknown => "unknown",
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -65,8 +52,6 @@ pub struct TransactionPreviewItem {
     pub pkgname: String,
     pub pkgver: String,
     pub action: TransAction,
-    pub arch: Option<String>,
-    pub repository: Option<String>,
     pub installed_size: u64,
     pub download_size: u64,
 }
@@ -82,47 +67,6 @@ pub struct TransactionPreview {
     pub update_pkgs: u32,
     pub remove_pkgs: u32,
     pub hold_pkgs: u32,
-}
-
-impl TransactionPreview {
-    /// Plain-text rendering suitable for pasting into a bug report — one
-    /// line per package (name, version, action, arch, repo, sizes), same
-    /// shape as `xbps-install -n`'s own dry-run output, plus a totals line.
-    pub fn to_plain_text(&self) -> String {
-        use crate::backend::package::pkg_format_size;
-        use std::fmt::Write as _;
-        let mut out = String::new();
-        for item in &self.items {
-            let _ = writeln!(
-                out,
-                "{} {} {} {} {} installed={} download={}",
-                item.pkgname,
-                item.pkgver,
-                item.action.label(),
-                item.arch.as_deref().unwrap_or("-"),
-                item.repository.as_deref().unwrap_or("-"),
-                pkg_format_size(item.installed_size),
-                pkg_format_size(item.download_size),
-            );
-        }
-        let _ = write!(
-            out,
-            "\n{} to install, {} to update, {} to remove, {} on hold, {} to download\n",
-            self.install_pkgs,
-            self.update_pkgs,
-            self.remove_pkgs,
-            self.hold_pkgs,
-            self.download_pkgs,
-        );
-        let _ = write!(
-            out,
-            "Total download size: {}\nTotal installed size: {}\nTotal removed size: {}\n",
-            pkg_format_size(self.total_download_size),
-            pkg_format_size(self.total_installed_size),
-            pkg_format_size(self.total_removed_size),
-        );
-        out
-    }
 }
 
 /// Mirrors the failure branches of `exec_transaction()` in Void's own
@@ -171,56 +115,6 @@ impl TransactionError {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn item(name: &str, action: TransAction) -> TransactionPreviewItem {
-        TransactionPreviewItem {
-            pkgname: name.to_string(),
-            pkgver: format!("{name}-1.0_1"),
-            action,
-            arch: Some("x86_64".to_string()),
-            repository: Some("https://repo.example/current".to_string()),
-            installed_size: 2048,
-            download_size: 1024,
-        }
-    }
-
-    #[test]
-    fn plain_text_has_one_line_per_item_plus_totals() {
-        let preview = TransactionPreview {
-            items: vec![
-                item("foo", TransAction::Install),
-                item("bar", TransAction::Remove),
-            ],
-            total_download_size: 1024,
-            total_installed_size: 2048,
-            total_removed_size: 4096,
-            download_pkgs: 1,
-            install_pkgs: 1,
-            update_pkgs: 0,
-            remove_pkgs: 1,
-            hold_pkgs: 0,
-        };
-        let text = preview.to_plain_text();
-        assert!(text.contains(
-            "foo foo-1.0_1 install x86_64 https://repo.example/current installed=2.0 KiB download=1.0 KiB"
-        ));
-        assert!(text.contains("bar bar-1.0_1 remove"));
-        assert!(text.contains("1 to install, 0 to update, 1 to remove, 0 on hold, 1 to download"));
-        assert!(text.contains("Total download size: 1.0 KiB"));
-        assert!(text.contains("Total removed size: 4.0 KiB"));
-    }
-
-    #[test]
-    fn plain_text_shows_dashes_for_missing_arch_and_repo() {
-        let mut it = item("foo", TransAction::Update);
-        it.arch = None;
-        it.repository = None;
-        let preview = TransactionPreview {
-            items: vec![it],
-            ..Default::default()
-        };
-        assert!(preview.to_plain_text().contains("foo foo-1.0_1 update - -"));
-    }
 
     #[test]
     fn error_summaries_name_the_failure_class() {

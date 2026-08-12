@@ -204,18 +204,6 @@ pub fn confirm(
 
     let (btn_box, cancel_btn) = cancel_button_row(10);
 
-    if let Some(Ok(p)) = &preview {
-        let copy_btn = gtk::Button::with_label("Copy Dry-Run Output");
-        let text = p.to_plain_text();
-        let dlg_for_copy = dlg.clone();
-        copy_btn.connect_clicked(move |_| {
-            gtk::prelude::WidgetExt::display(&dlg_for_copy)
-                .clipboard()
-                .set_text(&text);
-        });
-        btn_box.append(&copy_btn);
-    }
-
     let had_error = matches!(preview, Some(Err(_)));
     let destructive = !removes.is_empty() || !purges.is_empty() || had_error;
     let apply_label = if had_error { "Apply Anyway" } else { "Apply" };
