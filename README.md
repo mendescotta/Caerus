@@ -23,7 +23,7 @@ A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
 - Package table with search, click-to-sort columns, and per-row
   checkboxes for bulk marking
 - Filter by state (All / Installed / Not Installed / Upgradable / On Hold /
-  Marked / Orphaned) and by repository
+  Marked / Orphaned / Repo-Locked) and by repository
 - Custom filters: named sets of exclude patterns (`lib*`, `*-devel`, plain
   text), shown as sidebar rows with a built-in editor
 - Install / Upgrade / Remove / Purge / Hold / Unhold, with multi-select and
