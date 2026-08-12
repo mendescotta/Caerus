@@ -54,7 +54,6 @@ impl KernelObject {
 }
 
 fn kernel_of(obj: &glib::Object) -> KernelObject {
-    // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `obj.clone().downcast::<KernelObject>().unwrap()`
 
     obj.clone().downcast::<KernelObject>().unwrap()
 }
@@ -86,10 +85,8 @@ fn make_col(
     bind: impl Fn(&gtk::ListItem) + 'static,
 ) -> gtk::ColumnViewColumn {
     let factory = gtk::SignalListItemFactory::new();
-    // AUTOFIX: Verify type before using `downcast_ref`, avoid `unwrap()`. Found: `factory.connect_setup(move |_, item| setup(item.downcast_ref::<gtk::ListItem>().unwrap()));`
 
     factory.connect_setup(move |_, item| setup(item.downcast_ref::<gtk::ListItem>().unwrap()));
-    // AUTOFIX: Verify type before using `downcast_ref`, avoid `unwrap()`. Found: `factory.connect_bind(move |_, item| bind(item.downcast_ref::<gtk::ListItem>().unwrap()));`
 
     factory.connect_bind(move |_, item| bind(item.downcast_ref::<gtk::ListItem>().unwrap()));
     let col = gtk::ColumnViewColumn::new(Some(title), Some(factory));
@@ -167,7 +164,6 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
             let Some(obj) = item.item().map(|o| kernel_of(&o)) else {
                 return;
             };
-            // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let cb = match item.child().and_downcast::<gtk::CheckButton>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::CheckButton child in ./caerus/src/ui/vkpurge_dialog.rs"); return; } };`
 
             let Some(cb) = item.child().and_downcast::<gtk::CheckButton>() else {
                 eprintln!(
@@ -191,7 +187,6 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
             let Some(obj) = item.item().map(|o| kernel_of(&o)) else {
                 return;
             };
-            // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = match item.child().and_downcast::<gtk::Label>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/vkpurge_dialog.rs"); return; } };`
 
             let Some(l) = item.child().and_downcast::<gtk::Label>() else {
                 eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/vkpurge_dialog.rs");

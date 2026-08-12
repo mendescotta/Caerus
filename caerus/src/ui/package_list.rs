@@ -55,7 +55,6 @@ const fn ord(c: CmpOrdering) -> gtk::Ordering {
 }
 
 fn pkg_of(obj: &glib::Object) -> PackageObject {
-    // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `obj.clone().downcast::<PackageObject>().unwrap()`
 
     obj.clone().downcast::<PackageObject>().unwrap()
 }
@@ -111,10 +110,8 @@ fn make_col(
     bind: impl Fn(&gtk::ListItem) + 'static,
 ) -> gtk::ColumnViewColumn {
     let factory = gtk::SignalListItemFactory::new();
-    // AUTOFIX: Verify type before using `downcast_ref`, avoid `unwrap()`. Found: `factory.connect_setup(move |_, item| setup(item.downcast_ref::<gtk::ListItem>().unwrap()));`
 
     factory.connect_setup(move |_, item| setup(item.downcast_ref::<gtk::ListItem>().unwrap()));
-    // AUTOFIX: Verify type before using `downcast_ref`, avoid `unwrap()`. Found: `factory.connect_bind(move |_, item| bind(item.downcast_ref::<gtk::ListItem>().unwrap()));`
 
     factory.connect_bind(move |_, item| bind(item.downcast_ref::<gtk::ListItem>().unwrap()));
 
@@ -450,7 +447,6 @@ fn build(inner: Rc<Inner>) {
                 let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
                     return;
                 };
-                // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let cb = match item.child().and_downcast::<gtk::CheckButton>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::CheckButton child in ./caerus/src/ui/package_list.rs"); return; } };`
 
                 let Some(cb) = item.child().and_downcast::<gtk::CheckButton>() else {
                     eprintln!("caerus: expected gtk::CheckButton child in ./caerus/src/ui/package_list.rs");
@@ -497,7 +493,6 @@ fn build(inner: Rc<Inner>) {
             let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
                 return;
             };
-            // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let img = match item.child().and_downcast::<gtk::Image>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::Image child in ./caerus/src/ui/package_list.rs"); return; } };`
 
             let Some(img) = item.child().and_downcast::<gtk::Image>() else {
                 eprintln!("caerus: expected gtk::Image child in ./caerus/src/ui/package_list.rs");
@@ -567,7 +562,6 @@ fn build(inner: Rc<Inner>) {
             let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
                 return;
             };
-            // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = match item.child().and_downcast::<gtk::Label>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs"); return; } };`
 
             let Some(l) = item.child().and_downcast::<gtk::Label>() else {
                 eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
@@ -604,7 +598,6 @@ fn build(inner: Rc<Inner>) {
             let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
                 return;
             };
-            // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = match item.child().and_downcast::<gtk::Label>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs"); return; } };`
 
             let Some(l) = item.child().and_downcast::<gtk::Label>() else {
                 eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
@@ -625,7 +618,6 @@ fn build(inner: Rc<Inner>) {
         let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
             return;
         };
-        // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = match item.child().and_downcast::<gtk::Label>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs"); return; } };`
 
         let Some(l) = item.child().and_downcast::<gtk::Label>() else {
             eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
@@ -653,7 +645,6 @@ fn build(inner: Rc<Inner>) {
         let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
             return;
         };
-        // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = match item.child().and_downcast::<gtk::Label>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs"); return; } };`
 
         let Some(l) = item.child().and_downcast::<gtk::Label>() else {
             eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
@@ -680,7 +671,6 @@ fn build(inner: Rc<Inner>) {
         let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
             return;
         };
-        // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = match item.child().and_downcast::<gtk::Label>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs"); return; } };`
 
         let Some(l) = item.child().and_downcast::<gtk::Label>() else {
             eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");
@@ -700,7 +690,6 @@ fn build(inner: Rc<Inner>) {
         let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
             return;
         };
-        // AUTOFIX: Replace `downcast::<T>().unwrap()` with a safe match or downcast_ref and log on failure. Found: `let l = match item.child().and_downcast::<gtk::Label>() { Some(v) => v, None => { eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs"); return; } };`
 
         let Some(l) = item.child().and_downcast::<gtk::Label>() else {
             eprintln!("caerus: expected gtk::Label child in ./caerus/src/ui/package_list.rs");

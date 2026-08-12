@@ -743,7 +743,6 @@ unsafe extern "C" fn pkgdb_cb(
         );
     }
 
-    // AUTOFIX: Consider replacing `.unwrap()` with `match ... { Some(x) => x, None => { eprintln!(\"...\"); return; } }` or `if let Some(x) = ...` depending on context. Found: `let p = ht.get_mut(&pkgname).unwrap();`
 
     let Some(p) = ht.get_mut(&pkgname) else {
         eprintln!("caerus: expected package {pkgname} in hash table");
