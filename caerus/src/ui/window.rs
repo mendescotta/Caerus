@@ -362,29 +362,29 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     btn_update.set_tooltip_text(Some("Sync repositories and reload package list"));
     let btn_reload = gtk::Button::from_icon_name("view-refresh-symbolic");
     btn_reload.set_tooltip_text(Some("Reload local package list without syncing"));
-    let btn_mark_upgrades = gtk::Button::with_label("Mark All Upgrades");
-    btn_mark_upgrades.set_tooltip_text(Some(
-        "Queue every upgradable package as a pending mark, reviewed and applied via Apply \
-         — unlike the app menu's Full System Upgrade, this can be combined with other \
-         pending install/remove marks and reviewed before anything runs.",
-    ));
-    let btn_unmark_all = gtk::Button::with_label("Unmark All");
+    let btn_mark_upgrades = gtk::Button::from_icon_name("software-update-urgent-symbolic");
+    btn_mark_upgrades.set_tooltip_text(Some("Mark All Updates"));
+    let btn_unmark_all = gtk::Button::from_icon_name("edit-clear-all-symbolic");
     btn_unmark_all.set_sensitive(false);
-    btn_unmark_all.set_tooltip_text(Some(
-        "Clear every pending Install/Upgrade/Remove/Purge mark",
-    ));
+    btn_unmark_all.set_tooltip_text(Some("Unmark All"));
+    // Linked pair: the two "pending marks" bulk actions read as one control,
+    // set apart from the accented Apply button at the header's far end.
+    let mark_state_group = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    mark_state_group.add_css_class("linked");
+    mark_state_group.append(&btn_mark_upgrades);
+    mark_state_group.append(&btn_unmark_all);
 
     header.pack_start(&spinner);
     header.pack_start(&btn_update);
     header.pack_start(&btn_reload);
-    header.pack_start(&btn_mark_upgrades);
-    header.pack_start(&btn_unmark_all);
+    header.pack_start(&mark_state_group);
 
     let btn_apply = gtk::Button::new();
     btn_apply.set_sensitive(false);
     btn_apply.add_css_class("suggested-action");
+    btn_apply.set_tooltip_text(Some("Apply"));
     let apply_btn_content = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-    apply_btn_content.append(&gtk::Label::new(Some("Apply")));
+    apply_btn_content.append(&gtk::Image::from_icon_name("object-select-symbolic"));
     let apply_count_pill = crate::ui::dialog_util::count_pill();
     apply_btn_content.append(&apply_count_pill);
     btn_apply.set_child(Some(&apply_btn_content));
@@ -413,7 +413,7 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
 
     let menu_button = gtk::MenuButton::new();
     menu_button.set_icon_name("open-menu-symbolic");
-    menu_button.set_tooltip_text(Some("Main Menu"));
+    menu_button.set_tooltip_text(Some("Menu"));
     let menu_stack = gtk::Stack::new();
     header.pack_end(&menu_button);
 
