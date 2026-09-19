@@ -22,12 +22,6 @@ use std::rc::Rc;
 /// expander responsive.
 const MAX_FILES_SHOWN: usize = 300;
 
-/// Horizontal mode targets 2 rows: `card_order` has 7 top-level cards, so
-/// `ceil(7 / 2) = 4` per line. Actual wrapping still depends on available
-/// width — this is a target, not a hard guarantee, at narrow widths
-/// `FlowBox` wraps sooner regardless.
-const HORIZONTAL_CARDS_PER_LINE: u32 = 4;
-
 /// A value cell in a card's key/value list — plain selectable text or a
 /// clickable homepage link.
 enum KvValue {
@@ -43,21 +37,6 @@ struct Inner {
     widget: gtk::Box,
     store: PackageStore,
     current_pkgname: RefCell<Option<String>>,
-
-    /// The scrollable region hosting whichever of `cards_col`/`cards_flow`
-    /// is currently active — see [`DetailPane::set_horizontal`].
-    content_scroll: gtk::ScrolledWindow,
-    /// Vertical mode: single-column stack, one card per row (the
-    /// original/default layout).
-    cards_col: gtk::Box,
-    /// Horizontal mode: cards wrap into a 2-row grid — see
-    /// `HORIZONTAL_CARDS_PER_LINE`.
-    cards_flow: gtk::FlowBox,
-    /// The top-level cards, in display order — reparented between
-    /// `cards_col` and `cards_flow` on an orientation switch.
-    card_order: Vec<gtk::Widget>,
-    /// `true` once `cards_flow` (not `cards_col`) is the active container.
-    horizontal: Cell<bool>,
 
     // ── Header card: identity + primary actions ──
     name: gtk::Label,
@@ -224,17 +203,9 @@ fn card_simple_no_header() -> gtk::Box {
     card
 }
 
-/// Hides (or shows) a card. In vertical mode `card`'s direct parent is
-/// `cards_col` (a plain `gtk::Box`, no wrapper to worry about); in
-/// horizontal mode it's wrapped in an implicit `gtk::FlowBoxChild` that
-/// `card.set_visible` alone does *not* hide — an invisible-but-present
-/// `FlowBoxChild` still reserves `column_spacing` before the next cell.
-/// Hide that wrapper too whenever present.
+/// Hides (or shows) a card.
 fn set_card_visible(card: &gtk::Box, visible: bool) {
     card.set_visible(visible);
-    if let Some(flow_child) = card.parent().and_downcast::<gtk::FlowBoxChild>() {
-        flow_child.set_visible(visible);
-    }
 }
 
 /// One-shot icon-only button (Reinstall/Reconfigure/Download Only): icon
@@ -527,9 +498,8 @@ impl DetailPane {
         header_card.append(&secondary_row);
 
         // ── The card stack: header card is an equal member, same spacing.
-        // Cards are collected into `card_order` and mounted into whichever
-        // of `cards_col`/`cards_flow` is active — see `mount_cards` below,
-        // not appended directly here. ──
+        // Cards are collected into `card_order` and appended to
+        // `cards_col` below, not appended directly here. ──
 
         // Size & Installation
         let size_install_card = card_simple("Size & Installation");
@@ -618,36 +588,24 @@ impl DetailPane {
         files_expander.set_margin_top(4);
         files_card.append(&files_expander);
 
-        // ── Two interchangeable card containers ──
         let cards_col = gtk::Box::new(gtk::Orientation::Vertical, 12);
         cards_col.set_hexpand(true);
         cards_col.set_halign(gtk::Align::Fill);
 
-        let cards_flow = gtk::FlowBox::new();
-        cards_flow.set_hexpand(true);
-        cards_flow.set_halign(gtk::Align::Fill);
-        cards_flow.set_selection_mode(gtk::SelectionMode::None);
-        cards_flow.set_row_spacing(12);
-        cards_flow.set_column_spacing(12);
-        cards_flow.set_homogeneous(false);
-        cards_flow.set_max_children_per_line(HORIZONTAL_CARDS_PER_LINE);
-
-        let card_order: Vec<gtk::Widget> = vec![
-            header_card.clone().upcast(),
-            size_install_card.clone().upcast(),
-            source_card.clone().upcast(),
-            deps_card.clone().upcast(),
-            rdeps_card.clone().upcast(),
-            provides_card.clone().upcast(),
-            files_card.clone().upcast(),
+        let card_order: [&gtk::Box; 7] = [
+            &header_card,
+            &size_install_card,
+            &source_card,
+            &deps_card,
+            &rdeps_card,
+            &provides_card,
+            &files_card,
         ];
-        for card in &card_order {
+        for card in card_order {
             cards_col.append(card);
         }
 
-        // ── The card stack is the whole scrollable body — starts in
-        // vertical mode (`cards_col`); `DetailPane::set_horizontal` swaps
-        // in `cards_flow` instead. ──
+        // ── The card stack is the whole scrollable body. ──
         let content_scroll = gtk::ScrolledWindow::new();
         content_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
         content_scroll.set_vexpand(true);
@@ -689,11 +647,6 @@ impl DetailPane {
             widget,
             store,
             current_pkgname: RefCell::new(None),
-            content_scroll,
-            cards_col,
-            cards_flow,
-            card_order,
-            horizontal: Cell::new(false),
             name,
             version,
             state_chip,
@@ -760,33 +713,6 @@ impl DetailPane {
 
     pub fn widget(&self) -> &gtk::Box {
         &self.inner.widget
-    }
-
-    /// Switches between the vertical single-column stack (`false`, the
-    /// default) and the horizontal `HORIZONTAL_CARDS_PER_LINE`-wide grid
-    /// (`true`) — reparents each card in `card_order` between `cards_col`
-    /// and `cards_flow` rather than rebuilding anything. No-op if already
-    /// in the requested mode.
-    pub fn set_horizontal(&self, horizontal: bool) {
-        let inner = &self.inner;
-        if inner.horizontal.get() == horizontal {
-            return;
-        }
-        inner.horizontal.set(horizontal);
-
-        if horizontal {
-            for card in &inner.card_order {
-                inner.cards_col.remove(card);
-                inner.cards_flow.insert(card, -1);
-            }
-            inner.content_scroll.set_child(Some(&inner.cards_flow));
-        } else {
-            for card in &inner.card_order {
-                inner.cards_flow.remove(card);
-                inner.cards_col.append(card);
-            }
-            inner.content_scroll.set_child(Some(&inner.cards_col));
-        }
     }
 
     pub fn connect_mark_changed(&self, f: impl Fn() + 'static) {
