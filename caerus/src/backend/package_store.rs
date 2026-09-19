@@ -796,6 +796,11 @@ unsafe extern "C" fn pkgdb_cb(
 fn do_reload(xh: &mut xbps_sys::xbps_handle, inited: &mut bool) -> LoadResult {
     unsafe {
         if *inited {
+            // `xbps_end()` alone leaves repo index data cached in
+            // libxbps's process-wide rpool, so a same-process reload
+            // after `SYNC` would otherwise keep seeing pre-sync package
+            // versions until the app is restarted.
+            xbps_sys::xbps_rpool_release(xh);
             xbps_sys::xbps_end(xh);
         }
         *xh = std::mem::zeroed();
