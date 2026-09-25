@@ -91,7 +91,11 @@ refresh_desktop_caches() {
     if command -v gtk-update-icon-cache >/dev/null 2>&1; then
         gtk-update-icon-cache -f -t "$DATADIR/icons/hicolor" >/dev/null 2>&1 || true
     fi
-    if [ "$SCOPE" = user ] && command -v update-desktop-database >/dev/null 2>&1; then
+    # Desktop shells that read the mimeinfo/desktop-file cache rather than
+    # live-scanning applications/ need this refreshed on every install or
+    # uninstall, system-wide included -- not just --user, which is the only
+    # scope this used to run it for.
+    if command -v update-desktop-database >/dev/null 2>&1; then
         update-desktop-database "$DATADIR/applications" >/dev/null 2>&1 || true
     fi
 }
