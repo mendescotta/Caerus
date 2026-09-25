@@ -16,11 +16,11 @@ type FilterChangedCbs = RefCell<Vec<Box<dyn Fn(ActiveFilter)>>>;
 type RepositoryChangedCbs = RefCell<Vec<Box<dyn Fn(Option<String>)>>>;
 type ActionCbs = RefCell<Vec<Box<dyn Fn(SidebarAction)>>>;
 
-/// Row count of the fixed preset filters (All … Orphaned) at the top of
-/// `preset_lb`, before any custom filter rows. Must match the number of
-/// `preset_lb.append(&make_row(...))` calls in `FilterSidebar::new` and
-/// `FilterMode::from_row_index`'s range.
-const NUM_PRESET_ROWS: i32 = 8;
+/// Row count of the fixed preset filters (All … Unmaintained) at the top
+/// of `preset_lb`, before any custom filter rows. Must match the number
+/// of `preset_lb.append(&make_row(...))` calls in `FilterSidebar::new`
+/// and `FilterMode::from_row_index`'s range.
+const NUM_PRESET_ROWS: i32 = 9;
 
 /// An operational command living in the sidebar's MAINTENANCE / TOOLS
 /// sections (or the REPOSITORIES section's manage row). The sidebar only
@@ -463,6 +463,7 @@ impl FilterSidebar {
         preset_lb.append(&make_row("starred-symbolic", "Marked"));
         preset_lb.append(&make_row("edit-clear-symbolic", "Orphaned"));
         preset_lb.append(&make_row("repo-lock-symbolic", "Repo-Locked"));
+        preset_lb.append(&make_row("dialog-question-symbolic", "Unmaintained"));
 
         // Separator above the first custom-filter row, if any — cleared
         // for every other row so it doesn't linger on stale rows after a

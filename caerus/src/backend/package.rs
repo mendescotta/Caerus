@@ -39,6 +39,7 @@ pub enum FilterMode {
     Marked = 5,
     Orphaned = 6,
     RepoLocked = 7,
+    Unmaintained = 8,
 }
 
 impl FilterMode {
@@ -51,10 +52,16 @@ impl FilterMode {
             5 => Self::Marked,
             6 => Self::Orphaned,
             7 => Self::RepoLocked,
+            8 => Self::Unmaintained,
             _ => Self::All,
         }
     }
 }
+
+/// Void's fixed convention for a srcpkgs template with nobody assigned
+/// to maintain it — distinct from `Package::is_orphan` (an *installed*
+/// package nothing depends on anymore).
+pub const ORPHANED_MAINTAINER: &str = "Orphaned <orphan@voidlinux.org>";
 
 #[derive(Debug, Clone, Default)]
 pub struct Package {

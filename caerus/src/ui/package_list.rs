@@ -5,7 +5,7 @@
 use crate::backend::custom_filters::{filter_hides, ActiveFilter};
 use crate::backend::package::{
     pkg_format_size, pkg_state_icon, pkg_state_tooltip, FilterMode, Package, PackageObject,
-    PkgMark, PkgState,
+    PkgMark, PkgState, ORPHANED_MAINTAINER,
 };
 use crate::backend::package_store::PackageStore;
 use crate::ui::deps_confirm;
@@ -367,6 +367,9 @@ fn build(inner: Rc<Inner>) {
                 ActiveFilter::Preset(FilterMode::Marked) => p.mark != PkgMark::None,
                 ActiveFilter::Preset(FilterMode::Orphaned) => p.is_orphan,
                 ActiveFilter::Preset(FilterMode::RepoLocked) => p.is_repolocked,
+                ActiveFilter::Preset(FilterMode::Unmaintained) => {
+                    p.maintainer == ORPHANED_MAINTAINER
+                }
                 ActiveFilter::Custom { patterns, kind, .. } => {
                     !filter_hides(*kind, patterns, &p.name)
                 }
