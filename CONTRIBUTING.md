@@ -6,17 +6,28 @@ below should cover most changes.
 
 ## Building
 
-See the README's [Dependencies](README.md#dependencies) and
-[Build and install](README.md#build-and-install) sections for the full
-package list and setup. The short version, on Void Linux:
+On Void Linux (glibc; musl is untested):
 
 ```sh
-xbps-install -S gtk4-devel libxbps-devel glib-devel polkit clang pkg-config
-cargo build
+xbps-install -S cargo gtk4-devel libxbps-devel glib-devel polkit clang pkg-config
+cargo build --release
 ```
 
-`./target/debug/caerus` (or `--release`) runs straight out of the build
-tree — see the README's "Running without installing" section.
+Runtime needs `gtk4`, `libxbps`, `glib` and `polkit` with an authentication
+agent running. Add `--features caerus/adwaita` (needs `libadwaita-devel`) for
+libadwaita widgets.
+
+`./target/release/caerus` (or `debug`) runs straight out of the build tree.
+To install:
+
+```sh
+sudo ./install.sh                      # /usr/bin, /usr/libexec, desktop file, polkit policy
+./install.sh --user                    # register this checkout under ~/.local/share, no root
+sudo ./install.sh --uninstall          # or --user --uninstall
+```
+
+Or the quick installer, which builds from source:
+`curl -fsSL https://raw.githubusercontent.com/mendescotta/Caerus/main/get-caerus.sh | sh`.
 
 ## Before opening a PR
 
