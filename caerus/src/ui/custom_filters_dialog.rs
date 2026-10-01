@@ -1,11 +1,3 @@
-//! "Edit Custom Filters…" editor: a two-pane master/detail window, left
-//! = the list of saved filters (add/delete), right = the selected
-//! filter's exclusion patterns (add/delete) plus a rename control.
-//! Every mutation saves immediately (`CustomFilters` saves on every
-//! call) and calls back into the sidebar so the live filter rows and,
-//! if the edited filter is currently active, the package list's filter
-//! predicate stay in sync while this dialog is still open.
-
 use crate::backend::custom_filters::{sanitize, CustomFilters, FilterKind};
 use crate::ui::dialog_util::{close_button, modal_window, present_focused};
 use gtk::prelude::*;
@@ -24,8 +16,6 @@ struct Inner {
     dlg: gtk::Window,
     custom_filters: Rc<RefCell<CustomFilters>>,
     filter_lb: gtk::ListBox,
-    /// Row `i` of `filter_lb` names `filter_names[i]` — snapshotted at
-    /// each `refresh_filters` since list order can shift on add/remove.
     filter_names: RefCell<Vec<String>>,
     selected: RefCell<Option<String>>,
     detail_heading: gtk::Label,
@@ -33,10 +23,6 @@ struct Inner {
     mode_exclude_btn: gtk::ToggleButton,
     mode_include_btn: gtk::ToggleButton,
     syntax_caption: gtk::Label,
-    /// Set while `refresh_detail` is driving the mode toggle buttons
-    /// programmatically, so their own "toggled" handlers (which write
-    /// through to `custom_filters`) know to ignore that change instead
-    /// of treating it as a user edit.
     refreshing_mode: Cell<bool>,
     pattern_lb: gtk::ListBox,
     new_pattern_entry: gtk::Entry,
@@ -113,8 +99,6 @@ fn refresh_filters(inner: &Rc<Inner>) {
     }
 }
 
-/// Rebuilds the right-hand pane for whichever filter (if any) is
-/// currently selected in `filter_lb`.
 fn refresh_detail(inner: &Rc<Inner>) {
     let selected = inner.selected.borrow().clone();
 
@@ -232,9 +216,6 @@ fn add_new_pattern(inner: &Rc<Inner>, entry: &gtk::Entry) {
     }
 }
 
-/// Prompts for a new name for `old` and applies the rename on Save. A
-/// rejected rename (invalid or already taken) is a silent no-op — the
-/// dialog just stays open.
 fn show_rename_filter_dialog(parent: Option<gtk::Window>, inner: &Rc<Inner>, old: String) {
     let (dlg, outer) = modal_window("Rename Filter", parent.as_ref(), false, (360, -1), 10);
 
@@ -283,10 +264,6 @@ fn show_rename_filter_dialog(parent: Option<gtk::Window>, inner: &Rc<Inner>, old
     present_focused(&dlg, &entry);
 }
 
-/// Opens the editor. `on_changed` fires after every save-worthy mutation
-/// (add/rename/remove filter, add/remove pattern) — the sidebar passes a
-/// closure that rebuilds its own custom-filter rows so they stay live
-/// while this dialog is open.
 pub fn show(
     parent: Option<gtk::Window>,
     custom_filters: Rc<RefCell<CustomFilters>>,
@@ -299,7 +276,6 @@ pub fn show(
     paned.set_wide_handle(true);
     paned.set_position(190);
 
-    // ── Left pane: filter list ──
     let left = gtk::Box::new(gtk::Orientation::Vertical, 4);
     left.set_size_request(160, -1);
 
@@ -323,7 +299,6 @@ pub fn show(
 
     paned.set_start_child(Some(&left));
 
-    // ── Right pane: selected filter's patterns ──
     let right = gtk::Box::new(gtk::Orientation::Vertical, 6);
     right.set_hexpand(true);
 
@@ -338,9 +313,6 @@ pub fn show(
     heading_row.append(&rename_btn);
     right.append(&heading_row);
 
-    // Exclude/IncludeOnly mode: a two-way segmented toggle via GTK4's
-    // `.linked` style class. `set_group` makes the pair mutually
-    // exclusive, like radio buttons.
     let mode_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     mode_row.add_css_class("linked");
     let mode_exclude_btn = gtk::ToggleButton::with_label("Hide Matching");

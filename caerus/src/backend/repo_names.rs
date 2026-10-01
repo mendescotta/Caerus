@@ -1,9 +1,3 @@
-//! Persisted user-chosen display names for repositories, keyed by the
-//! repository's own URL/URI (the same string `Package::repository`
-//! carries). Purely a caerus UI convenience, independent of xbps
-//! itself — same tiny hand-rolled persistence approach as
-//! `ui::window::WindowGeometry`.
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -23,9 +17,6 @@ impl RepoNames {
         let mut map = HashMap::new();
         if let Some(path) = state_file_path() {
             if let Ok(contents) = std::fs::read_to_string(&path) {
-                // Tab-separated rather than "key=value": URLs never
-                // contain a tab, but could in principle contain '='
-                // (query strings), so that wouldn't reliably round-trip.
                 for line in contents.lines() {
                     if let Some((url, name)) = line.split_once('\t') {
                         if !url.is_empty() && !name.is_empty() {
@@ -59,8 +50,6 @@ impl RepoNames {
         self.map.get(url).map(String::as_str)
     }
 
-    /// Sets a custom display name, or clears it back to the default
-    /// (scheme-stripped URL) if `name` is empty/whitespace-only.
     pub fn set(&mut self, url: &str, name: &str) {
         let trimmed = name.trim();
         if trimmed.is_empty() {
@@ -72,8 +61,6 @@ impl RepoNames {
     }
 }
 
-/// Strips a leading "https://" or "http://" — the scheme is rarely
-/// useful clutter in a short sidebar row or the detail pane.
 pub fn display_repo(url: &str) -> &str {
     url.strip_prefix("https://")
         .or_else(|| url.strip_prefix("http://"))
@@ -94,8 +81,6 @@ mod tests {
             display_repo("http://mirror.example/void"),
             "mirror.example/void"
         );
-        // Anything else passes through untouched — including schemes we
-        // don't recognize and bare paths.
         assert_eq!(
             display_repo("ftp://mirror.example/void"),
             "ftp://mirror.example/void"

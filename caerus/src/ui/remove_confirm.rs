@@ -1,12 +1,3 @@
-//! If removing a package would leave any other *currently installed*
-//! package's dependency unsatisfied, shows a confirmation dialog
-//! transient for `parent` listing them. The install-side equivalent of
-//! `deps_confirm.rs`, checking reverse rather than forward dependencies.
-//!
-//! Asynchronous: `cb` may fire after this function returns (a real
-//! dialog was shown) or before it returns (nothing installed actually
-//! depends on this package) — same shape as `deps_confirm`.
-
 use crate::backend::package::{PkgMark, PkgState};
 use crate::backend::package_store::PackageStore;
 use crate::ui::dialog_util::{cancel_button_row, modal_window, present_focused, text_list_row};
@@ -14,13 +5,8 @@ use gtk::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-/// Rows shown before the list is truncated with a "…and K more" line —
-/// a glibc-scale reverse-dependency closure can otherwise dump hundreds
-/// of rows into an unscrollable-feeling dialog.
 const MAX_IMPACT_ROWS: usize = 200;
 
-/// Whether (`state`, `mark`) means this package is still going to be
-/// installed after the batch runs.
 fn is_still_installed_afterward(state: PkgState, mark: PkgMark) -> bool {
     let installed = matches!(
         state,
@@ -29,8 +15,6 @@ fn is_still_installed_afterward(state: PkgState, mark: PkgMark) -> bool {
     installed && !matches!(mark, PkgMark::Remove | PkgMark::Purge)
 }
 
-/// A reverse dependency only matters here if it's still going to be
-/// installed after this batch runs.
 fn still_installed_afterward(store: &PackageStore, name: &str) -> bool {
     match store.state_and_mark(name) {
         Some((state, mark)) => is_still_installed_afterward(state, mark),
@@ -48,8 +32,6 @@ pub fn confirm_remove_impact(
     let store2 = store.clone();
     let pkgname = pkgname.to_string();
     store.get_rdeps_transitive_async(&pkgname.clone(), move |rdeps| {
-        // A name reached only through an intermediate package gets
-        // annotated "(via parent)" below.
         let affected: Vec<(String, String)> = rdeps
             .unwrap_or_default()
             .into_iter()
@@ -57,7 +39,6 @@ pub fn confirm_remove_impact(
             .collect();
 
         if affected.is_empty() {
-            // The common case — don't interrupt removing a leaf package.
             cb(true);
             return;
         }
@@ -70,9 +51,6 @@ pub fn confirm_remove_impact(
     });
 }
 
-/// Multi-root counterpart to `confirm_remove_impact`: one aggregate
-/// confirmation for a whole batch instead of a chain of N per-package
-/// dialogs. Empty `names` resolves `cb(true)` immediately.
 pub fn confirm_bulk_remove_impact(
     parent: Option<&gtk::Window>,
     store: &PackageStore,
@@ -98,9 +76,6 @@ pub fn confirm_bulk_remove_impact(
     });
 }
 
-/// Pure filter over a raw multi-root transitive-rdeps walk: the subset
-/// that would actually break a still-installed package, excluding
-/// `roots` itself.
 fn bulk_affected(
     roots: &HashSet<String>,
     snapshot: &HashMap<String, (PkgState, PkgMark)>,
@@ -117,16 +92,11 @@ fn bulk_affected(
         .collect()
 }
 
-/// Splits `sorted` into the rows to actually display (at most `cap`) and
-/// how many were left out.
 fn capped_rows(sorted: &[(String, String)], cap: usize) -> (&[(String, String)], usize) {
     let visible = sorted.len().min(cap);
     (&sorted[..visible], sorted.len() - visible)
 }
 
-/// `roots` is the package or batch being removed, used for the
-/// heading's subject and to decide whether a row's "(via parent)"
-/// annotation is worth showing. Caps the list at `MAX_IMPACT_ROWS`.
 fn show_impact_dialog(
     parent: Option<&gtk::Window>,
     roots: &[String],
@@ -241,7 +211,7 @@ mod tests {
         let snapshot = snap(&[
             ("a", PkgState::Installed, PkgMark::None),
             ("b", PkgState::NotInstalled, PkgMark::None),
-            ("c", PkgState::Installed, PkgMark::Remove), // itself marked for removal
+            ("c", PkgState::Installed, PkgMark::Remove),
             ("d", PkgState::Upgradable, PkgMark::None),
         ]);
         let walk = rdeps(&[
@@ -262,8 +232,6 @@ mod tests {
 
     #[test]
     fn bulk_affected_excludes_names_that_are_themselves_roots() {
-        // B depends on A; both A and B are in the removal selection, so
-        // B removing "because of" A isn't an impact — it's intentional.
         let snapshot = snap(&[("b", PkgState::Installed, PkgMark::None)]);
         let walk = rdeps(&[("b", "a")]);
         let affected = bulk_affected(&roots(&["a", "b"]), &snapshot, walk);

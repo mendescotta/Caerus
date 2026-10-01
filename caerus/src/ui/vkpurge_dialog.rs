@@ -1,9 +1,3 @@
-//! "Purge Old Kernels" — a thin GUI over `vkpurge`, the standalone Void
-//! script (not an xbps tool) that removes kernel files/modules a kernel
-//! upgrade left behind. Listing (`vkpurge list`) is a read-only local
-//! scan needing no root, so it runs directly from the GUI process; only
-//! the actual removal goes through `caerus-helper` via `pkexec`.
-
 use crate::backend::transaction::Transaction;
 use crate::ui::apply_dialog;
 use crate::ui::dialog_util::{close_button, modal_window, present_focused};
@@ -57,8 +51,6 @@ fn kernel_of(obj: &glib::Object) -> KernelObject {
     obj.clone().downcast::<KernelObject>().unwrap()
 }
 
-/// Parses `vkpurge list` output; the subprocess itself runs off the
-/// main thread via `run_command_async` (see `refresh`).
 fn parse_kernel_list(result: Result<std::process::Output, String>) -> Result<Vec<String>, String> {
     let output = result.map_err(|e| format!("failed to run vkpurge: {e}"))?;
     if !output.status.success() {
@@ -239,9 +231,6 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
                     kernel_of(&obj).set_checked(true);
                 }
             }
-            // Forces every currently-bound row to re-query its item and
-            // refresh its checkbox — mutating the backing objects alone
-            // doesn't repaint already-bound rows.
             list_store.items_changed(0, n, n);
         });
     }
@@ -274,9 +263,6 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
                 &[cmd],
                 "Purging Old Kernels",
                 move |_success| {
-                    // Refresh in place rather than closing — lets the
-                    // user see what's left (or the error) without
-                    // reopening the dialog.
                     refresh(&list_store, &status_label);
                 },
             );

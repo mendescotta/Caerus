@@ -1,19 +1,9 @@
-//! "Find Owning Package" — a thin GUI over `xbps-query -o <path>`,
-//! which package(s) a given file belongs to. Purely a local pkgdb
-//! lookup, same as the package list's own detail queries, so (like
-//! those) it runs directly from the unprivileged GUI process — no
-//! `caerus-helper`/pkexec involved.
-
 use crate::ui::dialog_util::{
     close_button, modal_window, present_focused, run_command_async, text_list_row,
 };
 use gtk::prelude::*;
 use std::process::Command;
 
-/// Flattens an `xbps-query -o` result into displayable text (stdout,
-/// plus stderr when the query failed). The subprocess itself runs off
-/// the main thread via `run_command_async` — `xbps-query -o` scans the
-/// whole pkgdb and can take long enough to visibly freeze the UI.
 fn owner_output_text(output: &std::process::Output) -> String {
     let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
     if !output.status.success() {
@@ -80,8 +70,6 @@ pub fn show(parent: Option<&gtk::Window>) {
         let results_list = results_list;
         let search_btn = search_btn.clone();
         move || {
-            // One search at a time — the button is re-enabled when the
-            // async reply lands.
             if !search_btn.is_sensitive() {
                 return;
             }

@@ -1,8 +1,3 @@
-//! Shows a modal progress dialog and runs `commands` on `session` — an
-//! existing, caller-owned `Transaction`. The dialog doesn't own
-//! `session`; it stays alive after the dialog closes so the next call
-//! reuses it without re-authenticating.
-
 use crate::backend::transaction::{DisconnectReason, Transaction};
 use crate::ui::dialog_util::modal_window;
 use gtk::prelude::*;
@@ -17,8 +12,6 @@ pub fn set_auto_close_on_success(enabled: bool) {
     AUTO_CLOSE_ON_SUCCESS.set(enabled);
 }
 
-/// How many packages this batch actually names, summed across every
-/// package-name-taking command, for the "package N of M" counter.
 fn count_target_packages(commands: &[String]) -> usize {
     commands
         .iter()
@@ -34,13 +27,6 @@ fn count_target_packages(commands: &[String]) -> usize {
         .sum()
 }
 
-/// The helper's own log lines look like:
-///   LOG [*] Downloading packages
-///   LOG foo-1.0_1: [*****     ] 42% ETA: 00:03
-///   LOG foo-1.0_1: unpacking ...
-///   OK
-/// "LOG " and "[*]" are stripped for display only; the underlying
-/// protocol line is untouched everywhere else.
 fn strip_log_decoration(line: &str) -> String {
     let mut s = line;
     if let Some(rest) = s.strip_prefix("LOG ") {
@@ -54,14 +40,6 @@ fn strip_log_decoration(line: &str) -> String {
     s.trim().to_string()
 }
 
-/// Extracts the leading `<pkgver>` identifier from an already
-/// decoration-stripped xbps status line, e.g. `foo-1.0_1: unpacking
-/// ...` -> `Some("foo-1.0_1")`. Returns `None` for banner lines that
-/// don't name a specific package.
-///
-/// xbps-install emits several differently-worded lines per package over
-/// its lifecycle; counting distinct raw lines instead of distinct
-/// pkgver prefixes overcounts and makes "Package N of M" stall early.
 fn extract_pkgver(line: &str) -> Option<&str> {
     let idx = line.find(": ")?;
     let candidate = &line[..idx];
@@ -71,9 +49,6 @@ fn extract_pkgver(line: &str) -> Option<&str> {
     Some(candidate)
 }
 
-/// The helper emits one line per percentage tick while a package
-/// downloads/installs/verifies (xbps-install format: `%s: [%s %d%%] %s
-/// ETA: %s`). Returns the last `<digits>%` run in the line.
 fn extract_percentage(line: &str) -> Option<u8> {
     let bytes = line.as_bytes();
     for (i, &b) in bytes.iter().enumerate().rev() {
@@ -85,7 +60,7 @@ fn extract_percentage(line: &str) -> Option<u8> {
             start -= 1;
         }
         if start == i {
-            continue; // '%' with no digits immediately before it
+            continue;
         }
         if let Ok(pct) = line[start..i].parse::<u32>() {
             return Some(pct.min(100) as u8);
@@ -121,9 +96,6 @@ pub fn run(
     action_label.add_css_class("dim-label");
     outer.append(&action_label);
 
-    // GtkProgressBar's own `show-text` lays the label as a sibling of
-    // the trough, not on top of it — a real `GtkOverlay` is needed to
-    // get text genuinely inside the bar.
     let progress_bar = gtk::ProgressBar::new();
     progress_bar.add_css_class("apply-progress");
     let bar_text_label = gtk::Label::new(None);
@@ -155,8 +127,6 @@ pub fn run(
     close_btn.set_sensitive(false);
     outer.append(&close_btn);
 
-    // Indeterminate pulse until `append_log` sees a real percentage tick
-    // (some commands like SYNC/HOLD/ORPHANS never report one).
     let pulsing = Rc::new(Cell::new(true));
     {
         let pulsing = pulsing.clone();
@@ -170,13 +140,9 @@ pub fn run(
         });
     }
 
-    // Package counter: counts transitions between distinct `pkgver`
-    // prefixes (see `extract_pkgver`), capped at `total_pkgs`.
     let seen_count = Rc::new(Cell::new(0usize));
     let last_pkgver: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
     let last_pct: Rc<Cell<Option<u8>>> = Rc::new(Cell::new(None));
-    // A multi-command batch can repeat the exact same status line back
-    // to back; suppress the repeat instead of showing it twice.
     let last_logged_line: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
 
     let set_bar_text = {
@@ -195,12 +161,10 @@ pub fn run(
         }
     };
 
-    // Styled log rendering: errors red, per-package completions green,
-    // phase banners bold, protocol chatter dimmed.
     let buf = text_view.buffer();
     let tag_error = gtk::TextTag::builder().foreground("#ed333b").build();
     let tag_success = gtk::TextTag::builder().foreground("#2ec27e").build();
-    let tag_banner = gtk::TextTag::builder().weight(700).build(); // Pango bold
+    let tag_banner = gtk::TextTag::builder().weight(700).build();
     let tag_dim = gtk::TextTag::builder().foreground("#88898f").build();
     for tag in [&tag_error, &tag_success, &tag_banner, &tag_dim] {
         buf.tag_table().add(tag);
@@ -215,8 +179,6 @@ pub fn run(
         let last_logged_line = last_logged_line.clone();
         Rc::new(move |line: &str| {
             if let Some(pct) = extract_percentage(line) {
-                // Not logged to the Details pane individually — there
-                // can be dozens per file.
                 pulsing.set(false);
                 progress_bar.set_fraction(f64::from(pct) / 100.0);
                 last_pct.set(Some(pct));
@@ -239,7 +201,6 @@ pub fn run(
             } else if clean.ends_with("successfully.") {
                 (clean.clone(), Some(&tag_success))
             } else if clean.starts_with('(') {
-                // This dialog's own annotations.
                 (clean.clone(), Some(&tag_dim))
             } else {
                 (clean.clone(), None)
@@ -263,7 +224,7 @@ pub fn run(
                             let n = (seen_count.get() + 1).min(total_pkgs);
                             seen_count.set(n);
                             *last_pkgver.borrow_mut() = pkgver.to_string();
-                            last_pct.set(None); // stale once the package changes
+                            last_pct.set(None);
                             set_bar_text();
                         }
                     }
@@ -273,9 +234,6 @@ pub fn run(
         })
     };
 
-    // These listeners live on the shared, long-lived `session`, so they
-    // must be detached once this batch finishes or they'd keep firing
-    // against a destroyed dialog for the rest of the app's lifetime.
     let log_id = {
         let append_log = append_log.clone();
         session.connect_log(move |line| append_log(line))
@@ -309,8 +267,6 @@ pub fn run(
             pulsing.set(false);
             spinner.stop();
             progress_bar.set_fraction(1.0);
-            // The last percentage tick seen is rarely actually 100, so
-            // drop it from the overlay text; the count is still meaningful.
             bar_text_label.set_text(&if total_pkgs > 1 {
                 format!("Package {} of {}", seen_count.get(), total_pkgs)
             } else {
@@ -340,9 +296,6 @@ pub fn run(
         close_btn.connect_clicked(move |_| dlg_c.destroy());
     }
     {
-        // Disabling the Close button doesn't stop the WM's own close
-        // affordance; block the close request outright while busy so
-        // the dialog (and its finished listener) can't disappear early.
         let close_btn = close_btn;
         dlg.connect_close_request(move |_| {
             if close_btn.is_sensitive() {
@@ -357,8 +310,6 @@ pub fn run(
     session.run_batch(commands.to_vec(), on_finished);
 }
 
-/// Same as [`run`], but also records the batch to
-/// `crate::backend::history` before `done_cb` fires.
 pub fn run_recorded(
     parent: Option<&gtk::Window>,
     session: &Transaction,
@@ -399,16 +350,11 @@ mod tests {
         assert_eq!(extract_pkgver("Downloading packages"), None);
         assert_eq!(extract_pkgver("Verifying package integrity"), None);
         assert_eq!(extract_pkgver(""), None);
-        // Two space-separated words before any ':' isn't a pkgver either.
         assert_eq!(extract_pkgver("some words: not a pkgver"), None);
     }
 
     #[test]
     fn same_package_does_not_recount() {
-        // The bug this guards against: xbps prints several differently
-        // worded lines for the *same* package, which must not each be
-        // treated as a new package by the caller comparing consecutive
-        // `extract_pkgver` results.
         let lines = [
             "foo-1.0_1: unpacking ...",
             "foo-1.0_1: configuring ...",
@@ -434,7 +380,6 @@ mod tests {
 
     #[test]
     fn percentage_clamped_to_100() {
-        // Defensive only — xbps never actually emits over 100%.
         assert_eq!(extract_percentage("foo: 150%"), Some(100));
     }
 

@@ -1,28 +1,4 @@
 #!/bin/sh
-# Installs, registers, or removes caerus + caerus-helper + data files.
-# Two independent switches:
-#
-#   ./install.sh                 system-wide, needs root — installs into
-#                                 ${PREFIX:-/usr}: binary, helper, polkit
-#                                 policy, .desktop entry, metainfo, icons.
-#                                 Run `cargo build --release` first.
-#
-#   ./install.sh --user          this user only, no root — registers a
-#                                 .desktop entry + icon under
-#                                 ~/.local/share pointing at whichever
-#                                 build (release preferred, else debug)
-#                                 exists in this checkout, so the desktop
-#                                 shell (Alt-Tab, Overview, top bar) shows
-#                                 the real name/icon for an uninstalled
-#                                 build. No polkit policy or metainfo —
-#                                 those only make sense system-wide.
-#
-#   ./install.sh --uninstall     reverses a system-wide install.
-#   ./install.sh --user --uninstall
-#                                 reverses a --user registration.
-#
-# Safe to run --uninstall even if nothing was ever installed (every
-# removal is a plain `rm -f`, not an error if the file's already gone).
 set -e
 
 MODE=install
@@ -64,22 +40,6 @@ fi
 DESKTOP_FILE="$DATADIR/applications/org.voidlinux.caerus.desktop"
 APP_ICON="$DATADIR/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg"
 
-# Every bundled symbolic-icon fallback path this app installs, relative
-# to hicolor/ — one source of truth shared between install and
-# uninstall (and both scopes) so they can never drift out of sync with
-# each other. See `ensure_icon_theme_fallback` in caerus/src/ui/window.rs
-# for why these are bundled at all (not every desktop's active icon
-# theme is guaranteed to have them). Lives under scalable/, not a
-# symbolic/ directory, despite every filename ending "-symbolic" —
-# hicolor's own index.theme (see /usr/share/icons/hicolor/index.theme)
-# only ever declares a symbolic/apps directory, never symbolic/actions
-# et al., so icons placed there are silently never scanned by GTK for
-# *any* app, bundled fallback or not. scalable/<context> is what
-# hicolor actually declares for every context, and GTK still recolors
-# a "*-symbolic"-suffixed icon found there correctly — confirmed with
-# gtk_icon_theme_lookup_icon()'s is_symbolic() during debugging.
-# $APP_ICON above (scalable/apps) is handled separately, so exclude it
-# here to avoid installing/removing it twice.
 symbolic_icon_paths() {
     find "$SRC_DIR/caerus/data/icons/hicolor/scalable" -name '*.svg' -not -path '*/apps/*' \
         | while read -r svg; do
@@ -91,10 +51,6 @@ refresh_desktop_caches() {
     if command -v gtk-update-icon-cache >/dev/null 2>&1; then
         gtk-update-icon-cache -f -t "$DATADIR/icons/hicolor" >/dev/null 2>&1 || true
     fi
-    # Desktop shells that read the mimeinfo/desktop-file cache rather than
-    # live-scanning applications/ need this refreshed on every install or
-    # uninstall, system-wide included -- not just --user, which is the only
-    # scope this used to run it for.
     if command -v update-desktop-database >/dev/null 2>&1; then
         update-desktop-database "$DATADIR/applications" >/dev/null 2>&1 || true
     fi
@@ -119,8 +75,6 @@ if [ "$MODE" = uninstall ]; then
     echo "Uninstalled ($SCOPE)."
     exit 0
 fi
-
-# --- install ---
 
 if [ "$SCOPE" = system ]; then
     TARGET_DIR="$SRC_DIR/target/release"
@@ -157,9 +111,6 @@ else
     mkdir -p "$(dirname "$DESKTOP_FILE")" "$(dirname "$APP_ICON")"
     sed "s|^Exec=caerus\$|Exec=$BIN|" "$SRC_DIR/caerus/data/org.voidlinux.caerus.desktop" \
         > "$DESKTOP_FILE"
-    # Icons are byte-identical to the repo copies, so symlink rather than
-    # duplicate them — and re-running this after a repo update picks up
-    # new/changed icons for free.
     ln -sf "$SRC_DIR/caerus/data/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg" "$APP_ICON"
     symbolic_icon_paths | while read -r rel; do
         mkdir -p "$DATADIR/icons/$(dirname "$rel")"

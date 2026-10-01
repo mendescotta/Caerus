@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Generate a review-only audit report and suggested-fix notes.
-# This is the conservative Option 2 workflow for Caerus: audit first,
-# review the findings, and patch manually in small, reviewable commits.
-
 readonly ts=$(date -u +%Y%m%dT%H%M%SZ)
 readonly outdir=".github/auto-fixes"
 mkdir -p "$outdir"

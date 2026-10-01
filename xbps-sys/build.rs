@@ -4,9 +4,6 @@ use std::path::PathBuf;
 fn main() {
     println!("cargo:rerun-if-changed=wrapper.h");
 
-    // Locate libxbps the same way meson's dependency('libxbps', ...) did
-    // in the original C project: via pkg-config. Requires xbps-devel /
-    // libxbps-devel to be installed on the build machine.
     let lib = pkg_config::Config::new()
         .atleast_version("0.59")
         .probe("libxbps")
@@ -18,9 +15,6 @@ fn main() {
     let mut builder = bindgen::Builder::default()
         .header("wrapper.h")
         .clang_arg("-D_GNU_SOURCE")
-        // Keep the generated surface small and intentional: only the
-        // xbps_*/prop_*/XBPS_* symbols actually used by src/backend, not
-        // the entire libxbps + libprop transitive header surface.
         .allowlist_function("xbps_.*")
         .allowlist_type("xbps_.*")
         .allowlist_type("prop_.*")

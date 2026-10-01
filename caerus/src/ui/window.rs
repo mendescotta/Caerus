@@ -1,6 +1,3 @@
-//! Main application window. Rust translation of ui/window.{h,c} (built
-//! directly in code here rather than from a `GtkBuilder` .ui file).
-
 use crate::backend::package::{Package, PkgMark, PkgState};
 use crate::backend::package_store::PackageStore;
 use crate::backend::transaction::Transaction;
@@ -30,93 +27,47 @@ struct WindowState {
     btn_mark_upgrades: gtk::Button,
     btn_unmark_all: gtk::Button,
     btn_apply: gtk::Button,
-    /// The "N" badge inside `btn_apply`, updated by `update_apply_button`.
     apply_count_pill: gtk::Label,
     menu_button: gtk::MenuButton,
-    /// The hamburger popover's page stack (root / view / settings /
-    /// shortcuts), populated by `populate_menu_popover`.
     menu_stack: gtk::Stack,
     btn_toggle_sidebar: gtk::Button,
-    /// Independent of `btn_toggle_sidebar`'s click-cycle — the View
-    /// menu's "Sidebar" and "Minimal Sidebar" switches, kept in sync
-    /// with the button and each other via `apply_sidebar_mode`.
     sw_sidebar_visible: gtk::Switch,
     sw_sidebar_minimal: gtk::Switch,
-    /// Current rail-mode flag, kept even while the sidebar is hidden —
-    /// mirrors `WindowGeometry::sidebar_minimal`. Visibility itself is
-    /// read directly from `sidebar.widget().get_visible()`, matching
-    /// the existing pattern for `detail_pane_visible`.
     sidebar_minimal: std::cell::Cell<bool>,
-    /// Right-side counterpart to `btn_toggle_sidebar`: show/hide the
-    /// detail pane. Bound bidirectionally to the View menu's "Detail
-    /// Pane" switch.
     btn_toggle_detail_pane: gtk::ToggleButton,
     status_bar: gtk::Box,
     search_entry: gtk::SearchEntry,
     btn_search_name_only: gtk::ToggleButton,
     status_label: gtk::Label,
 
-    /// Wraps the window content so transient notifications show as a
-    /// toast instead of overwriting `status_label`. `--features adwaita`
-    /// only; `show_toast` falls back to `status_label` otherwise.
     #[cfg(feature = "adwaita")]
     toast_overlay: adw::ToastOverlay,
 
-    /// Mirrors the package list's current selection, for the Delete-key
-    /// shortcut.
     selected_pkg: RefCell<Option<Package>>,
 
-    /// Whether to sync repositories at launch — see `WindowGeometry`.
     sync_at_launch: std::cell::Cell<bool>,
 
-    /// Whether "search by name only" starts active at next launch — see
-    /// `WindowGeometry`.
     search_name_only_default: std::cell::Cell<bool>,
     auto_close_on_success: std::cell::Cell<bool>,
-    /// `main_paned`'s divider position for full (non-rail) sidebar mode —
-    /// kept separately from the live `main_paned` position because that's
-    /// overwritten with the rail width while minimal; see
-    /// `apply_sidebar_mode`.
     default_sidebar_pos: std::cell::Cell<i32>,
 }
 
-/// Window size + paned-divider positions, persisted across launches.
-/// Hand-rolled `key=value` file rather than pulling in a serialization
-/// crate for a handful of fields.
 struct WindowGeometry {
     width: i32,
     height: i32,
     sidebar_pos: i32,
-    /// Whether to sync repositories (a privileged `pkexec` action) at
-    /// launch. Defaults to `false` so a fresh install doesn't prompt for
-    /// auth before the user has seen a package.
     sync_at_launch: bool,
-    /// Whether the header's "search by name only" toggle starts active.
     search_name_only_default: bool,
-    /// Collapsed/expanded state of the four sidebar sections, in
-    /// `Section::ALL` order.
     section_expanded: [bool; 4],
-    /// Shown/hidden state of the four sidebar sections, in `Section::ALL`
-    /// order.
     section_visible: [bool; 4],
     detail_pane_visible: bool,
     status_bar_visible: bool,
-    /// Whether the sidebar shows repositories no longer configured in
-    /// xbps.d.
     stale_repos_visible: bool,
-    /// Whether the sidebar is shown at all — previously not persisted
-    /// (always started shown); now tracked like `detail_pane_visible`.
     sidebar_visible: bool,
-    /// Whether the (visible) sidebar renders as the narrow icon rail
-    /// instead of the full labeled layout. Kept even while the sidebar
-    /// is hidden, so re-showing it via the View menu's "Sidebar" switch
-    /// resumes whichever mode was last active.
     sidebar_minimal: bool,
     auto_close_on_success: bool,
 }
 
-/// Persistence keys for the per-section booleans, in `Section::ALL`
-/// order (must stay in sync with it).
 const SECTION_KEYS: [&str; 4] = ["filters", "repositories", "maintenance", "tools"];
 
 impl Default for WindowGeometry {
@@ -139,18 +90,8 @@ impl Default for WindowGeometry {
     }
 }
 
-/// Target width of the detail pane docked to the right — a narrow
-/// column, not a 50/50 split.
 const VERTICAL_PANEL_DETAIL_WIDTH: i32 = 380;
 
-/// Sets `right_paned`'s divider position for its permanent right-dock
-/// layout: the *start* child (`pkg_list`) gets the lion's share of the
-/// width, and the detail pane stays a fixed `VERTICAL_PANEL_DETAIL_WIDTH`
-/// column — the same doesn't-cover-the-list behavior as the Filters
-/// sidebar. `available_width_hint` is used only when `right_paned` isn't
-/// realized yet (its `.width()` reads 0 before the window is first shown,
-/// e.g. at startup) — pass the best known estimate of the pane's eventual
-/// width.
 fn set_right_paned_position(right_paned: &gtk::Paned, available_width_hint: i32) {
     let avail = if right_paned.width() > 0 {
         right_paned.width()
@@ -302,7 +243,6 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     install_css(&window);
     ensure_icon_theme_fallback(&window);
 
-    // ── Header bar ──
     let header = gtk::HeaderBar::new();
     let title_label = gtk::Label::new(Some("Caerus"));
     title_label.add_css_class("title");
@@ -322,8 +262,6 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     let btn_unmark_all = gtk::Button::from_icon_name("edit-clear-all-symbolic");
     btn_unmark_all.set_sensitive(false);
     btn_unmark_all.set_tooltip_text(Some("Unmark All"));
-    // Linked pair: the two "pending marks" bulk actions read as one control,
-    // set apart from the accented Apply button at the header's far end.
     let mark_state_group = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     mark_state_group.add_css_class("linked");
     mark_state_group.append(&btn_mark_upgrades);
@@ -353,9 +291,6 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     search_entry.set_width_request(220);
     search_entry.set_placeholder_text(Some("Search packages\u{2026}"));
 
-    // Right-side counterpart to `btn_toggle_sidebar`: show/hide the
-    // detail pane. Packed first among the `pack_end` widgets so it lands
-    // at the outermost right edge, past the search bar.
     let btn_toggle_detail_pane = gtk::ToggleButton::new();
     btn_toggle_detail_pane.set_icon_name("sidebar-show-right-symbolic");
     btn_toggle_detail_pane.set_active(geometry.detail_pane_visible);
@@ -374,11 +309,9 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
 
     window.set_titlebar(Some(&header));
 
-    // ── Backend ──
     let store = PackageStore::new();
     let session = Transaction::new();
 
-    // ── Body ──
     let sidebar = FilterSidebar::new();
     let pkg_list = PackageList::new(store.clone());
     let detail_pane = DetailPane::new(store.clone());
@@ -389,8 +322,6 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         });
     }
 
-    // Detail pane is docked to the right, narrow column, like the
-    // Filters sidebar — it doesn't cover the package list.
     let right_paned = gtk::Paned::new(gtk::Orientation::Horizontal);
     right_paned.set_resize_start_child(true);
     right_paned.set_shrink_start_child(false);
@@ -455,10 +386,6 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         btn_toggle_sidebar: btn_toggle_sidebar.clone(),
         sw_sidebar_visible: sw_sidebar_visible.clone(),
         sw_sidebar_minimal: sw_sidebar_minimal.clone(),
-        // Seeded `false` regardless of `geometry.sidebar_minimal` so the
-        // explicit `apply_sidebar_mode` call below (which applies the
-        // loaded value) sees it as a real Full->Minimal transition and
-        // captures `default_sidebar_pos` correctly.
         sidebar_minimal: std::cell::Cell::new(false),
         btn_toggle_detail_pane: btn_toggle_detail_pane.clone(),
         status_bar: status_bar.clone(),
@@ -477,8 +404,6 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     wire_up(&state);
     wire_keyboard_shortcuts(&state);
 
-    // Must restore section collapse/visibility before building the menu
-    // popover — its switches bind to live `visible` with sync_create.
     for (i, section) in crate::ui::filter_sidebar::Section::ALL
         .into_iter()
         .enumerate()
@@ -504,13 +429,10 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
 
     populate_menu_popover(&state);
 
-    // Must run after wire_up so the toggled handler is already connected.
     state
         .btn_search_name_only
         .set_active(geometry.search_name_only_default);
 
-    // Sync repos at launch silently (no dialog), then reload — unless
-    // opted out, in which case this is a plain local reload.
     trigger_update(&state, geometry.sync_at_launch, true);
 
     window
@@ -526,8 +448,6 @@ fn install_css(window: &gtk::ApplicationWindow) {
     );
 }
 
-/// Every symbolic icon name used anywhere in the app, checked at startup
-/// by `ensure_icon_theme_fallback`.
 const USED_SYMBOLIC_ICONS: &[&str] = &[
     "software-update-available-symbolic",
     "software-update-urgent-symbolic",
@@ -565,16 +485,6 @@ const USED_SYMBOLIC_ICONS: &[&str] = &[
     "package-x-generic-symbolic",
 ];
 
-/// GTK resolves icon names against only the active theme plus "hicolor"
-/// fallback, never Adwaita as a second fallback — so on a non-GNOME
-/// desktop some symbolic names render blank even with adwaita-icon-theme
-/// installed. Fixed by bundling copies under `data/icons/hicolor/scalable/`
-/// (hicolor's `index.theme` only declares `symbolic/apps`, never
-/// `symbolic/<other-context>`, so `scalable/` is required even though
-/// every filename ends "-symbolic" — GTK still recolors them correctly
-/// there). `install.sh` registers the real system path for an installed
-/// build; for a bare `cargo run` this also registers the checkout's own
-/// `caerus/data/icons` directly.
 fn ensure_icon_theme_fallback(window: &gtk::ApplicationWindow) {
     let icon_theme = gtk::IconTheme::for_display(&gtk::prelude::WidgetExt::display(window));
 
@@ -590,12 +500,8 @@ fn ensure_icon_theme_fallback(window: &gtk::ApplicationWindow) {
     }
 }
 
-/// Directory containing a `hicolor/` tree with this app's bundled
-/// fallback icons, or `None` if not found (e.g. an installed build where
-/// `install.sh` already placed them at the real system icon path).
 fn bundled_icons_dir() -> Option<std::path::PathBuf> {
     let self_exe = std::fs::read_link("/proc/self/exe").ok()?;
-    // Dev build layout: `<repo>/target/{debug,release}/caerus`.
     let candidate = self_exe
         .parent()?
         .parent()?
@@ -615,11 +521,9 @@ fn flat_menu_button(label: &str) -> gtk::Button {
     btn
 }
 
-/// A page header for the popover's slide-in pages: a back chevron +
-/// bold title, separated from the page content below.
 fn menu_page_header(stack: &gtk::Stack, title: &str) -> gtk::Box {
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    let back = gtk::Button::with_label("\u{2039}"); // ‹
+    let back = gtk::Button::with_label("\u{2039}");
     back.set_has_frame(false);
     {
         let stack = stack.clone();
@@ -634,11 +538,6 @@ fn menu_page_header(stack: &gtk::Stack, title: &str) -> gtk::Box {
     header
 }
 
-/// A switch row for the View/Settings pages: label, optional keycap
-/// hint, switch. Builds the row around an existing switch — use this
-/// when the switch must be reachable outside `populate_menu_popover`
-/// (e.g. driven by a header button too); `switch_row` below is the
-/// common case that doesn't need that.
 fn switch_row_with(switch: &gtk::Switch, label: &str, accel: Option<&str>) -> gtk::Box {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     row.set_margin_start(8);
@@ -662,26 +561,13 @@ fn switch_row_with(switch: &gtk::Switch, label: &str, accel: Option<&str>) -> gt
     row
 }
 
-/// A switch row that owns its own fresh switch — the common case.
-/// Returns the row and the switch for binding.
 fn switch_row(label: &str, accel: Option<&str>) -> (gtk::Box, gtk::Switch) {
     let switch = gtk::Switch::new();
     let row = switch_row_with(&switch, label, accel);
     (row, switch)
 }
 
-/// Single funnel for every sidebar-mode change (header button, F9, and
-/// both View-menu switches all call into this) — applies the widget
-/// state and re-syncs the two switches + button tooltip to match.
-/// Re-entrant calls into this function (via the switches' own
-/// `connect_active_notify`) always converge — each nested call's target
-/// state already matches what's being applied, so further nesting stops.
 fn apply_sidebar_mode(state: &Rc<WindowState>, visible: bool, minimal: bool) {
-    // `width_request` alone won't move an already-positioned `GtkPaned`
-    // divider (it's only a minimum), so drive `main_paned`'s position
-    // directly — same technique `set_right_paned_position` uses for the
-    // detail pane's docked-right width. Capture the full-mode width
-    // before narrowing it, so leaving minimal can restore it.
     let was_minimal = state.sidebar_minimal.get();
     if minimal && !was_minimal {
         state.default_sidebar_pos.set(state.main_paned.position());
@@ -712,11 +598,6 @@ fn apply_sidebar_mode(state: &Rc<WindowState>, visible: bool, minimal: bool) {
     state.sw_sidebar_minimal.set_active(minimal);
 }
 
-/// The header button's / F9's fixed 3-state cycle: Full -> Minimal ->
-/// Hidden -> Full. Reaching Minimal or Full from Hidden any other way
-/// (the View-menu switches) is handled separately in
-/// `populate_menu_popover` — this cycle only defines what a *click*
-/// does.
 fn cycle_sidebar_mode(state: &Rc<WindowState>) {
     let visible = state.sidebar.widget().get_visible();
     let minimal = state.sidebar_minimal.get();
@@ -730,9 +611,6 @@ fn cycle_sidebar_mode(state: &Rc<WindowState>) {
     apply_sidebar_mode(state, next_visible, next_minimal);
 }
 
-/// Builds the hamburger popover: a `gtk::Stack` of pages — root (View ▸ /
-/// Settings ▸ / Keyboard Shortcuts ▸ / About / Quit) plus three slide-in
-/// pages whose boolean controls are all switches.
 fn populate_menu_popover(state: &Rc<WindowState>) {
     let stack = &state.menu_stack;
     stack.set_transition_type(gtk::StackTransitionType::SlideLeftRight);
@@ -743,13 +621,11 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
     popover.set_child(Some(stack));
     state.menu_button.set_popover(Some(&popover));
 
-    // Never reopen mid-navigation.
     {
         let stack = stack.clone();
         popover.connect_closed(move |_| stack.set_visible_child_name("root"));
     }
 
-    // ── root page ──
     let root = gtk::Box::new(gtk::Orientation::Vertical, 2);
     root.set_width_request(230);
 
@@ -760,7 +636,7 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
         let l = gtk::Label::new(Some(label));
         l.set_xalign(0.0);
         l.set_hexpand(true);
-        let chevron = gtk::Label::new(Some("\u{25b8}")); // ▸
+        let chevron = gtk::Label::new(Some("\u{25b8}"));
         chevron.add_css_class("dim-label");
         row.append(&l);
         row.append(&chevron);
@@ -801,15 +677,12 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
         btn_quit.set_child(Some(&row));
     }
     {
-        // Goes through close_request so layout save / helper shutdown
-        // is one code path regardless of how the window closes.
         let window = state.window.clone();
         btn_quit.connect_clicked(move |_| window.close());
     }
     root.append(&btn_quit);
     stack.add_named(&root, Some("root"));
 
-    // ── View page ──
     let view = gtk::Box::new(gtk::Orientation::Vertical, 2);
     view.set_width_request(250);
     view.append(&menu_page_header(stack, "View"));
@@ -830,9 +703,6 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
         let state = state.clone();
         sw_sidebar_minimal.connect_active_notify(move |sw| {
             let minimal = sw.is_active();
-            // Turning minimal ON also shows the sidebar (it's the only
-            // way to reach Minimal directly from Hidden); turning it
-            // OFF just drops back to whatever visibility already was.
             let visible = state.sidebar.widget().get_visible() || minimal;
             apply_sidebar_mode(&state, visible, minimal);
         });
@@ -886,7 +756,6 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
     view.append(&status_row);
     stack.add_named(&view, Some("view"));
 
-    // ── Settings page ── (replaces the former Settings dialog)
     let settings = gtk::Box::new(gtk::Orientation::Vertical, 2);
     settings.set_width_request(290);
     settings.append(&menu_page_header(stack, "Settings"));
@@ -937,8 +806,6 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
     settings.append(&auto_close_row);
     stack.add_named(&settings, Some("settings"));
 
-    // ── Keyboard Shortcuts page ── (essentials; Ctrl+? opens the full
-    // overlay dialog)
     let shortcuts = gtk::Box::new(gtk::Orientation::Vertical, 2);
     shortcuts.set_width_request(260);
     shortcuts.append(&menu_page_header(stack, "Keyboard Shortcuts"));
@@ -973,8 +840,6 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
     stack.add_named(&shortcuts, Some("shortcuts"));
 }
 
-// libadwaita's AboutWindow gets a proper CSD titlebar matching the rest
-// of the app; the plain-GTK4 fallback below is otherwise identical.
 #[cfg(feature = "adwaita")]
 fn show_about_dialog(parent: &gtk::ApplicationWindow) {
     let about = adw::AboutWindow::builder()
@@ -1005,8 +870,6 @@ fn show_about_dialog(parent: &gtk::ApplicationWindow) {
     about.set_logo_icon_name(Some(crate::APP_ID));
     about.set_license_type(gtk::License::Gpl30);
     about.present();
-    // GTK focuses the first focusable widget on present (a selectable
-    // label here), which renders as pre-selected text; clear it.
     gtk::prelude::GtkWindowExt::set_focus(&about, None::<&gtk::Widget>);
 }
 
@@ -1058,10 +921,6 @@ fn show_shortcuts_dialog(parent: &gtk::ApplicationWindow) {
     crate::ui::dialog_util::present_focused(&dlg, &close_btn);
 }
 
-/// Global shortcuts, active anywhere in the window (not just when a
-/// specific widget has focus): Ctrl+F to search, Escape to clear it,
-/// F5 to reload, Delete to mark the selected package for removal,
-/// Ctrl+Q to quit.
 fn wire_keyboard_shortcuts(state: &Rc<WindowState>) {
     let controller = gtk::EventControllerKey::new();
     let window = state.window.clone();
@@ -1077,7 +936,6 @@ fn wire_keyboard_shortcuts(state: &Rc<WindowState>) {
                 state.window.close();
                 glib::Propagation::Stop
             }
-            // Guard: don't hijack "select all text" while typing a search.
             gtk::gdk::Key::a if ctrl && !state.search_entry.has_focus() => {
                 state.pkg_list.select_all();
                 glib::Propagation::Stop
@@ -1094,18 +952,15 @@ fn wire_keyboard_shortcuts(state: &Rc<WindowState>) {
                 cycle_sidebar_mode(&state);
                 glib::Propagation::Stop
             }
-            // Ctrl+? — the full shortcuts overlay.
             gtk::gdk::Key::question if ctrl => {
                 show_shortcuts_dialog(&state.window);
                 glib::Propagation::Stop
             }
-            // Ctrl+, — open the hamburger directly on its Settings page.
             gtk::gdk::Key::comma if ctrl => {
                 state.menu_stack.set_visible_child_name("settings");
                 state.menu_button.popup();
                 glib::Propagation::Stop
             }
-            // Same guard as Ctrl+A above.
             gtk::gdk::Key::Delete if !state.search_entry.has_focus() => {
                 let root = state.window.clone().upcast::<gtk::Window>();
                 state.pkg_list.delete_selected(Some(root));
@@ -1118,7 +973,6 @@ fn wire_keyboard_shortcuts(state: &Rc<WindowState>) {
 }
 
 fn wire_up(state: &Rc<WindowState>) {
-    // ── Store signals ──
     {
         let store = state.store.clone();
         let state = state.clone();
@@ -1150,7 +1004,6 @@ fn wire_up(state: &Rc<WindowState>) {
         });
     }
 
-    // ── Sidebar / list / detail wiring ──
     {
         let sidebar = state.sidebar.clone();
         let state = state.clone();
@@ -1178,16 +1031,10 @@ fn wire_up(state: &Rc<WindowState>) {
     {
         let detail_pane = state.detail_pane.clone();
         let state = state.clone();
-        // Jumps the main list to a clicked Dependencies row's package.
-        // `select_package_by_name` fires `connect_package_selected`
-        // above, so the detail pane updates for free.
         detail_pane.connect_jump_to_package(move |pkgname| {
             if state.pkg_list.select_package_by_name(&pkgname) {
                 return;
             }
-            // Not visible under current search/filter/repo — clear via
-            // the sidebar (not pkg_list directly) so its highlighted row
-            // stays in sync — and retry once.
             state.search_entry.set_text("");
             state.pkg_list.set_search("");
             state.sidebar.reset_to_all();
@@ -1200,8 +1047,6 @@ fn wire_up(state: &Rc<WindowState>) {
         pkg_list.connect_marks_changed(move || {
             update_status_bar(&state);
 
-            // Refresh the detail pane if the mark changed via a route
-            // other than its own buttons (checkbox column, context menu).
             let refreshed = {
                 let mut selected = state.selected_pkg.borrow_mut();
                 if let Some(pkg) = selected.as_mut() {
@@ -1299,7 +1144,6 @@ fn wire_up(state: &Rc<WindowState>) {
         });
     }
 
-    // ── Sidebar action rows (MAINTENANCE / TOOLS / Manage Repositories) ──
     {
         use crate::ui::filter_sidebar::SidebarAction;
         let state = state.clone();
@@ -1345,7 +1189,6 @@ fn wire_up(state: &Rc<WindowState>) {
             });
     }
 
-    // ── Session disconnect ──
     {
         let session = state.session.clone();
         let state = state.clone();
@@ -1369,19 +1212,18 @@ fn wire_up(state: &Rc<WindowState>) {
         });
     }
 
-    // ── Buttons ──
     {
         let btn_update = state.btn_update.clone();
         let state = state.clone();
         btn_update.connect_clicked(move |_| {
-            trigger_update(&state, true, false); // sync + reload, with dialog
+            trigger_update(&state, true, false);
         });
     }
     {
         let btn_reload = state.btn_reload.clone();
         let state = state.clone();
         btn_reload.connect_clicked(move |_| {
-            trigger_update(&state, false, false); // local reload only, no dialog
+            trigger_update(&state, false, false);
         });
     }
     {
@@ -1393,8 +1235,6 @@ fn wire_up(state: &Rc<WindowState>) {
         let btn_mark_upgrades = state.btn_mark_upgrades.clone();
         let state = state.clone();
         btn_mark_upgrades.connect_clicked(move |_| {
-            // Collected first, then applied in one `set_marks` pass to
-            // avoid one list rescan per name.
             let mut names = std::collections::HashSet::new();
             let list = state.store.list();
             let n = list.n_items();
@@ -1448,8 +1288,6 @@ fn wire_up(state: &Rc<WindowState>) {
         });
     }
 
-    // ── Shutdown: persist the window/paned layout and tell the
-    // privileged helper to exit when the window closes ──
     {
         let window = state.window.clone();
         let state = state.clone();
@@ -1458,10 +1296,6 @@ fn wire_up(state: &Rc<WindowState>) {
             WindowGeometry {
                 width: win.width(),
                 height: win.height(),
-                // `main_paned.position()` is only a meaningful full-width
-                // sidebar width outside rail mode — while minimal it's the
-                // rail width instead (see `apply_sidebar_mode`), so fall
-                // back to the remembered full-mode width in that case.
                 sidebar_pos: if state.sidebar_minimal.get() {
                     state.default_sidebar_pos.get()
                 } else {
@@ -1491,9 +1325,6 @@ fn set_loading(state: &Rc<WindowState>, loading: bool) {
         state.spinner.start();
         state.btn_update.set_sensitive(false);
         state.btn_reload.set_sensitive(false);
-        // Menu actions share the same `Transaction` session, so disable
-        // the whole menu button to prevent queuing a second batch
-        // while one (including a silent at-launch sync) is in flight.
         state.menu_button.set_sensitive(false);
     } else {
         state.spinner.stop();
@@ -1505,7 +1336,6 @@ fn set_loading(state: &Rc<WindowState>, loading: bool) {
 
 fn do_reload(state: &Rc<WindowState>) {
     state.detail_pane.show_package(None);
-    // Otherwise a post-reload action could act on a stale Package snapshot.
     *state.selected_pkg.borrow_mut() = None;
     state.store.load_async();
 }
@@ -1601,8 +1431,6 @@ fn on_apply_clicked(state: &Rc<WindowState>) {
         .chain(purges.iter().map(|n| PreviewOp::Purge(n.clone())))
         .collect();
 
-    // Dry-run happens on the worker thread; the confirm dialog opens once
-    // it reports back, so Apply never freezes the main loop.
     let state2 = state.clone();
     state.store.preview_transaction_async(ops, move |preview| {
         let state = state2;
@@ -1641,8 +1469,6 @@ fn on_apply_clicked(state: &Rc<WindowState>) {
     });
 }
 
-/// Hold/unhold is applied right away rather than queued as a pending
-/// mark; it needs no dependency resolution or batching.
 fn on_hold_requested(state: &Rc<WindowState>, pkgname: &str, want_hold: bool) {
     let cmd = if want_hold {
         format!("HOLD {pkgname}")
@@ -1657,11 +1483,6 @@ fn on_hold_requested(state: &Rc<WindowState>, pkgname: &str, want_hold: bool) {
     run_maintenance_command(state, &cmd, title);
 }
 
-/// "xbps-install -Su" via the helper's UPGRADE command — independent of
-/// whatever the user has separately marked. Previews the set via a real
-/// dry-run built from the app's currently-known-upgradable names; the
-/// actual command lets xbps resolve its own set, which may differ
-/// slightly (e.g. deps pulled in along the way).
 fn on_full_upgrade_clicked(state: &Rc<WindowState>) {
     let upgrades = state.store.upgradable_names();
     if upgrades.is_empty() {
@@ -1695,9 +1516,6 @@ fn on_full_upgrade_clicked(state: &Rc<WindowState>) {
     });
 }
 
-/// Confirms before `xbps-remove -o`. The list shown is the app's own
-/// `is_orphan` set from the last reload, barring changes made outside
-/// caerus since then.
 fn on_remove_orphans_clicked(state: &Rc<WindowState>) {
     let mut orphans = Vec::new();
     let list = state.store.list();
@@ -1770,8 +1588,6 @@ fn on_remove_orphans_clicked(state: &Rc<WindowState>) {
     crate::ui::dialog_util::present_focused(&dlg, &cancel_btn);
 }
 
-/// Confirms before `xbps-reconfigure -fa`: not destructive, but a heavy
-/// system-wide action worth a deliberate second click.
 fn on_reconfigure_all_clicked(state: &Rc<WindowState>) {
     let (dlg, outer) = crate::ui::dialog_util::modal_window(
         "Reconfigure All Packages?",
@@ -1815,9 +1631,6 @@ fn on_reconfigure_all_clicked(state: &Rc<WindowState>) {
     crate::ui::dialog_util::present_focused(&dlg, &go_btn);
 }
 
-/// Runs a single privileged protocol command outside the normal
-/// mark/Apply batch (hold/unhold, orphan removal, cache cleanup, ...).
-/// Shows the same progress dialog as a regular Apply, then reloads.
 fn run_maintenance_command(state: &Rc<WindowState>, cmd: &str, title: &str) {
     let state2 = state.clone();
     apply_dialog::run_recorded(
@@ -1839,9 +1652,6 @@ fn run_maintenance_command(state: &Rc<WindowState>, cmd: &str, title: &str) {
     );
 }
 
-/// Maps a queued INSTALL/REMOVE/PURGE line to its force-override verb —
-/// see the matching `*_FORCE` handlers in `caerus-helper`. Other
-/// commands pass through unchanged.
 fn force_variant(cmd: &str) -> String {
     for verb in ["INSTALL", "REMOVE", "PURGE"] {
         if let Some(rest) = cmd.strip_prefix(verb) {
@@ -1851,9 +1661,6 @@ fn force_variant(cmd: &str) -> String {
     cmd.to_string()
 }
 
-/// Shown when an Apply batch fails, offering a forced retry (file
-/// conflicts/unresolved deps a plain retry can't fix). Declining falls
-/// back to clear-marks-and-reload.
 fn offer_force_retry(state: &Rc<WindowState>, commands: Vec<String>) {
     let (dlg, outer) = crate::ui::dialog_util::modal_window(
         "Retry With Force?",
@@ -1933,8 +1740,6 @@ fn offer_force_retry(state: &Rc<WindowState>, commands: Vec<String>) {
     crate::ui::dialog_util::present_focused(&dlg, &cancel_btn);
 }
 
-/// Shows a transient, self-dismissing notification, as opposed to
-/// `update_status_bar`'s persistent package-count summary.
 fn show_toast(state: &Rc<WindowState>, msg: &str) {
     #[cfg(feature = "adwaita")]
     {
@@ -1943,8 +1748,6 @@ fn show_toast(state: &Rc<WindowState>, msg: &str) {
     #[cfg(not(feature = "adwaita"))]
     {
         state.status_label.set_text(msg);
-        // No AdwToast here, so restore the persistent summary after a
-        // few seconds instead of leaving the transient message shown.
         let state = state.clone();
         glib::source::timeout_add_local_once(std::time::Duration::from_secs(6), move || {
             update_status_bar(&state);
@@ -1957,7 +1760,6 @@ fn update_status_bar(state: &Rc<WindowState>) {
     let marked = state.store.count_marked();
 
     if state.pkg_list.has_active_filters() {
-        // Show counts for what's on screen, not whole-database totals.
         let (total, installed, not_installed) = state.pkg_list.visible_counts();
         state.status_label.set_text(&format!(
             "{total} shown — {installed} installed, {not_installed} not installed.  {marked} marked."
