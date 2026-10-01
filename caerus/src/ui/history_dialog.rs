@@ -1,8 +1,3 @@
-//! "Transaction History" — a read-only view over the batch records
-//! `backend::history` persists (one row per Apply batch or maintenance
-//! action). Rollback is explicitly out of scope: this only shows what
-//! happened, newest first.
-
 use crate::backend::history;
 use crate::ui::dialog_util::{close_button, modal_window, present_focused};
 use gtk::prelude::*;

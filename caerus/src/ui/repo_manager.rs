@@ -1,20 +1,8 @@
-//! Add/remove xbps repositories. Listing is a read-only scan of
-//! `/etc/xbps.d/*.conf` and `/usr/share/xbps.d/*.conf` for
-//! `repository=` lines (same files xbps itself reads, per xbps.d(5)) —
-//! no privilege needed just to look. Any entry configured via
-//! `/etc/xbps.d` (not just caerus's own) can be toggled/removed here;
-//! vendor entries under `/usr/share/xbps.d` can only be disabled, via an
-//! `/etc/xbps.d` shadow copy — never edited or removed in place.
-
 use crate::backend::transaction::Transaction;
 use crate::ui::dialog_util::{cancel_button_row, close_button, modal_window, present_focused};
 use gtk::prelude::*;
 use std::rc::Rc;
 
-/// Warns before adding a custom repository: `caerus-helper` always
-/// installs/upgrades with `-y`, auto-confirming any unsigned-repo
-/// prompt, so this is the only warning the user gets. `cb(true)` only
-/// fires on explicit confirmation.
 fn confirm_add_repo(parent: Option<&gtk::Window>, url: &str, cb: impl Fn(bool) + 'static) {
     let cb: Rc<dyn Fn(bool)> = Rc::new(cb);
     let (dlg, outer) = modal_window("Add Repository?", parent, false, (420, -1), 10);
@@ -72,8 +60,6 @@ fn confirm_add_repo(parent: Option<&gtk::Window>, url: &str, cb: impl Fn(bool) +
     present_focused(&dlg, &cancel_btn);
 }
 
-/// Warns before removing a configured repository. `cb(true)` only fires
-/// on explicit confirmation.
 fn confirm_remove_repo(parent: Option<&gtk::Window>, url: &str, cb: impl Fn(bool) + 'static) {
     let cb: Rc<dyn Fn(bool)> = Rc::new(cb);
     let (dlg, outer) = modal_window("Remove Repository?", parent, false, (420, -1), 10);
@@ -128,9 +114,6 @@ fn confirm_remove_repo(parent: Option<&gtk::Window>, url: &str, cb: impl Fn(bool
     present_focused(&dlg, &cancel_btn);
 }
 
-/// Every URL configured in an xbps.d conf file, enabled or disabled —
-/// the sidebar uses this to mark package-origin repos that aren't
-/// configured anywhere as stale.
 pub(crate) fn configured_repo_urls() -> std::collections::HashSet<String> {
     scan_configured_repos()
         .into_iter()
@@ -138,14 +121,6 @@ pub(crate) fn configured_repo_urls() -> std::collections::HashSet<String> {
         .collect()
 }
 
-/// (url, in-/etc (⇒ removable), enabled), deduplicated, sorted by URL.
-/// Disabled means a `#repository=` line, only recognized under
-/// /etc/xbps.d.
-///
-/// Mirrors xbps.d(5)'s override rule: a file in `/etc/xbps.d` replaces
-/// the `/usr/share/xbps.d` file of the same name entirely, so a
-/// same-named vendor file's repositories aren't listed when an `/etc`
-/// override exists.
 fn scan_configured_repos() -> Vec<(String, bool, bool)> {
     let mut map: std::collections::BTreeMap<String, (bool, bool)> =
         std::collections::BTreeMap::new();
@@ -172,7 +147,7 @@ fn scan_configured_repos() -> Vec<(String, bool, bool)> {
                 if is_etc {
                     etc_names.insert(name.to_os_string());
                 } else if etc_names.contains(name) {
-                    continue; // overridden by the /etc/xbps.d file above
+                    continue;
                 }
             }
             let Ok(contents) = std::fs::read_to_string(&path) else {
@@ -352,8 +327,6 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction, on_changed: imp
         let entry = entry.clone();
         add_btn.connect_clicked(move |_| {
             let url = entry.text().trim().to_string();
-            // Reject control/whitespace chars: this becomes a whole line
-            // in the newline-delimited helper protocol.
             if url.is_empty() || url.chars().any(|c| c.is_control() || c.is_whitespace()) {
                 return;
             }

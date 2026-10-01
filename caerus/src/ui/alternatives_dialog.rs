@@ -1,12 +1,3 @@
-//! Switches between packages that provide the same "alternative"
-//! (e.g. multiple lua/cc/editor implementations providing the same
-//! symlinked binaries) — a GUI over `xbps-alternatives`.
-//!
-//! Listing is read-only and runs directly from the unprivileged GUI
-//! process, same rationale as `file_owner_dialog`. Actually switching
-//! a group's active provider rewrites symlinks under `/usr` and goes
-//! through the privileged helper's `ALTERNATIVE` command.
-
 use crate::backend::transaction::Transaction;
 use crate::ui::dialog_util::{close_button, modal_window, present_focused};
 use gtk::prelude::*;
@@ -14,11 +5,6 @@ use std::cell::RefCell;
 use std::process::Command;
 use std::rc::Rc;
 
-/// `xbps-alternatives -l` (no group filter) only reports each group's
-/// current provider, not the full candidate list — the full list only
-/// comes back when a specific group is requested via `-g`. So this
-/// overview only builds the left-hand group list; the per-group
-/// follow-up query happens lazily once a group is selected.
 fn parse_overview(output: &std::process::Output) -> Vec<(String, String)> {
     let text = String::from_utf8_lossy(&output.stdout);
     let mut out = Vec::new();
@@ -43,7 +29,6 @@ fn parse_overview(output: &std::process::Output) -> Vec<(String, String)> {
     out
 }
 
-/// (provider pkgname, `is_current`) for every candidate in `group`.
 fn parse_candidates(output: &std::process::Output) -> Vec<(String, bool)> {
     let text = String::from_utf8_lossy(&output.stdout);
     let mut out = Vec::new();
@@ -102,9 +87,6 @@ fn populate_groups(inner: &Rc<Inner>, overview: &[(String, String)]) {
         l.set_margin_bottom(5);
         let row = gtk::ListBoxRow::new();
         row.set_child(Some(&l));
-        // NOTE: relies on group names never containing a tab; used to
-        // recover the bare group name from the row on selection
-        // without a parallel index Vec.
         unsafe {
             row.set_data("group-name", group.clone());
         }
@@ -140,8 +122,6 @@ fn refresh_providers(inner: &Rc<Inner>) {
     cmd.arg("-g").arg(&group).arg("-l");
     let inner = inner.clone();
     crate::ui::dialog_util::run_command_async(cmd, move |result| {
-        // Stale-reply guard: the selection may have moved on while the
-        // query ran.
         if inner.selected_group.borrow().as_deref() != Some(group.as_str()) {
             return;
         }
@@ -264,7 +244,5 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction) {
     }
     refresh_groups(&inner);
 
-    // Without an explicit focus target, GTK would auto-focus (and
-    // auto-select) the first `groups_list` row on present.
     present_focused(&dlg, &close_btn);
 }

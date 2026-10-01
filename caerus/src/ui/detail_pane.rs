@@ -1,8 +1,3 @@
-//! Detail pane: a vertical stack of equal-weight cards — header+actions,
-//! then Size & Installation, Source, Dependencies, Reverse Dependencies,
-//! Provides & Requires, Files. A card with nothing to show is entirely
-//! omitted, not rendered empty.
-
 use crate::backend::package::{
     pkg_format_size, pkg_state_icon, Package, PackageExtraInfo, PackageObject, PkgMark, PkgState,
 };
@@ -16,14 +11,8 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-/// Files lists can run into the thousands of entries for large
-/// packages; a plain (non-virtualized) `gtk::ListBox` materializes one
-/// widget per row, so this caps how many are actually shown to keep the
-/// expander responsive.
 const MAX_FILES_SHOWN: usize = 300;
 
-/// A value cell in a card's key/value list — plain selectable text or a
-/// clickable homepage link.
 enum KvValue {
     Text(String),
     Link(String),
@@ -38,7 +27,6 @@ struct Inner {
     store: PackageStore,
     current_pkgname: RefCell<Option<String>>,
 
-    // ── Header card: identity + primary actions ──
     name: gtk::Label,
     version: gtk::Label,
     state_chip: gtk::Label,
@@ -51,8 +39,6 @@ struct Inner {
     btn_purge: gtk::Button,
     btn_unmark: gtk::Button,
 
-    // ── Header card: secondary icon-button strip (one button per toggle
-    // pair — see `icon_toggle`) ──
     hold_overlay: gtk::Overlay,
     btn_hold: gtk::Button,
     hold_dot: gtk::Box,
@@ -66,7 +52,6 @@ struct Inner {
     btn_reconfigure: gtk::Button,
     btn_download: gtk::Button,
 
-    // ── Cards inside `cards_col` ──
     size_install_card: gtk::Box,
     size_install_list: gtk::Box,
     source_card: gtk::Box,
@@ -87,45 +72,20 @@ struct Inner {
     files_expander: gtk::Expander,
     files_list: gtk::ListBox,
 
-    /// Switches between a centered "Select a package…" empty page and
-    /// the real content — with no selection nothing else renders at all.
     content_stack: gtk::Stack,
 
-    /// Sizes are known synchronously but the download size can be
-    /// corrected by the async extra-info reply, which rebuilds the SIZE
-    /// & INSTALLATION card from these.
     install_size: Cell<u64>,
     download_size: Cell<u64>,
-    /// Maintainer comes from the sync package data but lives in the
-    /// async-rebuilt Source card, so it's stashed here for the rebuild.
     current_maintainer: RefCell<String>,
-    /// The async extra-info reply's `automatic_install` flag, stashed so
-    /// the Mark Manual/Auto icon button's click handler knows which way
-    /// to toggle without needing another round-trip. `None` until the
-    /// reply lands (or for a package where it doesn't apply).
     current_automatic: Cell<Option<bool>>,
 
     on_mark_changed: MarkChangedCbs,
-    /// Fired when the user clicks the Hold icon button — not a queued
-    /// mark; the caller (which owns the `Transaction`) acts immediately.
-    /// Args: pkgname, `want_hold`.
     on_hold_requested: HoldRequestedCbs,
-    /// Fired when the user clicks Reinstall. Arg: pkgname.
     on_reinstall_requested: ActionRequestedCbs,
-    /// Fired when the user clicks Reconfigure. Arg: pkgname.
     on_reconfigure_requested: ActionRequestedCbs,
-    /// Fired when the user clicks Download Only. Arg: pkgname.
     on_download_requested: ActionRequestedCbs,
-    /// Fired when the user clicks the Repo-Lock icon button. Args:
-    /// pkgname, `want_locked`.
     on_repolock_requested: HoldRequestedCbs,
-    /// Fired when the user clicks the Mark Manual/Auto icon button.
-    /// Args: pkgname, `want_automatic`.
     on_automatic_requested: HoldRequestedCbs,
-    /// Fired when a Dependencies/Reverse Dependencies row's package name
-    /// is activated (clicked) — window.rs wires this to
-    /// `PackageList::select_package_by_name`, jumping the main list to
-    /// that package. Arg: pkgname.
     on_jump_to_package: ActionRequestedCbs,
 }
 
@@ -134,9 +94,6 @@ pub struct DetailPane {
     inner: Rc<Inner>,
 }
 
-/// Display text + chip CSS class for a package's install state — shared
-/// by the header's state chip and the Dependencies/Reverse Dependencies
-/// hover popover, so the two stay in sync by construction.
 fn pkg_state_text_class(state: PkgState) -> (&'static str, Option<&'static str>) {
     match state {
         PkgState::NotInstalled => ("Not installed", None),
@@ -147,8 +104,6 @@ fn pkg_state_text_class(state: PkgState) -> (&'static str, Option<&'static str>)
     }
 }
 
-/// A pill-styled chip label (state chip, tag chips, count pills share
-/// the same shape; CSS classes differentiate the coloring).
 fn chip(text: &str, extra_class: Option<&str>) -> gtk::Label {
     let l = gtk::Label::new(Some(text));
     l.add_css_class("chip");
@@ -159,9 +114,6 @@ fn chip(text: &str, extra_class: Option<&str>) -> gtk::Label {
     l
 }
 
-/// A bordered, padded card (`.card` — window.rs `install_css`) with just
-/// an uppercase micro-header, for cards whose content is appended
-/// directly below it (Size & Installation, Source, Provides & Requires).
 fn card_simple(title: &str) -> gtk::Box {
     let card = card_simple_no_header();
     let header = gtk::Label::new(Some(title));
@@ -172,9 +124,6 @@ fn card_simple(title: &str) -> gtk::Box {
     card
 }
 
-/// Same as [`card_simple`], but for cards whose micro-header sits beside
-/// a count pill (Dependencies, Reverse Dependencies) — returns the card
-/// and the pill so the caller can drive it via [`set_count`].
 fn card_with_pill(title: &str) -> (gtk::Box, gtk::Label) {
     let card = card_simple_no_header();
     let header_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
@@ -190,9 +139,6 @@ fn card_with_pill(title: &str) -> (gtk::Box, gtk::Label) {
     (card, pill)
 }
 
-/// The bare bordered card box, no header appended yet. `set_size_request`
-/// is a floor, not a target — a card fills the full pane width via
-/// `hexpand`/`halign: Fill`, but won't shrink below a readable minimum.
 fn card_simple_no_header() -> gtk::Box {
     let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
     card.add_css_class("card");
@@ -203,13 +149,10 @@ fn card_simple_no_header() -> gtk::Box {
     card
 }
 
-/// Hides (or shows) a card.
 fn set_card_visible(card: &gtk::Box, visible: bool) {
     card.set_visible(visible);
 }
 
-/// One-shot icon-only button (Reinstall/Reconfigure/Download Only): icon
-/// + tooltip, no state dot.
 fn icon_button(icon_name: &str) -> gtk::Button {
     let img = gtk::Image::from_icon_name(icon_name);
     img.set_pixel_size(16);
@@ -219,11 +162,6 @@ fn icon_button(icon_name: &str) -> gtk::Button {
     btn
 }
 
-/// A toggle-pair icon button (Hold/Release Hold, Repo-Lock/Release, Mark
-/// Manual/Auto): one fixed-icon button with a corner "state dot" (filled
-/// = currently in that state) instead of two separate buttons. Returns
-/// the `Overlay` to pack into the strip, the button to wire a click
-/// handler on, and the dot to flip between `.on`/`.off`.
 fn icon_toggle(icon_name: &str) -> (gtk::Overlay, gtk::Button, gtk::Box) {
     let btn = icon_button(icon_name);
     let dot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -231,7 +169,6 @@ fn icon_toggle(icon_name: &str) -> (gtk::Overlay, gtk::Button, gtk::Box) {
     dot.add_css_class("off");
     dot.set_halign(gtk::Align::End);
     dot.set_valign(gtk::Align::Start);
-    // Decorative overlay must not intercept clicks meant for the button.
     dot.set_can_target(false);
     let overlay = gtk::Overlay::new();
     overlay.set_child(Some(&btn));
@@ -239,15 +176,11 @@ fn icon_toggle(icon_name: &str) -> (gtk::Overlay, gtk::Button, gtk::Box) {
     (overlay, btn, dot)
 }
 
-/// Flips a state dot between the `.on` (filled, currently in that
-/// state) and `.off` (hollow) look from the mockup.
 fn set_dot_state(dot: &gtk::Box, on: bool) {
     dot.remove_css_class(if on { "off" } else { "on" });
     dot.add_css_class(if on { "on" } else { "off" });
 }
 
-/// One key/value row: a dim label plus either selectable text or a
-/// clickable homepage link.
 fn build_kv_row(key: &str, value: KvValue) -> gtk::Box {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let key_label = gtk::Label::new(Some(key));
@@ -265,8 +198,6 @@ fn build_kv_row(key: &str, value: KvValue) -> gtk::Box {
             row.append(&val);
         }
         KvValue::Link(url) => {
-            // `.flat` + `.inline-link` strip LinkButton's own padding so
-            // it reads as inline text at the same row height as a Label.
             let link = gtk::LinkButton::new(&url);
             link.add_css_class("flat");
             link.add_css_class("inline-link");
@@ -278,8 +209,6 @@ fn build_kv_row(key: &str, value: KvValue) -> gtk::Box {
     row
 }
 
-/// Rebuilds a card's key/value list and hides the whole card when
-/// there's nothing to show, rather than rendering it empty.
 fn rebuild_kv_card(card: &gtk::Box, list_box: &gtk::Box, rows: Vec<(&str, KvValue)>) {
     clear_box_children(list_box);
     let visible = !rows.is_empty();
@@ -289,10 +218,6 @@ fn rebuild_kv_card(card: &gtk::Box, list_box: &gtk::Box, rows: Vec<(&str, KvValu
     set_card_visible(card, visible);
 }
 
-/// Rebuilds the Size & Installation card from the currently-known sizes
-/// (sync) plus whatever the async extra-info reply has added
-/// (install date, auto-installed flag) — `extra` is `None` until that
-/// reply lands.
 fn rebuild_size_install(inner: &Inner, extra: Option<&PackageExtraInfo>) {
     let mut rows = Vec::new();
     if inner.install_size.get() > 0 {
@@ -322,8 +247,6 @@ fn rebuild_size_install(inner: &Inner, extra: Option<&PackageExtraInfo>) {
     rebuild_kv_card(&inner.size_install_card, &inner.size_install_list, rows);
 }
 
-/// Rebuilds the Source card: repository / license / maintainer /
-/// homepage — whichever of them actually have values.
 fn rebuild_source(inner: &Inner, extra: Option<&PackageExtraInfo>) {
     let mut rows = Vec::new();
 
@@ -331,8 +254,6 @@ fn rebuild_source(inner: &Inner, extra: Option<&PackageExtraInfo>) {
         .and_then(|e| e.repository.as_deref())
         .filter(|r| !r.is_empty())
     {
-        // Honor the user's custom repository display name from the
-        // sidebar; re-loaded per lookup so a rename shows up immediately.
         let repo_names = crate::backend::repo_names::RepoNames::load();
         let display = repo_names.get(url).map_or_else(
             || crate::backend::repo_names::display_repo(url).to_string(),
@@ -373,8 +294,6 @@ impl DetailPane {
         widget.set_margin_top(10);
         widget.set_margin_bottom(10);
 
-        // ── Header card: icon + name/version/chips/tags/description,
-        // then primary actions, then the secondary icon-button strip ──
         let header_card = gtk::Box::new(gtk::Orientation::Vertical, 0);
         header_card.add_css_class("card");
         header_card.set_hexpand(true);
@@ -383,7 +302,6 @@ impl DetailPane {
         header_card.set_size_request(260, -1);
 
         let pkg_head = gtk::Box::new(gtk::Orientation::Horizontal, 14);
-        // Fixed generic glyph — no per-package icon data is available.
         let icon_frame = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         icon_frame.add_css_class("pkg-icon");
         icon_frame.set_halign(gtk::Align::Start);
@@ -436,7 +354,6 @@ impl DetailPane {
         pkg_head.append(&title_col);
         header_card.append(&pkg_head);
 
-        // ── Primary action row ──
         let action_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         action_row.set_margin_top(12);
         let btn_install = gtk::Button::with_label("Install");
@@ -463,8 +380,6 @@ impl DetailPane {
         action_row.append(&btn_unmark);
         header_card.append(&action_row);
 
-        // ── Secondary action strip: icon-only buttons; `.actions-secondary`
-        // draws the divider line above it ──
         let secondary_row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         secondary_row.add_css_class("actions-secondary");
         secondary_row.set_margin_top(10);
@@ -497,21 +412,14 @@ impl DetailPane {
         secondary_row.append(&btn_download);
         header_card.append(&secondary_row);
 
-        // ── The card stack: header card is an equal member, same spacing.
-        // Cards are collected into `card_order` and appended to
-        // `cards_col` below, not appended directly here. ──
-
-        // Size & Installation
         let size_install_card = card_simple("Size & Installation");
         let size_install_list = gtk::Box::new(gtk::Orientation::Vertical, 8);
         size_install_card.append(&size_install_list);
 
-        // Source
         let source_card = card_simple("Source");
         let source_list = gtk::Box::new(gtk::Orientation::Vertical, 8);
         source_card.append(&source_list);
 
-        // Dependencies
         let (deps_card, deps_pill) = card_with_pill("Dependencies");
         let deps_scroll = gtk::ScrolledWindow::new();
         deps_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
@@ -530,7 +438,6 @@ impl DetailPane {
         deps_scroll.set_child(Some(&deps_list));
         deps_card.append(&deps_scroll);
 
-        // Reverse Dependencies
         let (rdeps_card, rdeps_pill) = card_with_pill("Reverse Dependencies");
         let rdeps_scroll = gtk::ScrolledWindow::new();
         rdeps_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
@@ -549,9 +456,6 @@ impl DetailPane {
         rdeps_scroll.set_child(Some(&rdeps_list));
         rdeps_card.append(&rdeps_scroll);
 
-        // Provides & Requires — subgroups appended per-selection, see
-        // `populate_provides_conflicts`. Shlib requires can run 100+, so
-        // the body scrolls internally rather than growing unbounded.
         let provides_card = card_simple("Provides & Requires");
         let provides_scroll = gtk::ScrolledWindow::new();
         provides_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
@@ -563,7 +467,6 @@ impl DetailPane {
         provides_scroll.set_child(Some(&provides_body));
         provides_card.append(&provides_scroll);
 
-        // Files — lazy-fetched `gtk::Expander` disclosure.
         let files_card = card_simple_no_header();
         let files_pill = count_pill();
         let files_label_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
@@ -605,7 +508,6 @@ impl DetailPane {
             cards_col.append(card);
         }
 
-        // ── The card stack is the whole scrollable body. ──
         let content_scroll = gtk::ScrolledWindow::new();
         content_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
         content_scroll.set_vexpand(true);
@@ -613,7 +515,6 @@ impl DetailPane {
         content_scroll.set_halign(gtk::Align::Fill);
         content_scroll.set_child(Some(&cards_col));
 
-        // ── Empty state vs content ──
         let empty_page = gtk::Box::new(gtk::Orientation::Vertical, 10);
         empty_page.set_valign(gtk::Align::Center);
         empty_page.set_halign(gtk::Align::Center);
@@ -719,12 +620,10 @@ impl DetailPane {
         self.inner.on_mark_changed.borrow_mut().push(Box::new(f));
     }
 
-    /// pkgname, `want_hold` — fired when the user clicks the Hold icon button.
     pub fn connect_hold_requested(&self, f: impl Fn(String, bool) + 'static) {
         self.inner.on_hold_requested.borrow_mut().push(Box::new(f));
     }
 
-    /// pkgname — fired when the user clicks Reinstall.
     pub fn connect_reinstall_requested(&self, f: impl Fn(String) + 'static) {
         self.inner
             .on_reinstall_requested
@@ -732,7 +631,6 @@ impl DetailPane {
             .push(Box::new(f));
     }
 
-    /// pkgname — fired when the user clicks Reconfigure.
     pub fn connect_reconfigure_requested(&self, f: impl Fn(String) + 'static) {
         self.inner
             .on_reconfigure_requested
@@ -740,7 +638,6 @@ impl DetailPane {
             .push(Box::new(f));
     }
 
-    /// pkgname — fired when the user clicks Download Only.
     pub fn connect_download_requested(&self, f: impl Fn(String) + 'static) {
         self.inner
             .on_download_requested
@@ -748,8 +645,6 @@ impl DetailPane {
             .push(Box::new(f));
     }
 
-    /// pkgname, `want_locked` — fired when the user clicks the Repo-Lock
-    /// icon button.
     pub fn connect_repolock_requested(&self, f: impl Fn(String, bool) + 'static) {
         self.inner
             .on_repolock_requested
@@ -757,8 +652,6 @@ impl DetailPane {
             .push(Box::new(f));
     }
 
-    /// pkgname, `want_automatic` — fired when the user clicks the Mark
-    /// Manual/Auto icon button.
     pub fn connect_automatic_requested(&self, f: impl Fn(String, bool) + 'static) {
         self.inner
             .on_automatic_requested
@@ -766,8 +659,6 @@ impl DetailPane {
             .push(Box::new(f));
     }
 
-    /// pkgname — fired when a Dependencies/Reverse Dependencies row's
-    /// package name is clicked ("jump to it" in the main list).
     pub fn connect_jump_to_package(&self, f: impl Fn(String) + 'static) {
         self.inner.on_jump_to_package.borrow_mut().push(Box::new(f));
     }
@@ -805,8 +696,6 @@ fn wire_buttons(inner: &Rc<Inner>) {
     wire_remove_button(inner, &inner.btn_purge, PkgMark::Purge);
     wire_simple_mark_button(inner, &inner.btn_unmark, PkgMark::None);
 
-    // Hold/repolock/mark-automatic aren't queued marks; this pane just
-    // reports the request and lets the caller carry it out.
     {
         let btn = inner.btn_hold.clone();
         let inner = inner.clone();
@@ -853,8 +742,6 @@ fn wire_buttons(inner: &Rc<Inner>) {
     wire_action_button(inner, &inner.btn_download, |i| &i.on_download_requested);
 }
 
-/// Re-reads the currently-selected package from the store's live copy,
-/// since a caller's `Package` may be stale after a mark change elsewhere.
 fn lookup_current_pkg(inner: &Inner) -> Option<Package> {
     let name = inner.current_pkgname.borrow().clone()?;
     let list = inner.store.list();
@@ -869,8 +756,6 @@ fn lookup_current_pkg(inner: &Inner) -> Option<Package> {
     None
 }
 
-/// Shared by every secondary action button that just reports a
-/// no-argument request (Reinstall/Reconfigure/Download Only).
 fn wire_action_button(
     inner: &Rc<Inner>,
     btn: &gtk::Button,
@@ -888,9 +773,6 @@ fn wire_action_button(
     });
 }
 
-/// Shared by Upgrade/Remove/Purge/Unmark: they all just set a mark on
-/// the currently-shown package and notify listeners. (Install is
-/// separate — it needs the deps-confirm dialog first.)
 fn wire_simple_mark_button(inner: &Rc<Inner>, btn: &gtk::Button, mark: PkgMark) {
     let btn = btn.clone();
     let inner = inner.clone();
@@ -906,9 +788,6 @@ fn wire_simple_mark_button(inner: &Rc<Inner>, btn: &gtk::Button, mark: PkgMark) 
     });
 }
 
-/// Remove/Purge additionally warn first if anything else still
-/// installed depends on this package (see `remove_confirm`) — unlike
-/// Upgrade/Unmark, which can't break another package's dependencies.
 fn wire_remove_button(inner: &Rc<Inner>, btn: &gtk::Button, mark: PkgMark) {
     let btn = btn.clone();
     let inner = inner.clone();
@@ -932,8 +811,6 @@ fn wire_remove_button(inner: &Rc<Inner>, btn: &gtk::Button, mark: PkgMark) {
     });
 }
 
-/// Re-derives button visibility/state from the store's live copy of the
-/// package. If `pkg` is `Some`, it's used directly.
 fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
     let owned;
     let pkg: Option<&Package> = if pkg.is_some() {
@@ -958,8 +835,6 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
         return;
     };
 
-    // Hold/repolock/reinstall/reconfigure/download apply immediately
-    // (not queued), so visibility depends only on install state, not mark.
     let installed = pkg.state != PkgState::NotInstalled;
 
     inner.hold_overlay.set_visible(installed);
@@ -1033,8 +908,6 @@ fn clear_list(lb: &gtk::ListBox) {
     }
 }
 
-/// Fills the Dependencies/Reverse Dependencies lists with row
-/// highlighting, hover, and jump-to-package.
 fn populate_dep_list(
     lb: &gtk::ListBox,
     items: Option<Vec<String>>,
@@ -1047,10 +920,6 @@ fn populate_dep_list(
     }
 }
 
-/// Builds one Dependencies/Reverse-Dependencies row: dims the label if
-/// not installed; for names resolved in `snapshot`, stashes the name for
-/// `wire_dependency_lists` and attaches a hover tooltip. A name absent
-/// from `snapshot` (virtual package, stale data) is a plain inert row.
 fn dependency_row(name: &str, snapshot: &HashMap<String, PackageObject>) -> gtk::ListBoxRow {
     let label = gtk::Label::new(Some(name));
     label.set_xalign(0.0);
@@ -1079,11 +948,6 @@ fn dependency_row(name: &str, snapshot: &HashMap<String, PackageObject>) -> gtk:
     row
 }
 
-/// Shows `pkg`'s basic details on hover via GTK's custom-tooltip
-/// mechanism rather than a hand-rolled `Popover`: a `Popover`'s default
-/// `autohide` grabs the pointer, which can eat the click meant for
-/// `row-activated` and leaves no reliable close path across a list
-/// rebuild.
 fn wire_hover_tooltip(row: &gtk::ListBoxRow, pkg: Package) {
     row.set_has_tooltip(true);
     row.connect_query_tooltip(move |_, _x, _y, _keyboard_mode, tooltip| {
@@ -1092,8 +956,6 @@ fn wire_hover_tooltip(row: &gtk::ListBoxRow, pkg: Package) {
     });
 }
 
-/// The hover tooltip's content: state icon + name + state chip, then
-/// version/size/source.
 fn build_hover_content(pkg: &Package) -> gtk::Box {
     let vbox = gtk::Box::new(gtk::Orientation::Vertical, 4);
     vbox.set_margin_start(10);
@@ -1139,8 +1001,6 @@ fn build_hover_content(pkg: &Package) -> gtk::Box {
     vbox
 }
 
-/// Wires row-activation once per list: a click fires `on_jump_to_package`
-/// with the name `dependency_row` stashed on it, if any.
 fn wire_dependency_lists(inner: &Rc<Inner>) {
     for lb in [&inner.deps_list, &inner.rdeps_list] {
         let lb = lb.clone();
@@ -1156,9 +1016,6 @@ fn wire_dependency_lists(inner: &Rc<Inner>) {
     }
 }
 
-/// One Provides/Requires/Exports/Conflicts/Replaces subgroup: a small
-/// label + count row, then its items as wrapping tag chips. `conflict`
-/// tints the chips red-ish.
 fn build_subgroup(title: &str, items: &[String], conflict: bool) -> gtk::Box {
     let col = gtk::Box::new(gtk::Orientation::Vertical, 4);
 
@@ -1192,8 +1049,6 @@ fn build_subgroup(title: &str, items: &[String], conflict: bool) -> gtk::Box {
     col
 }
 
-/// Rebuilds the Provides & Requires card: only non-empty fields, each
-/// its own labeled subgroup. Omitted entirely if every field is empty.
 fn populate_provides_conflicts(inner: &Rc<Inner>, extra: Option<&PackageExtraInfo>) {
     for row in inner.relation_rows.borrow_mut().drain(..) {
         inner.provides_body.remove(&row);
@@ -1227,8 +1082,6 @@ fn populate_provides_conflicts(inner: &Rc<Inner>, extra: Option<&PackageExtraInf
     }
 }
 
-/// Files are only fetched when the user expands the section, not on
-/// every selection.
 fn wire_files_expander(inner: &Rc<Inner>) {
     let files_expander = inner.files_expander.clone();
     let inner = inner.clone();
@@ -1242,7 +1095,6 @@ fn wire_files_expander(inner: &Rc<Inner>) {
         let inner2 = inner.clone();
         let name_for_call = name.clone();
         inner.store.get_files_async(&name_for_call, move |files| {
-            // Guard against a stale reply overwriting a newer selection.
             if inner2.current_pkgname.borrow().as_deref() == Some(name.as_str()) {
                 populate_files(&inner2, files);
             }
@@ -1296,9 +1148,6 @@ fn clear_box_children(b: &gtk::Box) {
     }
 }
 
-/// Sets the header card's state chip(s) from `pkg`. Upgradable packages
-/// get two chips at once ("Installed" plus "Update to X"); every other
-/// state gets a single chip.
 fn set_header_chips(inner: &Inner, pkg: &Package) {
     for class in ["chip-ok", "chip-warn", "chip-err"] {
         inner.state_chip.remove_css_class(class);
@@ -1326,7 +1175,6 @@ fn set_header_chips(inner: &Inner, pkg: &Package) {
 fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
     *inner.current_pkgname.borrow_mut() = pkg.map(|p| p.name.clone());
 
-    // A new selection invalidates whatever the Files section was showing.
     inner.files_expander.set_expanded(false);
     populate_files(inner, None);
 
@@ -1337,7 +1185,6 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
     };
     inner.content_stack.set_visible_child_name("content");
 
-    // ── Header ──
     inner.name.set_text(&pkg.name);
 
     let ver = match (&pkg.version_installed, &pkg.version_available) {
@@ -1370,22 +1217,16 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
             .unwrap_or("No description available."),
     );
 
-    // ── Size & Installation (sync; async reply may correct download
-    // size and add install date / auto-installed) ──
     inner.install_size.set(pkg.install_size);
     inner.download_size.set(pkg.download_size);
     rebuild_size_install(inner, None);
 
-    // ── Source: rebuilt when the async extra-info lookup lands; until
-    // then the maintainer (known synchronously) is the only row ──
     *inner.current_maintainer.borrow_mut() = pkg.maintainer.clone();
     rebuild_source(inner, None);
     inner.current_automatic.set(None);
     inner.automark_overlay.set_visible(false);
     populate_provides_conflicts(inner, None);
 
-    // Files are fetched lazily on expand; the card only shows at all for
-    // packages that are actually on disk.
     set_card_visible(&inner.files_card, pkg.state != PkgState::NotInstalled);
 
     {
@@ -1395,7 +1236,6 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
             .store
             .clone()
             .get_extra_info_async(&pkg.name, move |extra| {
-                // Stale-reply guard.
                 if inner.current_pkgname.borrow().as_deref() != Some(name.as_str()) {
                     return;
                 }
@@ -1408,8 +1248,6 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
                 rebuild_size_install(&inner, extra.as_ref());
                 rebuild_source(&inner, extra.as_ref());
 
-                // Only a real installed pkgdb entry has this flag; the
-                // button starts hidden and appears once this reply lands.
                 let auto_flag = extra.as_ref().filter(|e| e.has_automatic_install);
                 inner.automark_overlay.set_visible(auto_flag.is_some());
                 if let Some(flag) = auto_flag {
@@ -1431,7 +1269,6 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
             });
     }
 
-    // ── Dependency cards: shown while loading, then filled or hidden ──
     set_card_visible(&inner.deps_card, true);
     set_card_visible(&inner.rdeps_card, true);
     inner.deps_placeholder.set_text("Loading\u{2026}");

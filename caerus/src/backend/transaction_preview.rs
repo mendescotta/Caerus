@@ -1,24 +1,11 @@
-//! Data model for a real, `libxbps`-computed transaction preview — the
-//! same mechanism `xbps-install -n` itself uses: call
-//! `xbps_transaction_install_pkg`/`_update_pkg`/`_remove_pkg` for every
-//! marked package, then `xbps_transaction_prepare()` and read back
-//! `xh.transd` without ever calling `xbps_transaction_commit()`.
-
-/// One requested change, mirroring `PkgMark` but is what actually gets
-/// fed to the `xbps_transaction_*` calls.
 #[derive(Debug, Clone)]
 pub enum PreviewOp {
     Install(String),
     Update(String),
     Remove(String),
-    /// Recursive removal (also drops now-orphaned deps) — same meaning as
-    /// `PURGE` in the helper's own protocol.
     Purge(String),
 }
 
-/// Mirrors `xbps_trans_type_t` in xbps.h (repr(u8) matches the
-/// `"transaction"` dictionary property's on-disk type, read via
-/// `xbps_dictionary_get_uint8`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum TransAction {
@@ -69,10 +56,6 @@ pub struct TransactionPreview {
     pub hold_pkgs: u32,
 }
 
-/// Mirrors the failure branches of `exec_transaction()` in Void's own
-/// `bin/xbps-install/transaction.c`: `xbps_transaction_prepare()`'s
-/// return value selects which array (if any) on `xh.transd` explains the
-/// failure.
 #[derive(Debug, Clone)]
 pub enum TransactionError {
     MissingDeps(Vec<String>),

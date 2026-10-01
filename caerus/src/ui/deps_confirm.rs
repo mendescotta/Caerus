@@ -1,9 +1,3 @@
-//! If a package has any not-yet-installed `run_depends` (transitively),
-//! shows a confirmation dialog transient for `parent` listing them.
-//!
-//! Asynchronous: `cb` may fire after this function returns (a real
-//! dialog was shown) or before it returns (the no-deps-missing fast path).
-
 use crate::backend::package::PkgMark;
 use crate::backend::package_store::PackageStore;
 use crate::ui::dialog_util::{cancel_button_row, modal_window, present_focused, text_list_row};
@@ -21,7 +15,6 @@ pub fn confirm_install_deps(
     let pkgname = pkgname.to_string();
     store.get_missing_deps_async(&pkgname.clone(), move |deps| {
         let Some(deps) = deps else {
-            // Nothing missing — don't interrupt the common case.
             cb(true);
             return;
         };
@@ -52,9 +45,6 @@ fn show_deps_dialog(
     heading.set_wrap(true);
     outer.append(&heading);
 
-    // propagate-natural-height + capped max-content-height: short lists
-    // size to fit, long ones get a real scrollbar instead of an
-    // unbounded window.
     let scroll = gtk::ScrolledWindow::new();
     scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
     scroll.set_propagate_natural_height(true);
@@ -105,8 +95,6 @@ fn show_deps_dialog(
         });
     }
     {
-        // Window-manager close (title-bar X) or Escape counts as Cancel,
-        // same as the button.
         let cb = cb.clone();
         dlg.connect_close_request(move |_| {
             cb(false);

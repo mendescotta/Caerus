@@ -1,7 +1,3 @@
-//! The main package table: a `gtk::ColumnView` over a filter+sort model
-//! chain, plus a checkbox column for marking several packages at once.
-//! Rust translation of `ui/package_list.{h,c}`.
-
 use crate::backend::custom_filters::{filter_hides, ActiveFilter};
 use crate::backend::package::{
     pkg_format_size, pkg_state_icon, pkg_state_tooltip, FilterMode, Package, PackageObject,
@@ -26,16 +22,8 @@ struct Inner {
     current_filter: RefCell<ActiveFilter>,
     current_search: RefCell<String>,
     search_name_only: Cell<bool>,
-    /// `None` = no repository restriction ("All Repositories").
     current_repo_filter: RefCell<Option<String>>,
-    /// Set once by `build()` right after the `MultiSelection` is
-    /// constructed — `None` only during that brief construction window.
-    /// Lets `PackageList::select_all` reach it without `build()` having
-    /// to plumb it back out through a separate return value.
     selection: RefCell<Option<gtk::MultiSelection>>,
-    /// Set once by `build()` right after the `ColumnView` is constructed
-    /// — `selection` alone (a `SelectionModel`) has no scroll capability,
-    /// needed by `select_package_by_name`'s `scroll_to`.
     column_view: RefCell<Option<gtk::ColumnView>>,
     on_package_selected: PackageSelectedCbs,
     on_marks_changed: MarksChangedCbs,
@@ -58,8 +46,6 @@ fn pkg_of(obj: &glib::Object) -> PackageObject {
     obj.clone().downcast::<PackageObject>().unwrap()
 }
 
-/// Version-column ordering: absent versions first, then xbps version
-/// comparison (so "1.10" sorts after "1.9", not before).
 fn cmp_opt_version(a: Option<&str>, b: Option<&str>) -> CmpOrdering {
     match (a, b) {
         (None, None) => CmpOrdering::Equal,
@@ -69,8 +55,6 @@ fn cmp_opt_version(a: Option<&str>, b: Option<&str>) -> CmpOrdering {
     }
 }
 
-/// Status rank: lower sorts first — broken, marked-for-action,
-/// upgradable, on-hold, installed, not-installed.
 fn pkg_sort_rank(p: &Package) -> i32 {
     if p.state == PkgState::Broken {
         return 0;
@@ -132,7 +116,7 @@ fn label_cell(item: &gtk::ListItem) {
 
 impl PackageList {
     pub fn new(store: PackageStore) -> Self {
-        let custom_filter = gtk::CustomFilter::new(|_| true); // real predicate wired in below
+        let custom_filter = gtk::CustomFilter::new(|_| true);
         let inner = Rc::new(Inner {
             widget: gtk::Box::new(gtk::Orientation::Vertical, 0),
             store,
@@ -166,17 +150,12 @@ impl PackageList {
         self.inner.on_marks_changed.borrow_mut().push(Box::new(f));
     }
 
-    /// Selects every currently-filtered row (Ctrl+A). Only affects
-    /// selection, not marks — the context menu still applies those.
     pub fn select_all(&self) {
         if let Some(selection) = self.inner.selection.borrow().as_ref() {
             selection.select_all();
         }
     }
 
-    /// Selects `pkgname` and scrolls it into view within the currently
-    /// filtered/sorted model only. Returns `false` if not present in the
-    /// current view; the caller decides whether to reset filters and retry.
     pub fn select_package_by_name(&self, pkgname: &str) -> bool {
         let (Some(selection), Some(column_view)) = (
             self.inner.selection.borrow().clone(),
@@ -198,10 +177,6 @@ impl PackageList {
         false
     }
 
-    /// Marks `pkgname` for removal via the same reverse-dependency
-    /// confirmation every other removal path uses; for callers (e.g. the
-    /// window-level Delete shortcut) without direct access to `Inner`.
-    /// No-ops if `mark_applies_to` says Remove doesn't apply.
     pub fn request_remove(&self, root: Option<gtk::Window>, pkg: &Package) {
         if mark_applies_to(pkg, PkgMark::Remove) {
             request_remove_with_confirm(
@@ -215,9 +190,6 @@ impl PackageList {
         }
     }
 
-    /// Delete-key entry point: a single selected row goes through
-    /// `request_remove`; a multi-row selection goes through
-    /// `request_bulk_remove_with_confirm` (one aggregate confirmation).
     pub fn delete_selected(&self, root: Option<gtk::Window>) {
         let pkgs = {
             let selection = self.inner.selection.borrow();
@@ -279,8 +251,6 @@ impl PackageList {
         !self.inner.current_search.borrow().is_empty()
     }
 
-    /// Whether search text, a non-"All" preset, or a repository
-    /// restriction currently narrows the visible list.
     pub fn has_active_filters(&self) -> bool {
         self.has_active_search()
             || !matches!(
@@ -290,9 +260,6 @@ impl PackageList {
             || self.inner.current_repo_filter.borrow().is_some()
     }
 
-    /// (total, installed, not-installed) among the currently visible
-    /// rows. Walks the final `MultiSelection` the column view renders
-    /// from, so this always matches exactly what's on screen.
     pub fn visible_counts(&self) -> (u32, u32, u32) {
         let mut installed = 0u32;
         let mut not_installed = 0u32;
@@ -313,8 +280,6 @@ impl PackageList {
         (total, installed, not_installed)
     }
 
-    /// Distinct, non-empty `repository` values currently in the store,
-    /// sorted, for `FilterSidebar`'s repository rows.
     pub fn available_repositories(&self) -> Vec<String> {
         let mut set = std::collections::HashSet::new();
         let n = self.inner.store.list().n_items();
@@ -334,7 +299,6 @@ impl PackageList {
 fn build(inner: Rc<Inner>) {
     inner.widget.set_vexpand(true);
 
-    // ── Filter predicate ─────────────────────────────────────────────
     {
         let inner_f = inner.clone();
         inner.custom_filter.set_filter_func(move |obj| {
@@ -381,17 +345,12 @@ fn build(inner: Rc<Inner>) {
         gtk::FilterListModel::new(Some(inner.store.list()), Some(inner.custom_filter.clone()));
     let sort_model = gtk::SortListModel::new(Some(filter_model), None::<gtk::Sorter>);
 
-    // MultiSelection (not SingleSelection) so ctrl/shift-click range
-    // selection works for the context menu's bulk marking.
     let selection = gtk::MultiSelection::new(Some(sort_model.clone()));
     *inner.selection.borrow_mut() = Some(selection.clone());
 
     {
         let inner_s = inner.clone();
         selection.connect_selection_changed(move |model, _pos, _n| {
-            // Fires a package only when exactly one row is selected (0
-            // or 2+ both report None); bulk actions read the selection
-            // directly instead (see `selected_packages`).
             let bitset = model.selection();
             let pkg = if bitset.size() == 1 {
                 model
@@ -412,11 +371,6 @@ fn build(inner: Rc<Inner>) {
     column_view.set_show_column_separators(true);
     column_view.set_vexpand(true);
 
-    // ── Checkbox column ──────────────────────────────────────────────
-    // A recycled `ListItem`'s `.item()` always reflects whichever
-    // `PackageObject` is currently bound to it, so capturing the
-    // `ListItem` in `setup` and reading `.item()` fresh in the "toggled"
-    // handler always resolves the correct currently-bound package.
     {
         let store = inner.store.clone();
         let on_marks_changed = inner.clone();
@@ -439,8 +393,6 @@ fn build(inner: Rc<Inner>) {
                     };
                     on_checkbox_toggled(cb, &obj, &store, &on_marks_changed);
                 });
-                // SAFETY: standard glib idiom for stashing per-widget
-                // state the `bind` closure below needs to retrieve.
                 unsafe {
                     cb.set_data("toggle-handler-id", handler_id);
                 }
@@ -457,14 +409,11 @@ fn build(inner: Rc<Inner>) {
                 };
                 let p = obj.pkg();
 
-                // Mirrors `on_checkbox_toggled`'s branching. Essential
-                // only blocks the Remove case, never unchecking a mark.
                 let would_remove = p.mark == PkgMark::None
                     && p.state != PkgState::Upgradable
                     && p.state != PkgState::NotInstalled;
                 let blocked = p.essential && would_remove;
 
-                // Block signal so this rebind doesn't itself fire "toggled".
                 let handler_id = unsafe { cb.data::<glib::SignalHandlerId>("toggle-handler-id") };
                 if let Some(id) = handler_id {
                     let id_ref = unsafe { id.as_ref() };
@@ -485,7 +434,6 @@ fn build(inner: Rc<Inner>) {
         column_view.append_column(&col_check);
     }
 
-    // ── Status icon column ───────────────────────────────────────────
     let col_status = make_col(
         "",
         28,
@@ -520,10 +468,6 @@ fn build(inner: Rc<Inner>) {
     });
     column_view.append_column(&col_status);
 
-    // ── Package name column ──────────────────────────────────────────
-    // Also carries a right-click context menu; same identity-by-
-    // `item.item()` trick as the checkbox column so it acts on
-    // whichever package is currently bound to the row.
     let col_name = make_col(
         "Package",
         200,
@@ -548,8 +492,6 @@ fn build(inner: Rc<Inner>) {
                         return;
                     }
                     let pos = li.position();
-                    // Right-click on a row already in a multi-selection
-                    // acts on the whole selection; otherwise replaces it.
                     if !selection.is_selected(pos) || selection.selection().size() <= 1 {
                         selection.select_item(pos, true);
                     }
@@ -582,7 +524,6 @@ fn build(inner: Rc<Inner>) {
     });
     column_view.append_column(&col_name);
 
-    // ── Description column ───────────────────────────────────────────
     let col_desc = make_col(
         "Description",
         320,
@@ -613,7 +554,6 @@ fn build(inner: Rc<Inner>) {
     });
     column_view.append_column(&col_desc);
 
-    // ── Installed version column ─────────────────────────────────────
     let col_inst = make_col("Installed", 110, true, false, label_cell, |item| {
         let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
             return;
@@ -639,7 +579,6 @@ fn build(inner: Rc<Inner>) {
     });
     column_view.append_column(&col_inst);
 
-    // ── Available version column ──────────────────────────────────────
     let col_avail = make_col("Available", 110, true, false, label_cell, |item| {
         let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
             return;
@@ -664,7 +603,6 @@ fn build(inner: Rc<Inner>) {
     });
     column_view.append_column(&col_avail);
 
-    // ── Sizes ──────────────────────────────────────────────────────────
     let col_isize = make_col("Installed Size", 110, true, false, label_cell, |item| {
         let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
             return;
@@ -701,14 +639,10 @@ fn build(inner: Rc<Inner>) {
     set_column_sorter(&col_dsize, |a, b| a.download_size.cmp(&b.download_size));
     column_view.append_column(&col_dsize);
 
-    // Hands the column view's combined sorter to the model — this is
-    // what makes clicking a header actually sort the list.
     sort_model.set_sorter(column_view.sorter().as_ref());
 
     column_view.sort_by_column(Some(&col_name), gtk::SortType::Ascending);
 
-    // Double-click (or Enter) toggles the mark, same as the checkbox
-    // column / context menu.
     {
         let inner = inner.clone();
         let selection = selection;
@@ -727,10 +661,6 @@ fn build(inner: Rc<Inner>) {
     scroll.set_child(Some(&column_view));
     inner.widget.append(&scroll);
 
-    // GTK's ColumnView auto-scrolls to keep the selected row in view on
-    // any resort, even a plain header-click resort. Work around it by
-    // snapshotting the scroll position before the reorder and
-    // reasserting it on the next main-loop iteration.
     if let Some(sorter) = column_view.sorter() {
         let vadj = scroll.vadjustment();
         sorter.connect_changed(move |_, _| {
@@ -743,9 +673,6 @@ fn build(inner: Rc<Inner>) {
     }
 }
 
-/// Double-click (or Enter) shortcut: clears an existing mark, or applies
-/// the obvious one for the package's current state (Install, Upgrade,
-/// or Remove unless essential).
 fn toggle_mark(
     root: Option<gtk::Window>,
     store: &PackageStore,
@@ -768,11 +695,10 @@ fn toggle_mark(
         _ if !essential => {
             request_remove_with_confirm(root, store, inner, &name, PkgMark::Remove, |_| {});
         }
-        _ => {} // essential and already installed: no quick action
+        _ => {}
     }
 }
 
-/// Sets `mark` on `pkgname` and fires every `on_marks_changed` listener.
 fn set_mark_and_notify(store: &PackageStore, inner: &Rc<Inner>, pkgname: &str, mark: PkgMark) {
     store.set_mark(pkgname, mark);
     for f in inner.on_marks_changed.borrow().iter() {
@@ -780,9 +706,6 @@ fn set_mark_and_notify(store: &PackageStore, inner: &Rc<Inner>, pkgname: &str, m
     }
 }
 
-/// Marking a not-yet-installed package for install first confirms
-/// dragged-in dependencies (see `deps_confirm`). `on_result` fires with
-/// whether the mark was actually applied.
 fn request_install_with_confirm(
     root: Option<gtk::Window>,
     store: &PackageStore,
@@ -802,9 +725,6 @@ fn request_install_with_confirm(
     });
 }
 
-/// Marking an installed package for Remove/Purge first confirms reverse-
-/// dependency impact (see `remove_confirm`). Same shape as
-/// `request_install_with_confirm`.
 fn request_remove_with_confirm(
     root: Option<gtk::Window>,
     store: &PackageStore,
@@ -830,9 +750,6 @@ fn request_remove_with_confirm(
     );
 }
 
-/// Whether `mark` is a meaningful action to offer for `pkg` right now.
-/// Shared between menu-label counting and actually applying a bulk mark
-/// so the two stay in sync.
 pub fn mark_applies_to(pkg: &Package, mark: PkgMark) -> bool {
     match mark {
         PkgMark::Install => pkg.state == PkgState::NotInstalled && pkg.mark == PkgMark::None,
@@ -844,9 +761,6 @@ pub fn mark_applies_to(pkg: &Package, mark: PkgMark) -> bool {
     }
 }
 
-/// (button label, target mark) for a right-clicked selection. One entry
-/// per mark that applies to at least one package in `pkgs`, with a
-/// count in the label once more than one package is selected.
 fn context_menu_items(pkgs: &[Package]) -> Vec<(String, PkgMark)> {
     let multi = pkgs.len() > 1;
     let mut items = Vec::new();
@@ -878,10 +792,6 @@ fn context_menu_items(pkgs: &[Package]) -> Vec<(String, PkgMark)> {
     items
 }
 
-/// Multi-row counterpart to `request_remove_with_confirm`: one aggregate
-/// reverse-dependency confirmation for the whole batch, then
-/// `apply_bulk_mark` if the user proceeds. The only bulk-mark path with
-/// a confirmation step.
 fn request_bulk_remove_with_confirm(
     root: Option<gtk::Window>,
     store: &PackageStore,
@@ -913,10 +823,6 @@ fn request_bulk_remove_with_confirm(
     );
 }
 
-/// Applies `mark` to every package in `pkgs` it's applicable to (see
-/// `mark_applies_to`) and fires `on_marks_changed` once. Doesn't confirm
-/// anything itself — Remove/Purge go through
-/// `request_bulk_remove_with_confirm` first instead.
 fn apply_bulk_mark(store: &PackageStore, inner: &Rc<Inner>, pkgs: &[Package], mark: PkgMark) {
     let names: std::collections::HashSet<String> = pkgs
         .iter()
@@ -929,7 +835,6 @@ fn apply_bulk_mark(store: &PackageStore, inner: &Rc<Inner>, pkgs: &[Package], ma
     }
 }
 
-/// Every currently-selected package, in no particular order.
 fn selected_packages(selection: &gtk::MultiSelection) -> Vec<Package> {
     let n = selection.n_items();
     let mut out = Vec::new();
@@ -943,9 +848,6 @@ fn selected_packages(selection: &gtk::MultiSelection) -> Vec<Package> {
     out
 }
 
-/// Builds and pops up a right-click menu at `(x, y)` within `widget`. A
-/// fresh `gtk::Popover` per invocation keeps this stateless between
-/// rows; `connect_closed` unparents it so it doesn't linger.
 fn show_context_menu(
     widget: &gtk::Widget,
     x: f64,
@@ -1029,9 +931,6 @@ fn show_context_menu(
     popover.popup();
 }
 
-/// Unchecks `cb` without re-firing "toggled" — but only if it's still
-/// showing `expected_name` (list virtualization may have rebound this
-/// widget to a different row while the async confirmation was open).
 fn revert_checkbox_if_still_bound(
     obj_weak: &glib::object::WeakRef<PackageObject>,
     cb_weak: &glib::object::WeakRef<gtk::CheckButton>,
@@ -1075,8 +974,6 @@ fn on_checkbox_toggled(
         return;
     }
 
-    // Both remaining cases go through an async confirmation first and
-    // revert the checkbox on cancel.
     let root = cb.root().and_downcast::<gtk::Window>();
     let obj_weak = glib::object::ObjectExt::downgrade(obj);
     let cb_weak = glib::object::ObjectExt::downgrade(cb);
@@ -1140,7 +1037,6 @@ mod tests {
                 &pkg("a", PkgState::Installed, PkgMark::None, false),
                 mark
             ));
-            // Every installed-ish state qualifies, not just Installed.
             for state in [PkgState::Upgradable, PkgState::OnHold, PkgState::Broken] {
                 assert!(mark_applies_to(
                     &pkg("a", state, PkgMark::None, false),
@@ -1152,11 +1048,11 @@ mod tests {
                 mark
             ));
             assert!(!mark_applies_to(
-                &pkg("a", PkgState::Installed, PkgMark::None, true), // essential
+                &pkg("a", PkgState::Installed, PkgMark::None, true),
                 mark
             ));
             assert!(!mark_applies_to(
-                &pkg("a", PkgState::Installed, PkgMark::Remove, false), // already marked
+                &pkg("a", PkgState::Installed, PkgMark::Remove, false),
                 mark
             ));
         }
@@ -1178,7 +1074,6 @@ mod tests {
     fn single_selection_menu_uses_singular_labels() {
         let items = context_menu_items(&[pkg("a", PkgState::Installed, PkgMark::None, false)]);
         let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
-        // An unmarked installed package offers removal/purge, nothing else.
         assert_eq!(labels, ["Mark for Removal", "Mark for Purge"]);
     }
 
@@ -1191,8 +1086,6 @@ mod tests {
         ];
         let items = context_menu_items(&sel);
         let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
-        // Counts are per-mark; a mark applying to a single package still
-        // gets the counted wording because the *selection* is multi.
         assert_eq!(
             labels,
             [
@@ -1205,11 +1098,9 @@ mod tests {
 
     #[test]
     fn menu_omits_marks_that_apply_to_nothing() {
-        // Essential-only selection: no removal offered at all.
         let items = context_menu_items(&[pkg("a", PkgState::Installed, PkgMark::None, true)]);
         assert!(items.is_empty());
 
-        // Marked-only selection: unmark is the only entry.
         let items = context_menu_items(&[
             pkg("a", PkgState::Installed, PkgMark::Remove, false),
             pkg("b", PkgState::NotInstalled, PkgMark::Install, false),

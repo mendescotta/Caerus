@@ -1,10 +1,3 @@
-//! Persists a one-line-per-batch record of every privileged command
-//! batch caerus has run, so past actions are visible outside the
-//! ephemeral apply dialog. Not a log of every raw `LOG` line — one row
-//! per batch keeps it small and scannable.
-//!
-//! Out of scope: rollback. This module only records what happened.
-
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -23,10 +16,6 @@ fn data_file_path() -> Option<PathBuf> {
     Some(data_home.join("caerus").join("history.log"))
 }
 
-/// Appends one tab-separated record: `local-timestamp\tjoined-commands\tOK|ERROR`.
-/// `commands` are the raw protocol lines (e.g. `"INSTALL foo bar"`,
-/// `"REMOVE baz"`) that made up this batch — joined with " | " for
-/// display, since a single Apply can carry several.
 pub fn record(commands: &[String], success: bool) {
     if commands.is_empty() {
         return;
@@ -54,7 +43,6 @@ pub fn record(commands: &[String], success: bool) {
     }
 }
 
-/// Parses the history file back, newest first.
 pub fn load() -> Vec<HistoryEntry> {
     let Some(path) = data_file_path() else {
         return Vec::new();
@@ -80,8 +68,6 @@ pub fn load() -> Vec<HistoryEntry> {
     out
 }
 
-/// Local wall-clock time, human-readable — shown verbatim in the
-/// Transaction History dialog.
 fn now_local() -> String {
     glib::DateTime::now_local()
         .ok()

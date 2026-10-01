@@ -1,8 +1,3 @@
-//! Plain data model for a single xbps package, plus the `PackageObject`
-//! `GObject` wrapper needed to put `Package` values into a `gio::ListStore`
-//! (GTK4's list widgets — `gtk::ColumnView` here — only work with
-//! `glib::Object`-derived items).
-
 use glib::subclass::prelude::*;
 use std::cell::RefCell;
 
@@ -26,8 +21,6 @@ pub enum PkgMark {
     Purge,
 }
 
-/// Row index in the filter sidebar's preset list maps directly onto
-/// this enum's discriminant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum FilterMode {
@@ -58,9 +51,6 @@ impl FilterMode {
     }
 }
 
-/// Void's fixed convention for a srcpkgs template with nobody assigned
-/// to maintain it — distinct from `Package::is_orphan` (an *installed*
-/// package nothing depends on anymore).
 pub const ORPHANED_MAINTAINER: &str = "Orphaned <orphan@voidlinux.org>";
 
 #[derive(Debug, Clone, Default)]
@@ -70,35 +60,19 @@ pub struct Package {
     pub version_available: Option<String>,
     pub short_desc: String,
     pub long_desc: Option<String>,
-    /// xbps "tags" property, joined with ", " if it was an array.
     pub tags: String,
     pub maintainer: String,
     pub install_size: u64,
     pub download_size: u64,
-    /// The repository this package's data came from — the source
-    /// repo's URI for anything found in `xbps_rpool_foreach`, or the
-    /// pkgdb's own recorded "repository" property (which takes
-    /// precedence, since it's what an installed package actually came
-    /// from) for installed packages. `None` for local/orphan pkgdb
-    /// entries not backed by any configured repo.
     pub repository: Option<String>,
     pub state: PkgState,
     pub mark: PkgMark,
     pub essential: bool,
-    /// xbps "architecture" property (e.g. "`x86_64`", "noarch").
     pub arch: Option<String>,
-    /// Computed once per reload via `xbps_find_pkg_orphans` — true if
-    /// this package is installed but nothing else depends on it anymore.
     pub is_orphan: bool,
-    /// xbps "repolock" property (installed packages only) — true if this
-    /// package is pinned to only ever upgrade from the repository it was
-    /// originally installed from. Set via `xbps-pkgdb -m repolock`.
     pub is_repolocked: bool,
 }
 
-/// On-demand metadata not loaded during the bulk scan.
-/// `install_date`/`automatic_install` are only ever populated for
-/// installed packages.
 #[derive(Debug, Clone, Default)]
 pub struct PackageExtraInfo {
     pub homepage: Option<String>,
@@ -108,15 +82,10 @@ pub struct PackageExtraInfo {
     pub automatic_install: bool,
     pub has_automatic_install: bool,
     pub download_size: u64,
-    /// Virtual packages/symlinked commands this package provides.
     pub provides: Vec<String>,
-    /// Other packages this package can't be installed alongside.
     pub conflicts: Vec<String>,
-    /// Other packages this package supersedes/replaces.
     pub replaces: Vec<String>,
-    /// Shared library sonames this package needs at runtime.
     pub shlib_requires: Vec<String>,
-    /// Shared library sonames this package makes available to others.
     pub shlib_provides: Vec<String>,
 }
 
@@ -170,11 +139,6 @@ pub fn pkg_format_size(bytes: u64) -> String {
     }
 }
 
-// ── GObject wrapper ─────────────────────────────────────────────────
-// A thin `glib::Object` subclass holding one `Package` in a `RefCell`.
-// gio::ListStore requires items to be GObjects, so every `Package` gets
-// wrapped in one of these before going into the store.
-
 mod imp {
     use super::*;
 
@@ -203,8 +167,6 @@ impl PackageObject {
         obj
     }
 
-    /// Borrow the underlying `Package`. Cheap (`RefCell::borrow`); do
-    /// not hold across a call that might re-borrow it mutably.
     pub fn pkg(&self) -> std::cell::Ref<'_, Package> {
         self.imp().pkg.borrow()
     }

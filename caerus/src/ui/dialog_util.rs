@@ -1,16 +1,5 @@
-//! Shared scaffolding for the project's small modal utility windows:
-//! title/transient-for/modal/margins boilerplate, the selectable-text
-//! list row shape, and the present-then-focus workaround.
-
 use gtk::prelude::*;
 
-/// Builds a modal window's outer chrome — title, optional transient
-/// parent, resizability, default size, and an outer vertical `Box` with
-/// the 16px margins every dialog in this project uses.
-///
-/// Also wires Escape to close the window via `close-request`, so a
-/// caller that already overrides that signal (e.g. to block closing
-/// mid-batch, or treat Escape as Cancel) keeps that behavior unchanged.
 pub fn modal_window(
     title: &str,
     parent: Option<&gtk::Window>,
@@ -53,9 +42,6 @@ pub fn modal_window(
     (dlg, outer)
 }
 
-/// A single selectable-text row for a `gtk::ListBox`. `wrap` is only
-/// needed for content that can run long on one line (file paths, query
-/// results).
 pub fn text_list_row(text: &str, wrap: bool) -> gtk::ListBoxRow {
     let l = gtk::Label::new(Some(text));
     l.set_xalign(0.0);
@@ -69,8 +55,6 @@ pub fn text_list_row(text: &str, wrap: bool) -> gtk::ListBoxRow {
     row
 }
 
-/// Builds a right-aligned "Close" button, appends it to `outer`, and
-/// wires it to destroy `dlg`.
 pub fn close_button(outer: &gtk::Box, dlg: &gtk::Window, margin_top: i32) -> gtk::Button {
     let close_btn = gtk::Button::with_label("Close");
     close_btn.set_halign(gtk::Align::End);
@@ -81,9 +65,6 @@ pub fn close_button(outer: &gtk::Box, dlg: &gtk::Window, margin_top: i32) -> gtk
     close_btn
 }
 
-/// Builds a right-aligned button row starting with a `Cancel` button.
-/// Doesn't append the row to `outer` or wire `Cancel`'s click — callers
-/// append their own primary button(s) first and decide what cancel does.
 pub fn cancel_button_row(margin_top: i32) -> (gtk::Box, gtk::Button) {
     let btn_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     btn_box.set_halign(gtk::Align::End);
@@ -93,8 +74,6 @@ pub fn cancel_button_row(margin_top: i32) -> (gtk::Box, gtk::Button) {
     (btn_box, cancel_btn)
 }
 
-/// A count pill for section headers/expanders/buttons. Starts hidden
-/// until a count is known.
 pub fn count_pill() -> gtk::Label {
     let l = gtk::Label::new(None);
     l.add_css_class("count-pill");
@@ -103,8 +82,6 @@ pub fn count_pill() -> gtk::Label {
     l
 }
 
-/// Updates a pill built by [`count_pill`]: `None` hides it (nothing to
-/// show), `Some(n)` sets its text and makes it visible.
 pub fn set_count(pill: &gtk::Label, count: Option<usize>) {
     match count {
         Some(n) => {
@@ -115,21 +92,11 @@ pub fn set_count(pill: &gtk::Label, count: Option<usize>) {
     }
 }
 
-/// Presents `dlg` and immediately moves keyboard focus to `widget`.
-///
-/// Without this, GTK hands initial focus to the first focusable widget
-/// (often a selectable-text list row), which then looks pre-selected the
-/// instant the dialog opens.
 pub fn present_focused(dlg: &gtk::Window, widget: &impl IsA<gtk::Widget>) {
     dlg.present();
     widget.grab_focus();
 }
 
-/// Downcasts a `gtk::ListItem`'s child to `T`, logging the call site and
-/// returning `None` if a `connect_setup`/`connect_bind` factory callback
-/// is ever handed an unexpected widget type — should never happen (the
-/// factory always builds/binds the same widget tree), but a clear log
-/// line beats a silent no-op if it ever does.
 #[track_caller]
 pub fn expect_item_child<T: IsA<gtk::Widget>>(item: &gtk::ListItem) -> Option<T> {
     let child = item.child().and_downcast::<T>();
@@ -143,9 +110,6 @@ pub fn expect_item_child<T: IsA<gtk::Widget>>(item: &gtk::ListItem) -> Option<T>
     child
 }
 
-/// Runs `cmd.output()` on a background thread and hands the result to
-/// `on_done` back on the GTK main thread, for read-only one-shot
-/// subprocess queries that would otherwise block the main thread.
 pub fn run_command_async(
     mut cmd: std::process::Command,
     on_done: impl FnOnce(Result<std::process::Output, String>) + 'static,
@@ -165,8 +129,6 @@ pub fn run_command_async(
                 glib::ControlFlow::Break
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-            // Sender dropped without sending — thread panicked; nothing
-            // to deliver.
             Err(std::sync::mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
         }
     });

@@ -1,18 +1,3 @@
-//! `PackageStore` — loads the full package list (repository + installed)
-//! via direct `libxbps` calls and exposes it as a `gio::ListStore`.
-//!
-//! Exactly one dedicated OS thread (`worker_main` below) ever touches
-//! `libxbps` or holds an `xbps_handle`, for the entire process lifetime;
-//! everything else talks to it via an `mpsc::Sender<Cmd>`. `libxbps`
-//! does not tolerate concurrent/re-entrant `xbps_init`/`xbps_end` calls,
-//! so this single-thread-owns-the-handle design is load-bearing, not
-//! just a style choice.
-//!
-//! `load_async()` is fire-and-forget, polled off a small main-loop
-//! timer; the per-package detail getters (`get_deps` etc.) also poll a
-//! reply channel rather than blocking, so a slow worker never freezes
-//! the UI thread.
-
 use crate::backend::package::{Package, PackageExtraInfo, PackageObject, PkgMark, PkgState};
 use crate::backend::transaction_preview::{
     PreviewOp, TransAction, TransactionError, TransactionPreview, TransactionPreviewItem,
@@ -26,8 +11,6 @@ use std::rc::Rc;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
-
-// ── Messages to/from the worker thread ─────────────────────────────
 
 enum LoadResult {
     Ok(Vec<Package>),
@@ -53,8 +36,6 @@ enum Cmd {
     Shutdown,
 }
 
-/// Downcasts `list.item(i)` to a `PackageObject`, logging and returning
-/// `None` if the item is missing or of the wrong type.
 pub fn package_obj_at(list: &gio::ListStore, i: u32) -> Option<PackageObject> {
     let obj = list.item(i)?;
     let Ok(po) = obj.downcast::<PackageObject>() else {
@@ -64,9 +45,6 @@ pub fn package_obj_at(list: &gio::ListStore, i: u32) -> Option<PackageObject> {
     Some(po)
 }
 
-/// Whether a carried-over mark still makes sense given the package's
-/// freshly-reloaded state (e.g. a stale `Remove` mark on a package
-/// that's no longer installed).
 fn mark_is_valid_for_state(mark: PkgMark, state: PkgState) -> bool {
     match mark {
         PkgMark::None => true,
@@ -78,8 +56,6 @@ fn mark_is_valid_for_state(mark: PkgMark, state: PkgState) -> bool {
         ),
     }
 }
-
-// ── Public, GTK-side handle ─────────────────────────────────────────
 
 type LoadStartedCbs = RefCell<Vec<Box<dyn Fn()>>>;
 type LoadFinishedCbs = RefCell<Vec<Box<dyn Fn(u32)>>>;
@@ -101,7 +77,6 @@ impl Drop for Inner {
     }
 }
 
-/// Cheaply-`Clone`able handle (an `Rc` around the shared state).
 #[derive(Clone)]
 pub struct PackageStore {
     inner: Rc<Inner>,
@@ -128,8 +103,6 @@ impl PackageStore {
             on_load_error: RefCell::new(Vec::new()),
         });
 
-        // Only plain `Send` data crosses the thread boundary; it's applied
-        // to the `gio::ListStore` exclusively from this main-thread closure.
         {
             let inner_weak = Rc::downgrade(&inner);
             glib::source::timeout_add_local(Duration::from_millis(30), move || {
@@ -142,8 +115,6 @@ impl PackageStore {
                         LoadResult::Ok(packages) => {
                             let n = packages.len() as u32;
 
-                            // Carry pending marks over by pkgname so a reload
-                            // doesn't silently drop them.
                             let mut old_marks: HashMap<String, PkgMark> = HashMap::new();
                             let old_n = inner.list.n_items();
                             for i in 0..old_n {
@@ -201,8 +172,6 @@ impl PackageStore {
         self.inner.on_load_error.borrow_mut().push(Box::new(f));
     }
 
-    /// Kicks off a background reload; a request while one is already in
-    /// flight is dropped, since that load will deliver current data anyway.
     pub fn load_async(&self) {
         if self.inner.loading.get() {
             return;
@@ -223,8 +192,6 @@ impl PackageStore {
         }
     }
 
-    /// Counts every installed package (any state but `NotInstalled`).
-    /// Must match `PackageList::visible_counts`'s definition.
     pub fn count_installed(&self) -> u32 {
         let mut c = 0;
         self.for_each(|o| {
@@ -243,7 +210,6 @@ impl PackageStore {
         });
         c
     }
-    /// Current (state, mark) for a single package by name, if present.
     pub fn state_and_mark(&self, pkgname: &str) -> Option<(PkgState, PkgMark)> {
         let mut out = None;
         self.for_each(|o| {
@@ -255,8 +221,6 @@ impl PackageStore {
         out
     }
 
-    /// (state, mark) for every package, keyed by name — bulk counterpart
-    /// to `state_and_mark`, one scan instead of one per name.
     pub fn state_and_mark_snapshot(&self) -> HashMap<String, (PkgState, PkgMark)> {
         let mut out = HashMap::new();
         self.for_each(|o| {
@@ -266,8 +230,6 @@ impl PackageStore {
         out
     }
 
-    /// Live `PackageObject` handles for every package, keyed by name.
-    /// Cloning a `PackageObject` is a cheap ref-count bump, not a deep copy.
     pub fn snapshot_objects(&self) -> HashMap<String, PackageObject> {
         let mut out = HashMap::new();
         self.for_each(|o| {
@@ -276,8 +238,6 @@ impl PackageStore {
         out
     }
 
-    /// Names of every package currently `Upgradable`, regardless of mark —
-    /// local approximation of what `xbps-install -Su` would touch.
     pub fn upgradable_names(&self) -> Vec<String> {
         let mut out = Vec::new();
         self.for_each(|o| {
@@ -297,17 +257,11 @@ impl PackageStore {
         c
     }
 
-    /// A name with no matching store entry can be a virtual/`provides`-based
-    /// dependency (e.g. "awk") rather than a real package; logs instead of
-    /// silently no-oping so that case is distinguishable from a real bug.
     pub fn set_mark(&self, pkgname: &str, mark: PkgMark) {
         let n = self.inner.list.n_items();
         for i in 0..n {
             if let Some(obj_ref) = package_obj_at(&self.inner.list, i) {
                 if obj_ref.name() == pkgname {
-                    // GtkColumnView's model chain compares item(i) pointer
-                    // identity to decide whether to rebind a row, so an
-                    // in-place mutation wouldn't trigger a visible refresh.
                     let mut pkg = obj_ref.pkg().clone();
                     pkg.mark = mark;
                     self.inner.list.splice(i, 1, &[PackageObject::new(pkg)]);
@@ -321,8 +275,6 @@ impl PackageStore {
         );
     }
 
-    /// Same effect as `set_mark` per name in `pkgnames`, but one pass
-    /// over the list instead of one scan per name.
     pub fn set_marks(&self, pkgnames: &std::collections::HashSet<String>, mark: PkgMark) {
         if pkgnames.is_empty() {
             return;
@@ -362,14 +314,6 @@ impl PackageStore {
         }
     }
 
-    // ── Asynchronous per-package detail queries ─────────────────────
-    // Each query polls its reply channel from a main-loop timeout instead
-    // of blocking, since it shares the worker's strictly-sequential
-    // channel with `Cmd::Reload`.
-
-    /// Sends `cmd` to the worker and polls for the reply on the GTK main
-    /// loop, invoking `on_reply` exactly once — with `None` if the worker
-    /// thread is gone.
     fn request<T: Send + 'static>(
         &self,
         make_cmd: impl FnOnce(mpsc::Sender<T>) -> Cmd,
@@ -422,10 +366,6 @@ impl PackageStore {
         self.request(|tx| Cmd::GetExtraInfo(name, tx), move |r| f(r.flatten()));
     }
 
-    /// Resolves `pkgname`'s full `run_depends` closure (transitive,
-    /// cycle-safe) and reports the subset not currently installed. Builds
-    /// a name -> `PkgState` snapshot first so the worker thread never
-    /// touches GTK objects.
     pub fn get_missing_deps_async(
         &self,
         pkgname: &str,
@@ -443,10 +383,6 @@ impl PackageStore {
         );
     }
 
-    /// Full transitive closure of `pkgname`'s reverse dependencies. Each
-    /// entry is `(affected_pkgname, direct_parent_that_pulled_it_in)` so
-    /// the UI can show why a transitively-reached package is affected.
-    /// Single-root wrapper over `get_rdeps_transitive_many_async`.
     pub fn get_rdeps_transitive_async(
         &self,
         pkgname: &str,
@@ -455,10 +391,6 @@ impl PackageStore {
         self.get_rdeps_transitive_many_async(vec![pkgname.to_string()], f);
     }
 
-    /// Multi-root version of `get_rdeps_transitive_async`: every
-    /// currently-installed package that would break if all of `pkgnames`
-    /// were removed together, in one BFS. Roots are seeded into the
-    /// visited set together so a root never self-reports as affected.
     pub fn get_rdeps_transitive_many_async(
         &self,
         pkgnames: Vec<String>,
@@ -470,9 +402,6 @@ impl PackageStore {
         );
     }
 
-    /// Runs a real `libxbps` dry-run (`xbps_transaction_prepare()`
-    /// without `xbps_transaction_commit()`) so nothing on disk changes.
-    /// `f` receives `None` only if the worker thread is unreachable.
     pub fn preview_transaction_async(
         &self,
         ops: Vec<PreviewOp>,
@@ -482,23 +411,13 @@ impl PackageStore {
     }
 }
 
-/// Compares two xbps version strings with `libxbps`'s own comparator
-/// (plain string ordering gets e.g. "1.10" vs "1.9" backwards).
-/// `xbps_cmpver` takes no `xbps_handle`, so calling it from the main
-/// thread doesn't violate the one-thread-owns-the-handle invariant.
 pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
     let ca = cstr(a);
     let cb = cstr(b);
     unsafe { xbps_sys::xbps_cmpver(ca.as_ptr(), cb.as_ptr()) }.cmp(&0)
 }
 
-// ── Worker thread ────────────────────────────────────────────────────
-// Everything below runs exclusively on the dedicated xbps worker thread;
-// `xh` never leaves this function's stack frame.
-
 fn worker_main(cmd_rx: mpsc::Receiver<Cmd>, result_tx: mpsc::Sender<LoadResult>) {
-    // SAFETY: zero-init is a valid starting bit-pattern for this
-    // plain-data C struct, required before the first `xbps_init`.
     let mut xh: xbps_sys::xbps_handle = unsafe { std::mem::zeroed() };
     let mut inited = false;
 
@@ -539,7 +458,6 @@ fn worker_main(cmd_rx: mpsc::Receiver<Cmd>, result_tx: mpsc::Sender<LoadResult>)
 }
 
 fn cstr(s: &str) -> CString {
-    // Falls back to empty rather than panicking on a stray NUL byte.
     CString::new(s).unwrap_or_default()
 }
 
@@ -561,8 +479,6 @@ unsafe fn dict_str(d: xbps_sys::xbps_dictionary_t, key: &str) -> Option<String> 
     }
 }
 
-/// Some xbps properties (e.g. "tags") may be stored as either a single
-/// string or an array of strings depending on package metadata version.
 unsafe fn dict_str_or_array_joined(d: xbps_sys::xbps_dictionary_t, key: &str) -> Option<String> {
     if d.is_null() {
         return None;
@@ -595,7 +511,6 @@ unsafe fn dict_str_or_array_joined(d: xbps_sys::xbps_dictionary_t, key: &str) ->
     }
 }
 
-/// Version string is pkgver with "pkgname-" prefix stripped.
 fn extract_version<'a>(pkgver: &'a str, pkgname: &str) -> &'a str {
     if let Some(rest) = pkgver.strip_prefix(pkgname) {
         if let Some(ver) = rest.strip_prefix('-') {
@@ -605,14 +520,6 @@ fn extract_version<'a>(pkgver: &'a str, pkgname: &str) -> &'a str {
     pkgver
 }
 
-/// Callback for `xbps_rpool_foreach`. `arg` points to a
-/// `HashMap<String, Package>` on `do_reload`'s stack; safe since the
-/// call is synchronous and single-threaded.
-///
-/// Must use `xbps_dictionary_all_keys()` + `xbps_dictionary_keysym_cstring_nocopy`
-/// to enumerate — `xbps_dictionary_iterator()` doesn't reliably enumerate
-/// on the target libxbps build, and `xbps_string_cstring_nocopy` on a
-/// keysym silently returns NULL.
 unsafe extern "C" fn rpool_repo_cb(
     repo: *mut xbps_sys::xbps_repo,
     arg: *mut c_void,
@@ -662,7 +569,6 @@ unsafe extern "C" fn rpool_repo_cb(
         let pkgver = dict_str(pkgd, "pkgver");
         let short_desc = dict_str(pkgd, "short_desc").unwrap_or_default();
         let maintainer = dict_str(pkgd, "maintainer").unwrap_or_default();
-        // Property is "tags", not "categories"; may be string-or-array.
         let tags = dict_str_or_array_joined(pkgd, "tags").unwrap_or_default();
         let arch = dict_str(pkgd, "architecture");
 
@@ -672,7 +578,6 @@ unsafe extern "C" fn rpool_repo_cb(
 
         let mut isize_: u64 = 0;
         xbps_sys::xbps_dictionary_get_uint64(pkgd, cstr("installed_size").as_ptr(), &mut isize_);
-        // Download size is stored as "filename-size", not "download_size".
         let mut dsize: u64 = 0;
         xbps_sys::xbps_dictionary_get_uint64(pkgd, cstr("filename-size").as_ptr(), &mut dsize);
 
@@ -705,7 +610,6 @@ unsafe extern "C" fn rpool_repo_cb(
     0
 }
 
-/// Callback for `xbps_pkgdb_foreach_cb_multi`. Same safety as `rpool_repo_cb`.
 unsafe extern "C" fn pkgdb_cb(
     _xh: *mut xbps_sys::xbps_handle,
     obj: xbps_sys::xbps_object_t,
@@ -727,7 +631,6 @@ unsafe extern "C" fn pkgdb_cb(
         .unwrap_or_default();
 
     if !ht.contains_key(&pkgname) {
-        // Orphan: installed but not in any configured repo.
         let tags = dict_str_or_array_joined(dict, "tags").unwrap_or_default();
         let short_desc = dict_str(dict, "short_desc").unwrap_or_default();
         ht.insert(
@@ -748,21 +651,16 @@ unsafe extern "C" fn pkgdb_cb(
         return 0;
     };
     p.version_installed = Some(ver.clone());
-    // pkgdb's own "repository" is more authoritative than a
-    // currently-configured repo that happens to carry a matching pkgver.
     if let Some(repo) = dict_str(dict, "repository") {
         p.repository = Some(repo);
     }
 
-    // Must read before the hold early-return so a held essential package
-    // still keeps its cannot-be-removed guard.
     p.is_repolocked = dict_str(dict, "repolock").as_deref() == Some("yes");
 
     let mut essential: bool = false;
     xbps_sys::xbps_dictionary_get_bool(dict, cstr("essential").as_ptr(), &mut essential);
     p.essential = essential;
 
-    // Same precedence as "repository" above.
     if let Some(arch) = dict_str(dict, "architecture") {
         p.arch = Some(arch);
     }
@@ -796,10 +694,6 @@ unsafe extern "C" fn pkgdb_cb(
 fn do_reload(xh: &mut xbps_sys::xbps_handle, inited: &mut bool) -> LoadResult {
     unsafe {
         if *inited {
-            // `xbps_end()` alone leaves repo index data cached in
-            // libxbps's process-wide rpool, so a same-process reload
-            // after `SYNC` would otherwise keep seeing pre-sync package
-            // versions until the app is restarted.
             xbps_sys::xbps_rpool_release(xh);
             xbps_sys::xbps_end(xh);
         }
@@ -814,9 +708,6 @@ fn do_reload(xh: &mut xbps_sys::xbps_handle, inited: &mut bool) -> LoadResult {
         let mut ht: HashMap<String, Package> = HashMap::new();
         let ht_ptr = (&mut ht as *mut HashMap<String, Package>).cast::<c_void>();
 
-        // Non-zero here isn't necessarily fatal (e.g. one repo failed to
-        // open); `ht` is still used, but log it rather than silently
-        // returning a shorter list.
         let rpool_rc = xbps_sys::xbps_rpool_foreach(xh, Some(rpool_repo_cb), ht_ptr);
         if rpool_rc != 0 {
             eprintln!(
@@ -832,8 +723,6 @@ fn do_reload(xh: &mut xbps_sys::xbps_handle, inited: &mut bool) -> LoadResult {
             );
         }
 
-        // Same orphan set `xbps-remove -o` would act on. `orphans` param
-        // left null: current-state orphans, not hypothetical ones.
         let orphans = xbps_sys::xbps_find_pkg_orphans(xh, std::ptr::null_mut());
         if !orphans.is_null() {
             let n = xbps_sys::xbps_array_count(orphans);
@@ -877,8 +766,6 @@ fn get_deps(xh: &mut xbps_sys::xbps_handle, inited: bool, pkgname: &str) -> Opti
         for i in 0..n {
             let mut s: *const c_char = std::ptr::null();
             xbps_sys::xbps_array_get_cstring_nocopy(deps, i, &mut s);
-            // `run_depends` entries are pkgpatterns (e.g. `foo>=1.2_1`);
-            // strip to a bare name for exact matching.
             out.push(if s.is_null() {
                 String::new()
             } else {
@@ -907,8 +794,6 @@ fn get_rdeps(xh: &mut xbps_sys::xbps_handle, inited: bool, pkgname: &str) -> Opt
         for i in 0..n {
             let mut s: *const c_char = std::ptr::null();
             xbps_sys::xbps_array_get_cstring_nocopy(rdeps, i, &mut s);
-            // Unlike `run_depends`, revdeps entries are full pkgver
-            // strings (e.g. `foo-1.2.3_1`), not pkgpatterns.
             out.push(if s.is_null() {
                 String::new()
             } else {
@@ -919,10 +804,6 @@ fn get_rdeps(xh: &mut xbps_sys::xbps_handle, inited: bool, pkgname: &str) -> Opt
     }
 }
 
-/// Walks the reverse-dependency closure of every name in `pkgnames`
-/// breadth-first, recording which direct parent pulled each newly-
-/// discovered name in. Roots are seeded into `visited` together, so a
-/// root reachable from another root never reports itself as affected.
 fn get_rdeps_transitive_many(
     xh: &mut xbps_sys::xbps_handle,
     inited: bool,
@@ -1011,9 +892,6 @@ fn get_files(xh: &mut xbps_sys::xbps_handle, inited: bool, pkgname: &str) -> Opt
     }
 }
 
-/// Extended metadata not loaded during the bulk scan — looked up on
-/// demand for the selected package. "install-date"/"automatic-install"
-/// only exist on entries from the local pkgdb (installed packages).
 fn get_extra_info(
     xh: &mut xbps_sys::xbps_handle,
     inited: bool,
@@ -1074,8 +952,6 @@ fn get_extra_info(
     }
 }
 
-/// Turns one `run_depends` entry (a pkgpattern like `foo>=1.2_1`, or
-/// occasionally a bare "foo") into the plain package name.
 fn bare_pkgname_from_dep(dep: &str) -> String {
     unsafe {
         let cdep = cstr(dep);
@@ -1089,8 +965,6 @@ fn bare_pkgname_from_dep(dep: &str) -> String {
     }
 }
 
-/// Turns one revdeps entry (a full pkgver like `foo-1.2.3_1`) into the
-/// plain package name — pkgver counterpart to `bare_pkgname_from_dep`.
 fn bare_pkgname_from_pkgver(pkgver: &str) -> String {
     unsafe {
         let c = cstr(pkgver);
@@ -1104,9 +978,6 @@ fn bare_pkgname_from_pkgver(pkgver: &str) -> String {
     }
 }
 
-/// Fetches pkgname's own `run_depends` and, for each dependency not
-/// already satisfied (per `by_name`), adds it to `missing` and
-/// recurses into that dependency's own deps too.
 fn process_deps_of(
     xh: &mut xbps_sys::xbps_handle,
     inited: bool,
@@ -1123,8 +994,6 @@ fn process_deps_of(
         if visited.contains(&dep_name) {
             continue;
         }
-        // Treating a held dependency as "missing" would silently violate
-        // the user's hold via `xbps-install <held-pkg>` upgrading it.
         let already_installed = matches!(
             by_name.get(&dep_name),
             Some(PkgState::Installed | PkgState::Upgradable | PkgState::OnHold | PkgState::Broken)
@@ -1147,7 +1016,7 @@ fn get_missing_deps(
         return None;
     }
     let mut visited = HashSet::new();
-    visited.insert(pkgname.to_string()); // never report itself, even via a cycle
+    visited.insert(pkgname.to_string());
     let mut missing = Vec::new();
     process_deps_of(xh, inited, by_name, pkgname, &mut visited, &mut missing);
     if missing.is_empty() {
@@ -1157,9 +1026,6 @@ fn get_missing_deps(
     }
 }
 
-// ── Real transaction preview (dry-run) ───────────────────────────────
-// errno values `xbps_transaction_prepare()` uses to signal failure
-// reason; not worth pulling in `libc` for four constants.
 const EEXIST: c_int = 17;
 const ENOEXEC: c_int = 8;
 const EAGAIN: c_int = 11;
@@ -1183,12 +1049,6 @@ unsafe fn read_string_array(dict: xbps_sys::xbps_dictionary_t, key: &str) -> Vec
     out
 }
 
-/// Runs every `op` against a fresh, temporary `xbps_handle` rather than
-/// the worker's persistent one: libxbps has no call to reset `xh.transd`
-/// after a prepared-but-uncommitted transaction, so reusing the
-/// long-lived handle would risk corrupting the next reload. Still runs
-/// on the single xbps worker thread, so the two handles are sequential,
-/// never concurrent.
 fn preview_transaction(ops: &[PreviewOp]) -> Result<TransactionPreview, TransactionError> {
     unsafe {
         let mut xh: xbps_sys::xbps_handle = std::mem::zeroed();
@@ -1229,11 +1089,6 @@ unsafe fn run_preview_ops(
                 xbps_sys::xbps_transaction_remove_pkg(xh, cstr(name).as_ptr(), true),
             ),
         };
-        // EEXIST can fire harmlessly when `name` was already staged as
-        // another op's exact-version-pinned dependency this loop (e.g.
-        // updating a base package auto-includes an installed "-devel"
-        // sibling); `xbps_transaction_prepare()` still succeeds after,
-        // so it must not abort the preview here.
         if code != 0 && code != EEXIST {
             op_errors.push(format!(
                 "{}: {}",
