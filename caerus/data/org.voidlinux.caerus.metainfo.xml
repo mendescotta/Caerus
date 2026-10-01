@@ -24,14 +24,6 @@
       <image>https://raw.githubusercontent.com/mendescotta/Caerus/main/screenshots/main-window.png</image>
       <caption>Main window: sortable package table with state and repository filters</caption>
     </screenshot>
-    <screenshot>
-      <image>https://raw.githubusercontent.com/mendescotta/Caerus/main/screenshots/package-details.png</image>
-      <caption>Package details pane</caption>
-    </screenshot>
-    <screenshot>
-      <image>https://raw.githubusercontent.com/mendescotta/Caerus/main/screenshots/search.png</image>
-      <caption>Searching the package list</caption>
-    </screenshot>
   </screenshots>
   <developer id="io.github.mendescotta">
     <name>mendescotta</name>
