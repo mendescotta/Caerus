@@ -96,9 +96,9 @@ Open a GitHub issue. Since Caerus talks to `libxbps` and shells out to
 `xbps-*` tools directly, a useful bug report usually includes:
 
 - What you did (exact steps) and what you expected vs. what happened
-- The `xbps-*` command Caerus would have run — see the README's
-  "Every Caerus action and its underlying xbps command" table — if you
-  suspect it ran the wrong one
+- The `xbps-*` command Caerus would have run — see
+  [Actions and their xbps commands](#actions-and-their-xbps-commands) — if
+  you suspect it ran the wrong one
 - Whether the failure came from the GUI itself or from `caerus-helper`
   (visible in the Apply/maintenance dialog's "Details" expander, which
   shows the underlying command's raw output)
@@ -113,3 +113,37 @@ Open a GitHub issue. Since Caerus talks to `libxbps` and shells out to
   comment at the top of `caerus/src/backend/package_store.rs`. This was a
   deliberate fix for a crash class in an earlier version of the project;
   don't reintroduce a second thread touching `libxbps`.
+
+## Actions and their xbps commands
+
+| Caerus Action | Where in UI | Underlying xbps command |
+|---|---|---|
+| Sync repositories | Header sync button / at launch | `xbps-install -S` |
+| Full System Upgrade | App menu | `xbps-install -y -Su` |
+| Install / Upgrade (Apply) | Checkbox, context menu, detail pane, Apply | `xbps-install -y -- pkg...` |
+| Remove | Checkbox, context menu, detail pane, Apply | `xbps-remove -y -- pkg...` |
+| Purge | Checkbox, context menu, detail pane, Apply | `xbps-remove -y -R -- pkg...` |
+| Install (force retry) | "Retry With Force" after a failed Apply | `xbps-install -y -I -- pkg...` |
+| Remove (force retry) | "Retry With Force" after a failed Apply | `xbps-remove -y -F -- pkg...` |
+| Purge (force retry) | "Retry With Force" after a failed Apply | `xbps-remove -y -R -F -- pkg...` |
+| Reinstall | Detail pane | `xbps-install -f -y -- pkg...` |
+| Reconfigure | Detail pane | `xbps-reconfigure -f -- pkg...` |
+| Download Only | Detail pane | `xbps-install -D -y -- pkg...` |
+| Hold | Detail pane | `xbps-pkgdb -m hold -- pkg...` |
+| Release Hold | Detail pane | `xbps-pkgdb -m unhold -- pkg...` |
+| Repo-Lock | Detail pane | `xbps-pkgdb -m repolock -- pkg...` |
+| Release Repo-Lock | Detail pane | `xbps-pkgdb -m repounlock -- pkg...` |
+| Mark as Automatically Installed | Detail pane | `xbps-pkgdb -m auto -- pkg...` |
+| Mark as Manually Installed | Detail pane | `xbps-pkgdb -m manual -- pkg...` |
+| Remove Orphaned Packages | App menu | `xbps-remove -y -o` |
+| Clean Package Cache | App menu | `xbps-remove -O` |
+| Verify Package Database | App menu | `xbps-pkgdb -a --checks files,dependencies,alternatives,pkgdb` |
+| Reconfigure All Packages | App menu | `xbps-reconfigure -fa` |
+| List removable kernels | Purge Old Kernels window | `vkpurge list` (not xbps — runs unprivileged, straight from the GUI) |
+| Purge Old Kernels | Purge Old Kernels window | `vkpurge rm <version...>` (not xbps — the one part of this row that's privileged) |
+| Switch Alternative | Alternatives dialog | `xbps-alternatives -g <group> -s <pkg>` |
+| Add Repository | Repositories dialog | writes `/etc/xbps.d/90-caerus.conf` (no xbps CLI), then queues `xbps-install -S` |
+| Remove Repository | Repositories dialog | edits the same conf file, then `xbps-install -S` |
+| Transaction preview / dry-run | Apply confirmation dialog | `xbps_transaction_prepare()` via libxbps directly — equivalent to `xbps-install -n` |
+| Find Owning Package | App menu → Find Owning Package | `xbps-query -o <path>` (the only literal `xbps-query` subprocess call in the app) |
+| Package details, deps, reverse-deps, files, provides/conflicts/replaces, shlib info | Detail pane | via libxbps directly (`xbps_pkgdb_get_pkg`/`xbps_rpool_get_pkg` + dictionary reads) — equivalent to `xbps-query -S/-x/-X/-f` |
