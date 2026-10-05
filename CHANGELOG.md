@@ -4,6 +4,12 @@ All notable changes to Caerus are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); dates are release dates,
 not commit dates.
 
+## [0.7.1] - 2026-10-05
+
+### Fixed
+- AppStream metadata lists the 0.7 releases (0.7.0 shipped without its
+  entry, so software centers still showed 0.6.0).
+
 ## [0.7.0] - 2026-10-05
 
 ### Added
