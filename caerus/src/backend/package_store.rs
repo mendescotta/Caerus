@@ -247,6 +247,15 @@ impl PackageStore {
         });
         out
     }
+    pub fn held_back_names(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        self.for_each(|o| {
+            if o.pkg().is_held_back() {
+                out.push(o.name());
+            }
+        });
+        out
+    }
     pub fn count_marked(&self) -> u32 {
         let mut c = 0;
         self.for_each(|o| {

@@ -1483,14 +1483,37 @@ fn on_hold_requested(state: &Rc<WindowState>, pkgname: &str, want_hold: bool) {
     run_maintenance_command(state, &cmd, title);
 }
 
+fn held_back_note(held: &[String]) -> String {
+    const SHOWN: usize = 5;
+    if held.is_empty() {
+        return String::new();
+    }
+    let mut names = held
+        .iter()
+        .take(SHOWN)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if held.len() > SHOWN {
+        names.push_str(&format!(", +{} more", held.len() - SHOWN));
+    }
+    format!(" {} held back: {names}.", held.len())
+}
+
 fn on_full_upgrade_clicked(state: &Rc<WindowState>) {
     let upgrades = state.store.upgradable_names();
+    let held = state.store.held_back_names();
+    let held_note = held_back_note(&held);
     if upgrades.is_empty() {
         state
             .status_label
-            .set_text("Everything is already up to date.");
+            .set_text(&format!("Everything is already up to date.{held_note}"));
         return;
     }
+    state.status_label.set_text(&format!(
+        "Upgrading {} package(s).{held_note}",
+        upgrades.len()
+    ));
     let ops: Vec<PreviewOp> = upgrades
         .iter()
         .map(|n| PreviewOp::Update(n.clone()))
@@ -1791,6 +1814,20 @@ fn update_mark_upgrades_button(state: &Rc<WindowState>, upgradable: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn held_back_note_lists_and_truncates() {
+        assert_eq!(held_back_note(&[]), "");
+        assert_eq!(
+            held_back_note(&["a".to_string(), "b".to_string()]),
+            " 2 held back: a, b."
+        );
+        let many: Vec<String> = (0..7).map(|i| format!("p{i}")).collect();
+        assert_eq!(
+            held_back_note(&many),
+            " 7 held back: p0, p1, p2, p3, p4, +2 more."
+        );
+    }
 
     #[test]
     fn force_variant_adds_suffix_to_install_remove_purge() {

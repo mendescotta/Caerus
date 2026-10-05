@@ -4,9 +4,21 @@ All notable changes to Caerus are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); dates are release dates,
 not commit dates.
 
-## [Unreleased]
+## [0.7.0] - 2026-10-05
+
+### Added
+- Adding a repository signed with an unknown key now asks you to confirm
+  the key's fingerprint; `caerus-helper` imports exactly that key
+  (`SYNC_TRUST <fingerprint>`) and refuses any other.
+- Full-system-upgrade shows which held packages have newer versions and are
+  being held back.
 
 ### Fixed
+- `xbps-sys` builds on hosts where libclang cannot find `stddef.h`
+  (falls back to the compiler's include directory).
+- `history.log` is rotated to `history.log.1` past 256 KiB.
+- `CAERUS_HELPER_PATH` and the helper next to the executable are only used
+  when owned by root or the current user and not group/world-writable.
 - Remaining `unwrap()` calls on GTK downcasts in the package list and the
   kernel-purge dialog now fall back gracefully instead of panicking.
 - `caerus-helper` rejects repository URLs that are not http(s)/ftp/file

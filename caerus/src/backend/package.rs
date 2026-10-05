@@ -51,6 +51,16 @@ impl FilterMode {
     }
 }
 
+impl Package {
+    pub fn is_held_back(&self) -> bool {
+        self.state == PkgState::OnHold
+            && matches!(
+                (&self.version_installed, &self.version_available),
+                (Some(a), Some(b)) if a != b
+            )
+    }
+}
+
 pub const ORPHANED_MAINTAINER: &str = "Orphaned <orphan@voidlinux.org>";
 
 #[derive(Debug, Clone, Default)]
@@ -173,5 +183,31 @@ impl PackageObject {
 
     pub fn name(&self) -> String {
         self.imp().pkg.borrow().name.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pkg(state: PkgState, installed: Option<&str>, available: Option<&str>) -> Package {
+        Package {
+            state,
+            version_installed: installed.map(str::to_owned),
+            version_available: available.map(str::to_owned),
+            ..Package::default()
+        }
+    }
+
+    #[test]
+    fn held_package_with_newer_version_is_held_back() {
+        assert!(pkg(PkgState::OnHold, Some("1.0_1"), Some("1.1_1")).is_held_back());
+    }
+
+    #[test]
+    fn held_package_at_latest_or_unheld_is_not_held_back() {
+        assert!(!pkg(PkgState::OnHold, Some("1.0_1"), Some("1.0_1")).is_held_back());
+        assert!(!pkg(PkgState::OnHold, Some("1.0_1"), None).is_held_back());
+        assert!(!pkg(PkgState::Upgradable, Some("1.0_1"), Some("1.1_1")).is_held_back());
     }
 }

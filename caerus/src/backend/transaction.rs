@@ -200,7 +200,7 @@ impl Transaction {
 
         if let Ok(over) = std::env::var("CAERUS_HELPER_PATH") {
             let p = PathBuf::from(&over);
-            if is_executable(&p) {
+            if is_executable(&p) && helper_is_trusted(&p) {
                 return Some(p);
             }
         }
@@ -208,7 +208,7 @@ impl Transaction {
         if let Ok(self_exe) = std::fs::read_link("/proc/self/exe") {
             if let Some(dir) = self_exe.parent() {
                 let candidate = dir.join("caerus-helper");
-                if is_executable(&candidate) {
+                if is_executable(&candidate) && helper_is_trusted(&candidate) {
                     return Some(candidate);
                 }
             }
@@ -456,6 +456,22 @@ fn which(program: &str) -> Option<PathBuf> {
     None
 }
 
+fn helper_is_trusted(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(me) = std::fs::metadata("/proc/self").map(|m| m.uid()) else {
+        return false;
+    };
+    let trusted_owner = |m: &std::fs::Metadata| m.uid() == 0 || m.uid() == me;
+    let locked_down = |m: &std::fs::Metadata| m.mode() & 0o022 == 0;
+    let Ok(file) = std::fs::metadata(path) else {
+        return false;
+    };
+    let Some(Ok(dir)) = path.parent().map(std::fs::metadata) else {
+        return false;
+    };
+    trusted_owner(&file) && locked_down(&file) && trusted_owner(&dir) && locked_down(&dir)
+}
+
 fn command_is_safe(command: &str) -> bool {
     !command.chars().any(char::is_control)
 }
@@ -463,6 +479,22 @@ fn command_is_safe(command: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn world_writable_helper_is_not_trusted() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("caerus-helper-trust-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let helper = dir.join("caerus-helper");
+        std::fs::write(&helper, "").unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(helper_is_trusted(&helper));
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o757)).unwrap();
+        assert!(!helper_is_trusted(&helper));
+        assert!(!helper_is_trusted(&dir.join("missing")));
+    }
 
     #[test]
     fn plain_commands_are_safe() {
