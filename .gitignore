@@ -1,6 +1,5 @@
 /target
 /.claude
-autofix-report.json
 audit-report.json
 
 /docs/superpowers/

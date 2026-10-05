@@ -51,25 +51,12 @@ caerus/adwaita`, needs `libadwaita-devel`) that swaps in libadwaita
 widgets where available — build and clippy both configurations if you
 touch anything gated behind `#[cfg(feature = "adwaita")]`, since CI does.
 
-## Safe automation workflow (Option 2)
+## Code hardening
 
-Caerus uses a conservative review-first workflow for code hardening:
-
-- keep active work on `main`
-- do not create competing task branches for each change set
-- run the audit scripts to generate a report, not to rewrite code
-- review the matches in `audit-report.json` and `.github/auto-fixes/*.md`
-- patch only the small code paths involved, in isolated commits or PRs
-- prefer small, human-reviewed fixes over broad automated refactors
-
-The repo includes `scripts/audit.sh` and `scripts/autofix.sh` for this
-purpose. `autofix.sh` always produces a report and leaves the codebase
-untouched unless a maintainer explicitly chooses to open a manual PR from
-that generated output.
-
-This is intentionally not a "rewrite everything automatically" workflow.
-For Caerus, the maintainability win is reviewability: a small, audited PR
-is easier to trust than a large agent-generated batch edit.
+Keep active work on `main` and patch small code paths in isolated commits.
+`scripts/audit.sh` (also run by the audit workflow) reports risky patterns
+such as `unwrap()` on GTK downcasts; review its output rather than
+rewriting code automatically.
 
 ## Testing changes
 
