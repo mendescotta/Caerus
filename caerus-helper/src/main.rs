@@ -143,9 +143,19 @@ fn open_locked(path: &std::path::Path) -> Result<std::fs::File, String> {
     Ok(file)
 }
 
+fn valid_repo_url(url: &str) -> bool {
+    !url.chars().any(|c| c.is_control() || c.is_whitespace())
+        && ["https://", "http://", "ftp://", "file://", "/"]
+            .iter()
+            .any(|scheme| url.starts_with(scheme))
+}
+
 fn add_repo(url: &str) -> Result<(), String> {
     if has_control_char(url) {
         return Err("refusing to add a repository URL with control characters".to_string());
+    }
+    if !valid_repo_url(url) {
+        return Err("repository must be an http(s)/ftp/file URL or an absolute path".to_string());
     }
     let mut file = open_locked(std::path::Path::new(MANAGED_REPO_CONF))?;
     let mut existing = String::new();
@@ -288,11 +298,148 @@ fn remove_repo(url: &str) -> Result<(), String> {
     Ok(())
 }
 
+const PKG_VERBS: &[(&str, &str)] = &[
+    ("INSTALL", "install failed"),
+    ("REMOVE", "remove failed"),
+    ("PURGE", "purge failed"),
+    ("INSTALL_FORCE", "forced install failed"),
+    ("REMOVE_FORCE", "forced remove failed"),
+    ("PURGE_FORCE", "forced purge failed"),
+    ("HOLD", "hold failed"),
+    ("UNHOLD", "unhold failed"),
+    ("REINSTALL", "reinstall failed"),
+    ("RECONFIGURE", "reconfigure failed"),
+    ("DOWNLOAD", "download failed"),
+    ("REPOLOCK", "repo-lock failed"),
+    ("REPOUNLOCK", "repo-unlock failed"),
+    ("MARKAUTO", "marking automatic failed"),
+    ("MARKMANUAL", "marking manual failed"),
+];
+
+const FIXED_VERBS: &[(&str, &[&str], &str)] = &[
+    ("SYNC", &["xbps-install", "-S"], "sync failed"),
+    (
+        "ORPHANS",
+        &["xbps-remove", "-y", "-o"],
+        "orphan removal failed",
+    ),
+    ("CLEANCACHE", &["xbps-remove", "-O"], "cache cleanup failed"),
+    (
+        "RECONFIGURE_ALL",
+        &["xbps-reconfigure", "-f", "-a"],
+        "reconfigure-all failed",
+    ),
+    (
+        "VERIFY",
+        &[
+            "xbps-pkgdb",
+            "-a",
+            "--checks",
+            "files,dependencies,alternatives,pkgdb",
+        ],
+        "verification failed",
+    ),
+];
+
+fn reply(line: &str) {
+    println!("{line}");
+    let _ = io::stdout().flush();
+}
+
+fn respond_result(result: Result<(), String>) {
+    match result {
+        Ok(()) => respond_ok_or(true, ""),
+        Err(e) => respond_ok_or(false, &e),
+    }
+}
+
+fn handle_upgrade() {
+    const EBUSY: i32 = 16;
+    let mut code = run_xbps(&["xbps-install", "-y", "-Su"]);
+    if code == Some(EBUSY) {
+        println!("LOG xbps updated itself; re-running the system upgrade\u{2026}");
+        let _ = io::stdout().flush();
+        code = run_xbps(&["xbps-install", "-y", "-Su"]);
+    }
+    respond_ok_or(code == Some(0), "upgrade failed");
+}
+
+fn handle_vkpurge(rest: &str) {
+    let versions = split_pkgnames(rest);
+    if versions.is_empty() {
+        reply("ERROR no kernel versions specified");
+    } else if versions.iter().any(|v| v.starts_with('-')) {
+        reply("ERROR kernel version must not start with '-'");
+    } else {
+        let mut argv: Vec<&str> = vec!["vkpurge", "rm"];
+        argv.extend(versions.iter().map(String::as_str));
+        let code = run_xbps(&argv);
+        respond_ok_or(code == Some(0), "kernel purge failed");
+    }
+}
+
+fn handle_alternative(rest: &str) {
+    let parts: Vec<&str> = rest.split_whitespace().collect();
+    if parts.len() != 2 {
+        reply("ERROR expected: ALTERNATIVE <group> <pkgname>");
+    } else if parts.iter().any(|p| p.starts_with('-')) {
+        reply("ERROR group/pkgname must not start with '-'");
+    } else {
+        let code = run_xbps(&["xbps-alternatives", "-g", parts[0], "-s", parts[1]]);
+        respond_ok_or(code == Some(0), "setting alternative failed");
+    }
+}
+
+fn handle_repo(verb: &str, url: &str) -> bool {
+    let url = url.trim();
+    if url.is_empty() {
+        reply("ERROR no url specified");
+        return true;
+    }
+    match verb {
+        "ADDREPO" => respond_result(add_repo(url)),
+        "REMOVEREPO" => respond_result(remove_repo(url)),
+        "ENABLEREPO" => respond_result(toggle_repo(url, true)),
+        "DISABLEREPO" => respond_result(toggle_repo(url, false)),
+        _ => return false,
+    }
+    true
+}
+
+fn handle_line(line: &str) {
+    if line == "UPGRADE" {
+        handle_upgrade();
+        return;
+    }
+    if let Some((_, argv, err)) = FIXED_VERBS.iter().find(|(v, _, _)| *v == line) {
+        respond_ok_or(run_xbps(argv) == Some(0), err);
+        return;
+    }
+    let Some((verb, rest)) = line.split_once(' ') else {
+        reply(&format!("ERROR unknown command: {line}"));
+        return;
+    };
+    if let Some((_, err)) = PKG_VERBS.iter().find(|(v, _)| *v == verb) {
+        let pkgs = split_pkgnames(rest);
+        if pkgs.is_empty() {
+            reply("ERROR no packages specified");
+        } else {
+            run_pkg_command(verb, &pkgs, err);
+        }
+        return;
+    }
+    match verb {
+        "VKPURGE" => handle_vkpurge(rest),
+        "ALTERNATIVE" => handle_alternative(rest),
+        _ if handle_repo(verb, rest) => {}
+        _ => reply(&format!("ERROR unknown command: {line}")),
+    }
+}
+
 fn main() {
     assert_root();
 
-    println!("READY");
-    let _ = io::stdout().flush();
+    reply("READY");
 
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
@@ -300,317 +447,10 @@ fn main() {
         let line = line.trim_end();
 
         if line == "QUIT" {
-            println!("OK");
-            let _ = io::stdout().flush();
+            reply("OK");
             break;
         }
-
-        if line == "SYNC" {
-            let code = run_xbps(&["xbps-install", "-S"]);
-            respond_ok_or(code == Some(0), "sync failed");
-            continue;
-        }
-
-        if line == "UPGRADE" {
-            const EBUSY: i32 = 16;
-            let mut code = run_xbps(&["xbps-install", "-y", "-Su"]);
-            if code == Some(EBUSY) {
-                println!("LOG xbps updated itself; re-running the system upgrade\u{2026}");
-                let _ = io::stdout().flush();
-                code = run_xbps(&["xbps-install", "-y", "-Su"]);
-            }
-            respond_ok_or(code == Some(0), "upgrade failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("INSTALL ") {
-            let pkgs = split_pkgnames(rest);
-            if pkgs.is_empty() {
-                println!("ERROR no packages specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            run_pkg_command("INSTALL", &pkgs, "install failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("REMOVE ") {
-            let pkgs = split_pkgnames(rest);
-            if pkgs.is_empty() {
-                println!("ERROR no packages specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            run_pkg_command("REMOVE", &pkgs, "remove failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("PURGE ") {
-            let pkgs = split_pkgnames(rest);
-            if pkgs.is_empty() {
-                println!("ERROR no packages specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            run_pkg_command("PURGE", &pkgs, "purge failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("INSTALL_FORCE ") {
-            let pkgs = split_pkgnames(rest);
-            if pkgs.is_empty() {
-                println!("ERROR no packages specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            run_pkg_command("INSTALL_FORCE", &pkgs, "forced install failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("REMOVE_FORCE ") {
-            let pkgs = split_pkgnames(rest);
-            if pkgs.is_empty() {
-                println!("ERROR no packages specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            run_pkg_command("REMOVE_FORCE", &pkgs, "forced remove failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("PURGE_FORCE ") {
-            let pkgs = split_pkgnames(rest);
-            if pkgs.is_empty() {
-                println!("ERROR no packages specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            run_pkg_command("PURGE_FORCE", &pkgs, "forced purge failed");
-            continue;
-        }
-
-        if line == "ORPHANS" {
-            let code = run_xbps(&["xbps-remove", "-y", "-o"]);
-            respond_ok_or(code == Some(0), "orphan removal failed");
-            continue;
-        }
-
-        if line == "CLEANCACHE" {
-            let code = run_xbps(&["xbps-remove", "-O"]);
-            respond_ok_or(code == Some(0), "cache cleanup failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("HOLD ") {
-            let pkgs = split_pkgnames(rest);
-            if pkgs.is_empty() {
-                println!("ERROR no packages specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            run_pkg_command("HOLD", &pkgs, "hold failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("UNHOLD ") {
-            let pkgs = split_pkgnames(rest);
-            if pkgs.is_empty() {
-                println!("ERROR no packages specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            run_pkg_command("UNHOLD", &pkgs, "unhold failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("REINSTALL ") {
-            let pkgs = split_pkgnames(rest);
-            if pkgs.is_empty() {
-                println!("ERROR no packages specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            run_pkg_command("REINSTALL", &pkgs, "reinstall failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("RECONFIGURE ") {
-            let pkgs = split_pkgnames(rest);
-            if pkgs.is_empty() {
-                println!("ERROR no packages specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            run_pkg_command("RECONFIGURE", &pkgs, "reconfigure failed");
-            continue;
-        }
-
-        if line == "RECONFIGURE_ALL" {
-            let code = run_xbps(&["xbps-reconfigure", "-f", "-a"]);
-            respond_ok_or(code == Some(0), "reconfigure-all failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("VKPURGE ") {
-            let versions = split_pkgnames(rest);
-            if versions.is_empty() {
-                println!("ERROR no kernel versions specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            if versions.iter().any(|v| v.starts_with('-')) {
-                println!("ERROR kernel version must not start with '-'");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            let mut argv: Vec<&str> = vec!["vkpurge", "rm"];
-            argv.extend(versions.iter().map(String::as_str));
-            let code = run_xbps(&argv);
-            respond_ok_or(code == Some(0), "kernel purge failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("DOWNLOAD ") {
-            let pkgs = split_pkgnames(rest);
-            if pkgs.is_empty() {
-                println!("ERROR no packages specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            run_pkg_command("DOWNLOAD", &pkgs, "download failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("REPOLOCK ") {
-            let pkgs = split_pkgnames(rest);
-            if pkgs.is_empty() {
-                println!("ERROR no packages specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            run_pkg_command("REPOLOCK", &pkgs, "repo-lock failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("REPOUNLOCK ") {
-            let pkgs = split_pkgnames(rest);
-            if pkgs.is_empty() {
-                println!("ERROR no packages specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            run_pkg_command("REPOUNLOCK", &pkgs, "repo-unlock failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("MARKAUTO ") {
-            let pkgs = split_pkgnames(rest);
-            if pkgs.is_empty() {
-                println!("ERROR no packages specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            run_pkg_command("MARKAUTO", &pkgs, "marking automatic failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("MARKMANUAL ") {
-            let pkgs = split_pkgnames(rest);
-            if pkgs.is_empty() {
-                println!("ERROR no packages specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            run_pkg_command("MARKMANUAL", &pkgs, "marking manual failed");
-            continue;
-        }
-
-        if line == "VERIFY" {
-            let code = run_xbps(&[
-                "xbps-pkgdb",
-                "-a",
-                "--checks",
-                "files,dependencies,alternatives,pkgdb",
-            ]);
-            respond_ok_or(code == Some(0), "verification failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("ALTERNATIVE ") {
-            let parts: Vec<&str> = rest.split_whitespace().collect();
-            if parts.len() != 2 {
-                println!("ERROR expected: ALTERNATIVE <group> <pkgname>");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            if parts.iter().any(|p| p.starts_with('-')) {
-                println!("ERROR group/pkgname must not start with '-'");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            let code = run_xbps(&["xbps-alternatives", "-g", parts[0], "-s", parts[1]]);
-            respond_ok_or(code == Some(0), "setting alternative failed");
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("ADDREPO ") {
-            let url = rest.trim();
-            if url.is_empty() {
-                println!("ERROR no url specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            match add_repo(url) {
-                Ok(()) => respond_ok_or(true, ""),
-                Err(e) => respond_ok_or(false, &e),
-            }
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("REMOVEREPO ") {
-            let url = rest.trim();
-            if url.is_empty() {
-                println!("ERROR no url specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            match remove_repo(url) {
-                Ok(()) => respond_ok_or(true, ""),
-                Err(e) => respond_ok_or(false, &e),
-            }
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("ENABLEREPO ") {
-            let url = rest.trim();
-            if url.is_empty() {
-                println!("ERROR no url specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            match toggle_repo(url, true) {
-                Ok(()) => respond_ok_or(true, ""),
-                Err(e) => respond_ok_or(false, &e),
-            }
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("DISABLEREPO ") {
-            let url = rest.trim();
-            if url.is_empty() {
-                println!("ERROR no url specified");
-                let _ = io::stdout().flush();
-                continue;
-            }
-            match toggle_repo(url, false) {
-                Ok(()) => respond_ok_or(true, ""),
-                Err(e) => respond_ok_or(false, &e),
-            }
-            continue;
-        }
-
-        println!("ERROR unknown command: {line}");
-        let _ = io::stdout().flush();
+        handle_line(line);
     }
 }
 
@@ -731,6 +571,22 @@ mod tests {
         );
         assert_eq!(split_pkgnames(""), Vec::<String>::new());
         assert_eq!(split_pkgnames("  foo   bar  "), vec!["foo", "bar"]);
+    }
+
+    #[test]
+    fn repo_urls_are_validated() {
+        assert!(valid_repo_url("https://repo-default.voidlinux.org/current"));
+        assert!(valid_repo_url("/var/cache/local-repo"));
+        assert!(!valid_repo_url("javascript:alert(1)"));
+        assert!(!valid_repo_url("https://a b"));
+        assert!(!valid_repo_url(""));
+    }
+
+    #[test]
+    fn every_pkg_verb_has_an_argv() {
+        for (verb, _) in PKG_VERBS {
+            assert!(argv_for(verb).is_some(), "{verb}");
+        }
     }
 
     #[test]
