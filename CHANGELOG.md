@@ -4,6 +4,23 @@ All notable changes to Caerus are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); dates are release dates,
 not commit dates.
 
+## [Unreleased]
+
+### Fixed
+- Remaining `unwrap()` calls on GTK downcasts in the package list and the
+  kernel-purge dialog now fall back gracefully instead of panicking.
+- `caerus-helper` rejects repository URLs that are not http(s)/ftp/file
+  URLs or absolute paths.
+- `.github/workflows/rust.yml` (a stale duplicate of `ci.yml` targeting the
+  removed `0.5-dev` branch) deleted; docs updated to say work happens on
+  `main`.
+- AppStream metadata now lists releases.
+
+### Changed
+- `caerus-helper`'s command loop is table-driven instead of 15 copies of
+  the same empty-argument check.
+- `packaging/srcpkgs/caerus` template updated to 0.6.0.
+
 ## [0.6.0] - 2026-08-12
 
 Bug-fix and stability release: crash fixes, a CI/lint pass, and a bad

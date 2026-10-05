@@ -27,4 +27,4 @@ jobs:
             .github/auto-fixes/*.md
 
       - name: Note branch policy
-        run: echo "All active work stays on the 0.5-dev branch; this workflow only produces review artifacts, never competing task branches."
+        run: echo "Active work stays on main; this workflow only produces review artifacts, never competing task branches."

@@ -3,7 +3,7 @@
 # To use: copy or symlink this directory to <void-packages checkout>/srcpkgs/caerus,
 # then from inside that checkout: ./xbps-src pkg caerus
 pkgname=caerus
-version=0.5.0
+version=0.6.0
 revision=1
 build_style=cargo
 hostmakedepends="pkg-config clang"
@@ -14,7 +14,7 @@ maintainer="gui <mendescotta@gmail.com>"
 license="GPL-3.0-or-later"
 homepage="https://github.com/mendescotta/Caerus"
 distfiles="https://github.com/mendescotta/Caerus/archive/refs/tags/v${version}.tar.gz"
-checksum=6a527f8c2e62763d58991e38191b584ead6eadf93a43bdb0373eaa63f08040a8
+checksum=ea9676011ede21fd49a16277de58f06cdcd870b13d32f6625808b5d535b1cf53
 # GitHub's tag archive extracts to "Caerus-${version}" (matching the
 # repo's actual capitalized name), not xbps-src's default
 # "${pkgname}-${version}" ("caerus-${version}", lowercase) — without this
