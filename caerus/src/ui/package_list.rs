@@ -43,7 +43,9 @@ const fn ord(c: CmpOrdering) -> gtk::Ordering {
 }
 
 fn pkg_of(obj: &glib::Object) -> PackageObject {
-    obj.clone().downcast::<PackageObject>().unwrap()
+    obj.clone()
+        .downcast::<PackageObject>()
+        .unwrap_or_else(|_| glib::Object::new::<PackageObject>())
 }
 
 fn cmp_opt_version(a: Option<&str>, b: Option<&str>) -> CmpOrdering {
@@ -94,9 +96,17 @@ fn make_col(
 ) -> gtk::ColumnViewColumn {
     let factory = gtk::SignalListItemFactory::new();
 
-    factory.connect_setup(move |_, item| setup(item.downcast_ref::<gtk::ListItem>().unwrap()));
+    factory.connect_setup(move |_, item| {
+        if let Some(item) = item.downcast_ref::<gtk::ListItem>() {
+            setup(item);
+        }
+    });
 
-    factory.connect_bind(move |_, item| bind(item.downcast_ref::<gtk::ListItem>().unwrap()));
+    factory.connect_bind(move |_, item| {
+        if let Some(item) = item.downcast_ref::<gtk::ListItem>() {
+            bind(item);
+        }
+    });
 
     let col = gtk::ColumnViewColumn::new(Some(title), Some(factory));
     if width > 0 {

@@ -48,7 +48,9 @@ impl KernelObject {
 }
 
 fn kernel_of(obj: &glib::Object) -> KernelObject {
-    obj.clone().downcast::<KernelObject>().unwrap()
+    obj.clone()
+        .downcast::<KernelObject>()
+        .unwrap_or_else(|_| glib::Object::new::<KernelObject>())
 }
 
 fn parse_kernel_list(result: Result<std::process::Output, String>) -> Result<Vec<String>, String> {
@@ -77,9 +79,17 @@ fn make_col(
 ) -> gtk::ColumnViewColumn {
     let factory = gtk::SignalListItemFactory::new();
 
-    factory.connect_setup(move |_, item| setup(item.downcast_ref::<gtk::ListItem>().unwrap()));
+    factory.connect_setup(move |_, item| {
+        if let Some(item) = item.downcast_ref::<gtk::ListItem>() {
+            setup(item);
+        }
+    });
 
-    factory.connect_bind(move |_, item| bind(item.downcast_ref::<gtk::ListItem>().unwrap()));
+    factory.connect_bind(move |_, item| {
+        if let Some(item) = item.downcast_ref::<gtk::ListItem>() {
+            bind(item);
+        }
+    });
     let col = gtk::ColumnViewColumn::new(Some(title), Some(factory));
     if width > 0 {
         col.set_fixed_width(width);
