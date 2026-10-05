@@ -341,6 +341,105 @@ const FIXED_VERBS: &[(&str, &[&str], &str)] = &[
     ),
 ];
 
+enum KeyMsg {
+    Line(String),
+    Prompt,
+}
+
+fn is_valid_fingerprint(fp: &str) -> bool {
+    fp.len() >= 8 && fp.contains(':') && fp.chars().all(|c| c.is_ascii_hexdigit() || c == ':')
+}
+
+fn fingerprint_in(line: &str) -> Option<String> {
+    let (_, rest) = line.split_once("Fingerprint:")?;
+    let fp = rest.trim().to_ascii_lowercase();
+    is_valid_fingerprint(&fp).then_some(fp)
+}
+
+fn stream_key_msgs<R: Read + Send + 'static>(src: R, tx: mpsc::Sender<KeyMsg>) {
+    thread::spawn(move || {
+        let mut src = src;
+        let mut pending = String::new();
+        let mut buf = [0u8; 512];
+        while let Ok(n) = src.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            pending.push_str(&String::from_utf8_lossy(&buf[..n]));
+            while let Some(i) = pending.find('\n') {
+                let line: String = pending.drain(..=i).collect();
+                if tx.send(KeyMsg::Line(line.trim_end().to_owned())).is_err() {
+                    return;
+                }
+            }
+            if pending.trim_end().ends_with("[Y/n]") {
+                pending.clear();
+                if tx.send(KeyMsg::Prompt).is_err() {
+                    return;
+                }
+            }
+        }
+        if !pending.is_empty() {
+            let _ = tx.send(KeyMsg::Line(pending));
+        }
+    });
+}
+
+fn run_sync_pinned(fingerprint: &str) -> Option<i32> {
+    let mut child = Command::new("xbps-install")
+        .arg("-S")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::piped())
+        .spawn()
+        .map_err(|e| eprintln!("caerus-helper: spawn xbps-install: {e}"))
+        .ok()?;
+    let mut stdin = child.stdin.take()?;
+    let (tx, rx) = mpsc::channel::<KeyMsg>();
+    stream_key_msgs(child.stdout.take()?, tx.clone());
+    stream_key_msgs(child.stderr.take()?, tx);
+
+    let mut seen: Option<String> = None;
+    let mut mismatch = false;
+    for msg in rx {
+        match msg {
+            KeyMsg::Line(line) => {
+                if let Some(fp) = fingerprint_in(&line) {
+                    seen = Some(fp);
+                }
+                println!("LOG {line}");
+                let _ = io::stdout().flush();
+            }
+            KeyMsg::Prompt => {
+                let ok = seen.as_deref() == Some(fingerprint);
+                if !ok {
+                    mismatch = true;
+                    println!("LOG refusing to import a key whose fingerprint is not {fingerprint}");
+                    let _ = io::stdout().flush();
+                }
+                let _ = stdin.write_all(if ok { b"y\n" } else { b"n\n" });
+                let _ = stdin.flush();
+            }
+        }
+    }
+    drop(stdin);
+    let code = child.wait().ok().and_then(|s| s.code());
+    if mismatch {
+        None
+    } else {
+        code
+    }
+}
+
+fn handle_sync_trust(rest: &str) {
+    let fp = rest.trim().to_ascii_lowercase();
+    if !is_valid_fingerprint(&fp) {
+        reply("ERROR invalid key fingerprint");
+        return;
+    }
+    respond_ok_or(run_sync_pinned(&fp) == Some(0), "sync failed");
+}
+
 fn reply(line: &str) {
     println!("{line}");
     let _ = io::stdout().flush();
@@ -431,6 +530,7 @@ fn handle_line(line: &str) {
     match verb {
         "VKPURGE" => handle_vkpurge(rest),
         "ALTERNATIVE" => handle_alternative(rest),
+        "SYNC_TRUST" => handle_sync_trust(rest),
         _ if handle_repo(verb, rest) => {}
         _ => reply(&format!("ERROR unknown command: {line}")),
     }
@@ -580,6 +680,20 @@ mod tests {
         assert!(!valid_repo_url("javascript:alert(1)"));
         assert!(!valid_repo_url("https://a b"));
         assert!(!valid_repo_url(""));
+    }
+
+    #[test]
+    fn fingerprints_are_parsed_and_validated() {
+        let line = "Fingerprint: 3D:22:2e:eb:26:a5:15:a8:e3:91:c9:eb:97:4e:c6:94";
+        assert_eq!(
+            fingerprint_in(line).as_deref(),
+            Some("3d:22:2e:eb:26:a5:15:a8:e3:91:c9:eb:97:4e:c6:94")
+        );
+        assert_eq!(fingerprint_in("Fingerprint: not a key"), None);
+        assert_eq!(fingerprint_in("no key here"), None);
+        assert!(!is_valid_fingerprint(""));
+        assert!(!is_valid_fingerprint("zz:zz:zz:zz"));
+        assert!(!is_valid_fingerprint("--foo"));
     }
 
     #[test]

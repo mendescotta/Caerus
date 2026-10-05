@@ -1,6 +1,7 @@
 use crate::backend::transaction::Transaction;
 use crate::ui::dialog_util::{cancel_button_row, close_button, modal_window, present_focused};
 use gtk::prelude::*;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 fn confirm_add_repo(parent: Option<&gtk::Window>, url: &str, cb: impl Fn(bool) + 'static) {
@@ -45,6 +46,102 @@ fn confirm_add_repo(parent: Option<&gtk::Window>, url: &str, cb: impl Fn(bool) +
         let cb = cb.clone();
         let dlg = dlg.clone();
         add_btn.connect_clicked(move |_| {
+            cb(true);
+            dlg.destroy();
+        });
+    }
+    {
+        let cb = cb.clone();
+        dlg.connect_close_request(move |_| {
+            cb(false);
+            glib::Propagation::Proceed
+        });
+    }
+
+    present_focused(&dlg, &cancel_btn);
+}
+
+fn fingerprint_from_log(line: &str) -> Option<String> {
+    let (_, rest) = line.split_once("Fingerprint:")?;
+    let fp = rest.trim().to_ascii_lowercase();
+    let valid =
+        fp.len() >= 8 && fp.contains(':') && fp.chars().all(|c| c.is_ascii_hexdigit() || c == ':');
+    valid.then_some(fp)
+}
+
+fn trust_key_and_sync(inner: &Rc<Inner>, entry: &gtk::Entry, url: &str, fingerprint: &str) {
+    let inner2 = inner.clone();
+    let entry2 = entry.clone();
+    let fp = fingerprint.to_string();
+    confirm_trust_key(Some(&inner.dlg), url, fingerprint, move |confirmed| {
+        if !confirmed {
+            return;
+        }
+        let inner3 = inner2.clone();
+        let entry3 = entry2.clone();
+        let commands = vec![format!("SYNC_TRUST {fp}")];
+        crate::ui::apply_dialog::run_recorded(
+            Some(&inner2.dlg),
+            &inner2.session,
+            &commands,
+            "Trusting Repository Key",
+            move |_success| {
+                entry3.set_text("");
+                refresh(&inner3);
+                (inner3.on_changed)();
+            },
+        );
+    });
+}
+
+fn confirm_trust_key(
+    parent: Option<&gtk::Window>,
+    url: &str,
+    fingerprint: &str,
+    cb: impl Fn(bool) + 'static,
+) {
+    let cb: Rc<dyn Fn(bool)> = Rc::new(cb);
+    let (dlg, outer) = modal_window("Trust Repository Key?", parent, false, (440, -1), 10);
+
+    let heading = gtk::Label::new(Some(
+        "This repository is signed with a key your system doesn't know yet. \
+         Only continue if this fingerprint matches the one published by the \
+         repository's maintainer. Caerus will import exactly this key and \
+         refuse any other.",
+    ));
+    heading.set_xalign(0.0);
+    heading.set_wrap(true);
+    outer.append(&heading);
+
+    for text in [url, fingerprint] {
+        let label = gtk::Label::new(Some(text));
+        label.set_xalign(0.0);
+        label.set_wrap(true);
+        label.set_selectable(true);
+        label.add_css_class("dim-label");
+        outer.append(&label);
+    }
+
+    let (btn_box, cancel_btn) = cancel_button_row(4);
+    let trust_btn = gtk::Button::with_label("Trust Key and Sync");
+    trust_btn.add_css_class("suggested-action");
+    btn_box.append(&trust_btn);
+    outer.append(&btn_box);
+
+    dlg.set_default_widget(Some(&cancel_btn));
+
+    {
+        let cb = cb.clone();
+        let dlg = dlg.clone();
+        cancel_btn.connect_clicked(move |_| {
+            cb(false);
+            dlg.destroy();
+        });
+    }
+    {
+        let cb = cb.clone();
+        let dlg = dlg.clone();
+        trust_btn.connect_clicked(move |_| {
             cb(true);
             dlg.destroy();
         });
@@ -339,13 +436,29 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction, on_changed: imp
                 }
                 let inner3 = inner2.clone();
                 let entry3 = entry2.clone();
+                let url3 = url_for_run.clone();
                 let commands = vec![format!("ADDREPO {}", url_for_run), "SYNC".to_string()];
+                let seen_fp: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+                let log_id = inner2.session.connect_log({
+                    let seen_fp = seen_fp.clone();
+                    move |line| {
+                        if let Some(fp) = fingerprint_from_log(line) {
+                            *seen_fp.borrow_mut() = Some(fp);
+                        }
+                    }
+                });
                 crate::ui::apply_dialog::run_recorded(
                     Some(&inner2.dlg),
                     &inner2.session,
                     &commands,
                     "Adding Repository",
-                    move |_success| {
+                    move |success| {
+                        inner3.session.disconnect_log(log_id);
+                        let pending_key = seen_fp.borrow_mut().take();
+                        if let (false, Some(fp)) = (success, pending_key) {
+                            trust_key_and_sync(&inner3, &entry3, &url3, &fp);
+                            return;
+                        }
                         entry3.set_text("");
                         refresh(&inner3);
                         (inner3.on_changed)();
@@ -358,4 +471,19 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction, on_changed: imp
     refresh(&inner);
 
     present_focused(&dlg, &entry);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fingerprint_parsed_from_helper_log() {
+        assert_eq!(
+            fingerprint_from_log("LOG Fingerprint: 3D:22:2E:EB:26:A5:15:A8").as_deref(),
+            Some("3d:22:2e:eb:26:a5:15:a8")
+        );
+        assert_eq!(fingerprint_from_log("LOG Fingerprint: nope"), None);
+        assert_eq!(fingerprint_from_log("LOG syncing"), None);
+    }
 }
