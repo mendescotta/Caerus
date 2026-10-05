@@ -31,7 +31,7 @@ not commit dates.
 ### Changed
 - `caerus-helper`'s command loop is table-driven instead of 15 copies of
   the same empty-argument check.
-- `packaging/srcpkgs/caerus` template updated to 0.6.0.
+- `packaging/srcpkgs/caerus` template updated to 0.7.0.
 
 ## [0.6.0] - 2026-08-12
 
