@@ -23,8 +23,8 @@ ask() {
 
 if ! command -v xbps-install >/dev/null 2>&1; then
     echo "Caerus targets Void Linux — 'xbps-install' wasn't found, so this" >&2
-    echo "script won't try to install build dependencies. See README.md's" >&2
-    echo "'Dependencies' section if you're building on another distro." >&2
+    echo "script won't try to install build dependencies. See CONTRIBUTING.md" >&2
+    echo "for the build dependencies if you're building on another distro." >&2
     exit 1
 fi
 
