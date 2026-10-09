@@ -28,3 +28,4 @@ jobs:
         with:
           name: audit-report
           path: audit-report.json
+          if-no-files-found: ignore
