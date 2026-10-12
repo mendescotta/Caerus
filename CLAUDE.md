@@ -22,15 +22,31 @@ Design rationale and gotchas: @DEVNOTES.md (local, gitignored).
 - New design/plan docs: `docs/superpowers/{specs,plans}/` (gitignored, local).
 
 ## Open
-- Intermittent segfault after "Remove Anyway" (see `../CONTINUE.md` in the
-  workspace). Confirmed unrelated to the ibus-gtk4 launch-crash regression
-  below (reported before it existed); still unreproduced. `scripts/debug-run.sh`
-  runs the `daily` cargo profile with core dumps and full backtraces enabled,
-  so the next occurrence should leave a core under
-  `~/.local/share/caerus/debug/`.
 - xlint: template uses deprecated `wrksrc`; GPL vlicense hint.
 
 ## Fixed
+- 2026-10-13: "Remove Anyway" segfault. Root cause confirmed with a local
+  debug build of gtk4 4.24.1 (symbols; stock Void gtk4 ships stripped) and
+  two real core dumps with byte-identical crash offsets. The checkbox that
+  triggers removal lives inside a `GtkColumnViewRowWidget`; `set_mark()`
+  replaces that package's list item via `GListStore::splice()` (the
+  documented "replace, don't mutate" rebind pattern — see DEVNOTES), which
+  unparents/recycles the row widget that still has GTK keyboard focus. If
+  the window regains X11 focus right as the confirm dialog closes (it
+  always does) before GTK's deferred stale-focus cleanup runs, GTK tries to
+  restore focus to the now-parentless row and crashes in
+  `gtk_column_view_row_widget_get_column_view()` — upstream gtk4 4.24.1,
+  `gtk/gtkcolumnviewrowwidget.c:45`, forces a second
+  `_gtk_widget_get_parent()` call with no NULL guard. Not a caerus logic
+  bug, but caerus controls the race window: `remove_confirm.rs`'s
+  "Remove Anyway" handler now clears the parent window's focus
+  (`GtkWindowExt::set_focus(None)`) before `dlg.destroy()`, so there's
+  nothing stale left for GTK to restore. Verified against the exact repro
+  (search → toggle a row's checkbox → Remove Anyway) and ~30 other
+  mark/unmark cycles with zero crashes after the fix, versus 2/2
+  reproductions before it. Worth reporting upstream (same bug family as
+  gtk4-rs#1673 / GTK MR!7095, MR!7253 — recycled list-view row widgets
+  racing with GTK's focus/selection bookkeeping).
 - 2026-10-12: crash at launch. Not a caerus bug — `ibus-gtk4` 1.5.34's GTK4
   immodule recurses infinitely in `g_object_new` under gtk4 4.24.x, aborting
   every GTK4 app on launch. Fixed by pinning `ibus` to 1.5.32_4 in the overlay
