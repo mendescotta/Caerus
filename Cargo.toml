@@ -44,3 +44,10 @@ uninlined_format_args = "warn"
 [profile.release]
 opt-level = 2
 debug = true
+
+[profile.daily]
+inherits = "dev"
+opt-level = 1
+debug = 2
+debug-assertions = true
+overflow-checks = true
