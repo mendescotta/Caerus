@@ -22,5 +22,16 @@ Design rationale and gotchas: @DEVNOTES.md (local, gitignored).
 - New design/plan docs: `docs/superpowers/{specs,plans}/` (gitignored, local).
 
 ## Open
-- Intermittent segfault after "Remove Anyway" (see `../CONTINUE.md` in the workspace).
+- Intermittent segfault after "Remove Anyway" (see `../CONTINUE.md` in the
+  workspace). Confirmed unrelated to the ibus-gtk4 launch-crash regression
+  below (reported before it existed); still unreproduced. `scripts/debug-run.sh`
+  runs the `daily` cargo profile with core dumps and full backtraces enabled,
+  so the next occurrence should leave a core under
+  `~/.local/share/caerus/debug/`.
 - xlint: template uses deprecated `wrksrc`; GPL vlicense hint.
+
+## Fixed
+- 2026-10-12: crash at launch. Not a caerus bug — `ibus-gtk4` 1.5.34's GTK4
+  immodule recurses infinitely in `g_object_new` under gtk4 4.24.x, aborting
+  every GTK4 app on launch. Fixed by pinning `ibus` to 1.5.32_4 in the overlay
+  (`voidlab/srcpkgs/ibus`, voidlab-testing commit `171d6e9`).
