@@ -167,7 +167,24 @@ fn show_impact_dialog(
     {
         let cb = cb.clone();
         let dlg = dlg.clone();
+        let parent = parent.cloned();
         remove_btn.connect_clicked(move |_| {
+            // Clear focus before destroying: the focused widget is often a
+            // row's checkbox, and set_mark()'s splice() (run from the idle
+            // callback below) recycles that exact row. GtkColumnView
+            // unparents the row widget but the window's remembered
+            // focus_widget isn't always cleared synchronously, and if the
+            // window regains X11 focus (right as this dialog closes) before
+            // that happens, GTK walks the now-parentless row widget's
+            // ancestor chain in gtk_column_view_row_widget_get_column_view()
+            // and segfaults on a NULL parent (upstream gtk4 4.24.1,
+            // gtkcolumnviewrowwidget.c:45 — no NULL guard between the
+            // GTK_IS_COLUMN_VIEW check and the forced second
+            // _gtk_widget_get_parent() call). Clearing focus here makes sure
+            // the window has nothing stale to restore.
+            if let Some(p) = &parent {
+                gtk::prelude::GtkWindowExt::set_focus(p, None::<&gtk::Widget>);
+            }
             dlg.destroy();
             let cb = cb.clone();
             glib::source::idle_add_local_once(move || cb(true));
