@@ -974,6 +974,22 @@ fn build_hover_content(pkg: &Package) -> gtk::Box {
     header.append(&chip(state_text, state_class));
     vbox.append(&header);
 
+    let desc_text = pkg
+        .long_desc
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .or(Some(pkg.short_desc.as_str()))
+        .filter(|s| !s.is_empty());
+    if let Some(desc_text) = desc_text {
+        let desc = gtk::Label::new(Some(desc_text));
+        desc.set_xalign(0.0);
+        desc.set_wrap(true);
+        desc.set_wrap_mode(gtk::pango::WrapMode::Word);
+        desc.set_max_width_chars(40);
+        desc.add_css_class("dim-label");
+        vbox.append(&desc);
+    }
+
     if let Some(v) = pkg
         .version_installed
         .as_ref()
