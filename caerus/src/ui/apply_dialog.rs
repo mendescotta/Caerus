@@ -114,6 +114,16 @@ pub fn run(
     let text_view = gtk::TextView::new();
     text_view.set_editable(false);
     text_view.set_cursor_visible(false);
+    // Read-only log console: never let it take keyboard focus. If it does
+    // (GTK's default focusable=true, and it's the only focusable widget
+    // here while close_btn starts disabled), every append_log() call below
+    // moves the buffer's "insert" mark, which GTK forwards to the active
+    // input-method context as a cursor-location update. ibus-gtk4's
+    // immodule crashes on that: gdk_x11_surface_get_xid() gets called with
+    // a NULL GdkSurface* (confirmed via core dump: rdi=0 at the fault).
+    // Not a caerus logic bug, but caerus controls whether this widget is
+    // ever a focus target in the first place.
+    text_view.set_focusable(false);
     text_view.set_monospace(true);
     text_view.set_wrap_mode(gtk::WrapMode::WordChar);
     text_view.set_margin_start(4);
@@ -212,10 +222,22 @@ pub fn run(
                 None => buf.insert(&mut end, &display),
             }
             buf.insert(&mut end, "\n");
-            let mark = buf.get_insert();
-            let end = buf.end_iter();
-            buf.move_mark(&mark, &end);
-            text_view.scroll_mark_onscreen(&mark);
+            // Moving the "insert" mark makes GTK forward a cursor-location
+            // update to the input-method context (ibus-gtk4's immodule here),
+            // which computes the widget's on-screen position via
+            // gtk_widget_get_root()/get_native(). Right after the dialog is
+            // presented, the first log lines can arrive before this view is
+            // actually rooted (confirmed: root()/native() are both None on
+            // that first call) — ibus's immodule doesn't guard against that
+            // and segfaults in gdk_x11_surface_get_xid() on a NULL surface.
+            // Nothing is on screen to scroll to yet anyway, so skip both
+            // calls until the view has a root.
+            if text_view.root().is_some() {
+                let mark = buf.get_insert();
+                let end = buf.end_iter();
+                buf.move_mark(&mark, &end);
+                text_view.scroll_mark_onscreen(&mark);
+            }
 
             if line != "OK" && line != "READY" && !clean.is_empty() {
                 if total_pkgs > 1 {
