@@ -4,6 +4,22 @@ All notable changes to Caerus are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); dates are release dates,
 not commit dates.
 
+## [0.7.2] - 2026-10-13
+
+### Added
+- Dependency hover tooltips now show the package description.
+
+### Fixed
+- "Remove Anyway" (on a package with dependents) could segfault: GTK tried
+  to restore focus to a recycled, now-parentless row widget right as the
+  confirm dialog closed. The handler now clears the parent window's focus
+  before destroying the dialog.
+- Install/remove/sync transactions could segfault in ibus-gtk4's immodule:
+  the progress dialog's log view could receive its first line before
+  being rooted, and ibus doesn't guard against computing a position for
+  an unrooted widget. The log view now waits until it has a root before
+  moving its scroll mark.
+
 ## [0.7.1] - 2026-10-05
 
 ### Fixed
