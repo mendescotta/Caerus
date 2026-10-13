@@ -1,3 +1,5 @@
+@AGENTS.md
+
 # caerus
 
 GTK4 package manager GUI for Void (workspace: `xbps-sys`, `caerus`,
