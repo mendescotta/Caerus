@@ -59,15 +59,22 @@ echo ""
 
 # Change to $LOGDIR so core dumps (pattern: 'core.<pid>') land there.
 cd "$LOGDIR"
+# set +e/-e brackets just this line: PIPESTATUS must be read immediately
+# after the pipeline, before any other command (even '|| true') overwrites
+# it, so errexit has to be off here rather than papered over with '|| true'.
 set +e
 "$BIN" 2>&1 | tee -a "$LOGFILE"
 EXIT=${PIPESTATUS[0]}
 set -e
 
+# The reporting below must not mask $EXIT: a failed tee/printf (e.g. disk
+# full) would otherwise abort the script under errexit before `exit "$EXIT"`
+# runs, handing the caller the reporting command's exit code instead of
+# Caerus's real one.
 {
     echo ""
     echo "=== exit $EXIT ==="
-} | tee -a "$LOGFILE"
+} | tee -a "$LOGFILE" || true
 
 # Report any fresh core dump.
 CORE=$(ls -t "$LOGDIR"/core.* 2>/dev/null | head -1 || true)
@@ -76,7 +83,7 @@ if [[ -n "$CORE" ]]; then
     echo "Core dump: $CORE"
     echo "Backtrace: gdb $BIN $CORE"
     echo "           (gdb) bt full"
-    printf "Core dump: %s\ngdb %s %s\n" "$CORE" "$BIN" "$CORE" >> "$LOGFILE"
+    printf "Core dump: %s\ngdb %s %s\n" "$CORE" "$BIN" "$CORE" >> "$LOGFILE" || true
 fi
 
 echo ""
