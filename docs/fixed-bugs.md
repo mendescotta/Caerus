@@ -47,6 +47,8 @@ its 40-line cap. See `CLAUDE.md`'s "Fixed" section for the one-line index.
   immodule recurses infinitely in `g_object_new` under gtk4 4.24.x, aborting
   every GTK4 app on launch. Fixed by pinning `ibus` to 1.5.32_4 in the overlay
   (`voidlab/srcpkgs/ibus`, voidlab-testing commit `171d6e9`). Drop the pin
-  once upstream 1.5.35 reaches a stable release and both this recursion bug
-  and the two segfaults above are confirmed gone (1.5.34 alone is not
-  enough — see `voidlands/CONTINUE.md`).
+  once the overlay moves to ibus 1.5.35-rc1 or later and both this
+  recursion bug and the two segfaults above are confirmed gone — 1.5.34
+  alone is not enough. The actual fix (a NULL guard on
+  `gtk_widget_get_root()` in `_set_cursor_location_internal()`) landed
+  upstream as commit `c534999`, "Fix GTK4 SEGV in Xorg".
