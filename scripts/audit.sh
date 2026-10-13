@@ -13,11 +13,17 @@ patterns=(
 
 if ! command -v rg >/dev/null 2>&1; then
   echo "ripgrep (rg) is required. Install it or run audit inside CI where it's installed." >&2
-  exit 0
+  exit 1
 fi
 
-rg --json -n -S -g '!target/' -g '!.git/' \
+if rg --json -n -S -g '!target/' -g '!.git/' \
   -e "${patterns[0]}" -e "${patterns[1]}" -e "${patterns[2]}" -e "${patterns[3]}" -e "${patterns[4]}" -e "${patterns[5]}" -e "${patterns[6]}" \
-  > audit-report.json || true
+  > audit-report.json; then
+  :
+else
+  status=$?
+  # ripgrep uses 1 for no matches and 2 for a search error.
+  [ "$status" -eq 1 ] || exit "$status"
+fi
 
 echo "Wrote audit-report.json (may be empty)."

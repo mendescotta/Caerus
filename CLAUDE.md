@@ -26,9 +26,6 @@ bug writeups: `docs/fixed-bugs.md`.
 - `ibus` stays pinned to 1.5.32_4 in the overlay until it moves to 1.5.35-rc1
   or later and both bugs below are confirmed gone (`docs/fixed-bugs.md`).
 
-## Open
-- xlint: template uses deprecated `wrksrc`; GPL vlicense hint.
-
 ## Fixed (root-cause detail: `docs/fixed-bugs.md`)
 - 2026-10-13: apply-dialog crash during install/remove/sync transactions.
 - 2026-10-13: "Remove Anyway" segfault (GTK4 ColumnView focus-recycle race).
