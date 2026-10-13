@@ -59,8 +59,10 @@ echo ""
 
 # Change to $LOGDIR so core dumps (pattern: 'core.<pid>') land there.
 cd "$LOGDIR"
+set +e
 "$BIN" 2>&1 | tee -a "$LOGFILE"
 EXIT=${PIPESTATUS[0]}
+set -e
 
 {
     echo ""
@@ -79,3 +81,4 @@ fi
 
 echo ""
 echo "Log: $LOGFILE"
+exit "$EXIT"
