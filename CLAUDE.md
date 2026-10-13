@@ -23,9 +23,6 @@ Design rationale and gotchas: @DEVNOTES.md (local, gitignored).
   template is the only copy; there is none in this repo.
 - New design/plan docs: `docs/superpowers/{specs,plans}/` (gitignored, local).
 
-## Open
-- xlint: template uses deprecated `wrksrc`; GPL vlicense hint.
-
 ## Fixed
 - 2026-10-13: apply-dialog crash during transactions (install/remove/sync).
   The log `GtkTextView` in `apply_dialog.rs` moves the buffer's `insert`

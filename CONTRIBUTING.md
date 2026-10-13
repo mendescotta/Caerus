@@ -31,14 +31,15 @@ Or the quick installer, which builds from source:
 
 ## Before opening a PR
 
-Run these from the repo root; CI runs the same checks and will fail the
-build otherwise:
+Run these from the repo root; CI runs them for pull requests:
 
 ```sh
 cargo build --workspace
-cargo test --workspace
+cargo test --workspace --all-features --locked
 cargo clippy --workspace --all-targets -- -D warnings
-cargo fmt --check
+cargo fmt --all -- --check
+cargo build --features caerus/adwaita
+cargo clippy --workspace --all-targets --features caerus/adwaita -- -D warnings
 ```
 
 `cargo fmt` (no `--check`) will fix formatting for you. The workspace
@@ -105,7 +106,7 @@ Open a GitHub issue. Since Caerus talks to `libxbps` and shells out to
 
 | Caerus Action | Where in UI | Underlying xbps command |
 |---|---|---|
-| Sync repositories | Header sync button / at launch | `xbps-install -S` |
+| Sync repositories | Header sync button / at launch when enabled in Settings (off by default) | `xbps-install -S` |
 | Full System Upgrade | App menu | `xbps-install -y -Su` |
 | Install / Upgrade (Apply) | Checkbox, context menu, detail pane, Apply | `xbps-install -y -- pkg...` |
 | Remove | Checkbox, context menu, detail pane, Apply | `xbps-remove -y -- pkg...` |
