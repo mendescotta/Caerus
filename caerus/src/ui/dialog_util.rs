@@ -7,6 +7,11 @@ pub fn modal_window(
     default_size: (i32, i32),
     spacing: i32,
 ) -> (gtk::Window, gtk::Box) {
+    #[cfg(feature = "adwaita")]
+    let adw_dlg = adw::Window::new();
+    #[cfg(feature = "adwaita")]
+    let dlg: gtk::Window = adw_dlg.clone().upcast();
+    #[cfg(not(feature = "adwaita"))]
     let dlg = gtk::Window::new();
     dlg.set_title(Some(title));
     dlg.add_css_class("utility-dialog");
@@ -23,7 +28,22 @@ pub fn modal_window(
     outer.set_margin_end(20);
     outer.set_margin_top(20);
     outer.set_margin_bottom(20);
-    dlg.set_child(Some(&outer));
+    #[cfg(feature = "adwaita")]
+    {
+        // AdwWindow owns its chrome and does not support GtkWindow:child or
+        // GtkWindow:titlebar. Its content must contain the toolbar view.
+        use adw::prelude::AdwWindowExt;
+
+        let toolbar = adw::ToolbarView::new();
+        toolbar.add_top_bar(&adw::HeaderBar::new());
+        toolbar.set_content(Some(&outer));
+        adw_dlg.set_content(Some(&toolbar));
+    }
+    #[cfg(not(feature = "adwaita"))]
+    {
+        dlg.set_titlebar(Some(&gtk::HeaderBar::new()));
+        dlg.set_child(Some(&outer));
+    }
 
     let key = gtk::EventControllerKey::new();
     let dlg_weak = dlg.downgrade();
