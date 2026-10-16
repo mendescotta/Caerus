@@ -198,9 +198,11 @@ impl Transaction {
     fn find_helper_path() -> Option<PathBuf> {
         const INSTALL_PATH: &str = "/usr/libexec/caerus-helper";
 
+        // Development overrides may be owned by the current user; the system
+        // install and PATH lookups must be root-owned end to end.
         if let Ok(over) = std::env::var("CAERUS_HELPER_PATH") {
             let p = PathBuf::from(&over);
-            if is_executable(&p) && helper_is_trusted(&p) {
+            if is_executable(&p) && helper_is_trusted(&p, true) {
                 return Some(p);
             }
         }
@@ -208,18 +210,18 @@ impl Transaction {
         if let Ok(self_exe) = std::fs::read_link("/proc/self/exe") {
             if let Some(dir) = self_exe.parent() {
                 let candidate = dir.join("caerus-helper");
-                if is_executable(&candidate) && helper_is_trusted(&candidate) {
+                if is_executable(&candidate) && helper_is_trusted(&candidate, true) {
                     return Some(candidate);
                 }
             }
         }
 
         let p = PathBuf::from(INSTALL_PATH);
-        if is_executable(&p) {
+        if is_executable(&p) && helper_is_trusted(&p, false) {
             return Some(p);
         }
 
-        which("caerus-helper")
+        which("caerus-helper").filter(|p| helper_is_trusted(p, false))
     }
 
     fn spawn_helper(&self) -> bool {
@@ -456,20 +458,31 @@ fn which(program: &str) -> Option<PathBuf> {
     None
 }
 
-fn helper_is_trusted(path: &Path) -> bool {
+/// Whether `path` may be run as root through pkexec.
+///
+/// The file and every ancestor directory must be owned by root (or by the
+/// current user when `allow_user_owned`, for development builds) and must not
+/// be group/world-writable. A writable directory is tolerated only when it is
+/// sticky (e.g. `/tmp`), which stops other users replacing our entries.
+fn helper_is_trusted(path: &Path, allow_user_owned: bool) -> bool {
     use std::os::unix::fs::MetadataExt;
     let Ok(me) = std::fs::metadata("/proc/self").map(|m| m.uid()) else {
         return false;
     };
-    let trusted_owner = |m: &std::fs::Metadata| m.uid() == 0 || m.uid() == me;
-    let locked_down = |m: &std::fs::Metadata| m.mode() & 0o022 == 0;
-    let Ok(file) = std::fs::metadata(path) else {
+    let Ok(resolved) = std::fs::canonicalize(path) else {
         return false;
     };
-    let Some(Ok(dir)) = path.parent().map(std::fs::metadata) else {
+    let trusted_owner = |m: &std::fs::Metadata| m.uid() == 0 || (allow_user_owned && m.uid() == me);
+    let Ok(file) = std::fs::metadata(&resolved) else {
         return false;
     };
-    trusted_owner(&file) && locked_down(&file) && trusted_owner(&dir) && locked_down(&dir)
+    if !file.is_file() || !trusted_owner(&file) || file.mode() & 0o022 != 0 {
+        return false;
+    }
+    resolved.ancestors().skip(1).all(|dir| {
+        std::fs::metadata(dir)
+            .is_ok_and(|m| trusted_owner(&m) && (m.mode() & 0o022 == 0 || m.mode() & 0o1000 != 0))
+    })
 }
 
 fn command_is_safe(command: &str) -> bool {
@@ -480,20 +493,69 @@ fn command_is_safe(command: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// Scratch directory under the system temp dir, removed on drop.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("caerus-{name}-{}", std::process::id()));
+            if std::fs::symlink_metadata(&dir).is_ok_and(|m| m.is_dir()) {
+                let _ = std::fs::remove_dir_all(&dir);
+            }
+            std::fs::create_dir(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn chmod(path: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+
     #[test]
     fn world_writable_helper_is_not_trusted() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("caerus-helper-trust-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let scratch = Scratch::new("helper-trust");
+        let dir = &scratch.0;
+        chmod(dir, 0o755);
         let helper = dir.join("caerus-helper");
         std::fs::write(&helper, "").unwrap();
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(helper_is_trusted(&helper));
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o757)).unwrap();
-        assert!(!helper_is_trusted(&helper));
-        assert!(!helper_is_trusted(&dir.join("missing")));
+        chmod(&helper, 0o755);
+        assert!(helper_is_trusted(&helper, true));
+        chmod(&helper, 0o757);
+        assert!(!helper_is_trusted(&helper, true));
+        assert!(!helper_is_trusted(&dir.join("missing"), true));
+    }
+
+    #[test]
+    fn user_owned_helper_needs_explicit_opt_in() {
+        let scratch = Scratch::new("helper-owner");
+        let helper = scratch.0.join("caerus-helper");
+        chmod(&scratch.0, 0o755);
+        std::fs::write(&helper, "").unwrap();
+        chmod(&helper, 0o755);
+        assert!(helper_is_trusted(&helper, true));
+        assert!(!helper_is_trusted(&helper, false));
+    }
+
+    #[test]
+    fn writable_ancestor_directory_is_not_trusted() {
+        let scratch = Scratch::new("helper-ancestor");
+        let inner = scratch.0.join("bin");
+        std::fs::create_dir(&inner).unwrap();
+        chmod(&inner, 0o755);
+        let helper = inner.join("caerus-helper");
+        std::fs::write(&helper, "").unwrap();
+        chmod(&helper, 0o755);
+        chmod(&scratch.0, 0o755);
+        assert!(helper_is_trusted(&helper, true));
+        chmod(&scratch.0, 0o777);
+        assert!(!helper_is_trusted(&helper, true));
     }
 
     #[test]
