@@ -52,12 +52,21 @@ impl FilterMode {
 }
 
 impl Package {
+    /// Returns whether the available package version is newer than the installed version.
+    ///
+    /// Versions are compared using XBPS ordering; missing versions and equal or older
+    /// available versions return `false`.
+    pub fn has_newer_available_version(&self) -> bool {
+        matches!(
+            (&self.version_installed, &self.version_available),
+            (Some(installed), Some(available))
+                if crate::backend::package_store::compare_versions(available, installed)
+                    == std::cmp::Ordering::Greater
+        )
+    }
+
     pub fn is_held_back(&self) -> bool {
-        self.state == PkgState::OnHold
-            && matches!(
-                (&self.version_installed, &self.version_available),
-                (Some(a), Some(b)) if a != b
-            )
+        self.state == PkgState::OnHold && self.has_newer_available_version()
     }
 }
 
@@ -209,5 +218,36 @@ mod tests {
         assert!(!pkg(PkgState::OnHold, Some("1.0_1"), Some("1.0_1")).is_held_back());
         assert!(!pkg(PkgState::OnHold, Some("1.0_1"), None).is_held_back());
         assert!(!pkg(PkgState::Upgradable, Some("1.0_1"), Some("1.1_1")).is_held_back());
+    }
+
+    #[test]
+    fn held_back_uses_xbps_version_ordering() {
+        assert!(pkg(PkgState::OnHold, Some("1.9_1"), Some("1.10_1")).is_held_back());
+        assert!(!pkg(PkgState::OnHold, Some("1.10_1"), Some("1.9_1")).is_held_back());
+        assert!(pkg(PkgState::OnHold, Some("1.0_2"), Some("1.0_10")).is_held_back());
+    }
+
+    #[test]
+    fn newer_available_version_uses_xbps_version_ordering() {
+        assert!(
+            pkg(PkgState::Installed, Some("1.9_1"), Some("1.10_1")).has_newer_available_version()
+        );
+        assert!(
+            !pkg(PkgState::Installed, Some("1.10_1"), Some("1.9_1")).has_newer_available_version()
+        );
+        assert!(
+            pkg(PkgState::Installed, Some("1.0_2"), Some("1.0_10")).has_newer_available_version()
+        );
+        assert!(
+            !pkg(PkgState::Installed, Some("1.0_1"), Some("1.0_1")).has_newer_available_version()
+        );
+        assert_eq!(
+            crate::backend::package_store::compare_versions("1.01_1", "1.1_1"),
+            std::cmp::Ordering::Equal
+        );
+        assert!(
+            !pkg(PkgState::Installed, Some("1.01_1"), Some("1.1_1")).has_newer_available_version()
+        );
+        assert!(!pkg(PkgState::NotInstalled, None, Some("1.1_1")).has_newer_available_version());
     }
 }
