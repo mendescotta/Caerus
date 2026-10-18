@@ -62,7 +62,7 @@ rewriting code automatically.
 ## Testing changes
 
 Most of the app's *logic* — mark-to-command mapping, progress-line
-parsing, force-retry mapping — lives in small, pure functions specifically
+parsing and Apply command grouping — lives in small, pure functions specifically
 so it's unit-testable without a live GTK window or a privileged helper
 process; see the `#[cfg(test)] mod tests` blocks in `caerus/src/ui/
 apply_dialog.rs`, `caerus/src/ui/window.rs`, and `caerus-helper/src/
@@ -107,13 +107,10 @@ Open a GitHub issue. Since Caerus talks to `libxbps` and shells out to
 | Caerus Action | Where in UI | Underlying xbps command |
 |---|---|---|
 | Sync repositories | Header sync button / at launch when enabled in Settings (off by default) | `xbps-install -S` |
-| Full System Upgrade | App menu | `xbps-install -y -Su` |
+| Full System Upgrade | App menu | `xbps-install -S` to sync, then `xbps-install -y -u` after a fresh preview. If xbps updates itself first, run the action again for a fresh preview of remaining updates. |
 | Install / Upgrade (Apply) | Checkbox, context menu, detail pane, Apply | `xbps-install -y -- pkg...` |
 | Remove | Checkbox, context menu, detail pane, Apply | `xbps-remove -y -- pkg...` |
 | Purge | Checkbox, context menu, detail pane, Apply | `xbps-remove -y -R -- pkg...` |
-| Install (force retry) | "Retry With Force" after a failed Apply | `xbps-install -y -I -- pkg...` |
-| Remove (force retry) | "Retry With Force" after a failed Apply | `xbps-remove -y -F -- pkg...` |
-| Purge (force retry) | "Retry With Force" after a failed Apply | `xbps-remove -y -R -F -- pkg...` |
 | Reinstall | Detail pane | `xbps-install -f -y -- pkg...` |
 | Reconfigure | Detail pane | `xbps-reconfigure -f -- pkg...` |
 | Download Only | Detail pane | `xbps-install -D -y -- pkg...` |
@@ -132,6 +129,6 @@ Open a GitHub issue. Since Caerus talks to `libxbps` and shells out to
 | Switch Alternative | Alternatives dialog | `xbps-alternatives -g <group> -s <pkg>` |
 | Add Repository | Repositories dialog | writes `/etc/xbps.d/90-caerus.conf` (no xbps CLI), then queues `xbps-install -S` |
 | Remove Repository | Repositories dialog | edits the same conf file, then `xbps-install -S` |
-| Transaction preview / dry-run | Apply confirmation dialog | `xbps_transaction_prepare()` via libxbps directly — equivalent to `xbps-install -n` |
+| Transaction preview / dry-run | Apply confirmation dialog | Each Apply command is previewed and confirmed separately with `xbps_transaction_prepare()`; the package state is reloaded between commands. Full upgrade uses `xbps_transaction_update_packages()` after sync. |
 | Find Owning Package | App menu → Find Owning Package | `xbps-query -o <path>` (the only literal `xbps-query` subprocess call in the app) |
 | Package details, deps, reverse-deps, files, provides/conflicts/replaces, shlib info | Detail pane | via libxbps directly (`xbps_pkgdb_get_pkg`/`xbps_rpool_get_pkg` + dictionary reads) — equivalent to `xbps-query -S/-x/-X/-f` |

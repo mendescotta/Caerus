@@ -60,6 +60,7 @@ fn mark_is_valid_for_state(mark: PkgMark, state: PkgState) -> bool {
 type LoadStartedCbs = RefCell<Vec<Box<dyn Fn()>>>;
 type LoadFinishedCbs = RefCell<Vec<Box<dyn Fn(u32)>>>;
 type LoadErrorCbs = RefCell<Vec<Box<dyn Fn(&str)>>>;
+type NextLoadCb = RefCell<Option<Box<dyn FnOnce(Result<(), String>)>>>;
 
 struct Inner {
     list: gio::ListStore,
@@ -69,6 +70,7 @@ struct Inner {
     on_load_started: LoadStartedCbs,
     on_load_finished: LoadFinishedCbs,
     on_load_error: LoadErrorCbs,
+    next_load_cb: NextLoadCb,
 }
 
 impl Drop for Inner {
@@ -101,6 +103,7 @@ impl PackageStore {
             on_load_started: RefCell::new(Vec::new()),
             on_load_finished: RefCell::new(Vec::new()),
             on_load_error: RefCell::new(Vec::new()),
+            next_load_cb: RefCell::new(None),
         });
 
         {
@@ -111,6 +114,7 @@ impl PackageStore {
                 };
                 while let Ok(result) = result_rx.try_recv() {
                     inner.loading.set(false);
+                    let next_load_cb = inner.next_load_cb.borrow_mut().take();
                     match result {
                         LoadResult::Ok(packages) => {
                             let n = packages.len() as u32;
@@ -143,10 +147,16 @@ impl PackageStore {
                             for cb in inner.on_load_finished.borrow().iter() {
                                 cb(n);
                             }
+                            if let Some(cb) = next_load_cb {
+                                cb(Ok(()));
+                            }
                         }
                         LoadResult::Err(msg) => {
                             for cb in inner.on_load_error.borrow().iter() {
                                 cb(&msg);
+                            }
+                            if let Some(cb) = next_load_cb {
+                                cb(Err(msg));
                             }
                         }
                     }
@@ -162,6 +172,11 @@ impl PackageStore {
         self.inner.list.clone()
     }
 
+    /// Whether a package database reload is in progress.
+    pub fn is_loading(&self) -> bool {
+        self.inner.loading.get()
+    }
+
     pub fn connect_load_started(&self, f: impl Fn() + 'static) {
         self.inner.on_load_started.borrow_mut().push(Box::new(f));
     }
@@ -173,6 +188,21 @@ impl PackageStore {
     }
 
     pub fn load_async(&self) {
+        self.start_load();
+    }
+
+    /// Reloads packages and calls `cb` after the list has been replaced or an
+    /// error has been reported. An already-running reload fails this request.
+    pub fn load_async_with_result(&self, cb: impl FnOnce(Result<(), String>) + 'static) {
+        if self.inner.loading.get() {
+            cb(Err("package database is already loading".to_string()));
+            return;
+        }
+        *self.inner.next_load_cb.borrow_mut() = Some(Box::new(cb));
+        self.start_load();
+    }
+
+    fn start_load(&self) {
         if self.inner.loading.get() {
             return;
         }
@@ -180,7 +210,13 @@ impl PackageStore {
         for cb in self.inner.on_load_started.borrow().iter() {
             cb();
         }
-        let _ = self.inner.cmd_tx.send(Cmd::Reload);
+        if self.inner.cmd_tx.send(Cmd::Reload).is_err() {
+            self.inner.loading.set(false);
+            let cb = self.inner.next_load_cb.borrow_mut().take();
+            if let Some(cb) = cb {
+                cb(Err("package database worker stopped".to_string()));
+            }
+        }
     }
 
     fn for_each<F: FnMut(&PackageObject)>(&self, mut f: F) {
@@ -1038,6 +1074,7 @@ fn get_missing_deps(
 const EEXIST: c_int = 17;
 const ENOEXEC: c_int = 8;
 const EAGAIN: c_int = 11;
+const EBUSY: c_int = 16;
 const ENODEV: c_int = 19;
 const ENOSPC: c_int = 28;
 
@@ -1069,6 +1106,7 @@ fn preview_transaction(ops: &[PreviewOp]) -> Result<TransactionPreview, Transact
             )));
         }
         let result = run_preview_ops(&mut xh, ops);
+        xbps_sys::xbps_rpool_release(&mut xh);
         xbps_sys::xbps_end(&mut xh);
         result
     }
@@ -1081,24 +1119,24 @@ unsafe fn run_preview_ops(
     let mut op_errors = Vec::new();
     for op in ops {
         let (name, code) = match op {
+            PreviewOp::UpdateAll => (
+                "full system upgrade",
+                xbps_sys::xbps_transaction_update_packages(xh),
+            ),
             PreviewOp::Install(name) => (
-                name,
+                name.as_str(),
                 xbps_sys::xbps_transaction_install_pkg(xh, cstr(name).as_ptr(), false),
             ),
-            PreviewOp::Update(name) => (
-                name,
-                xbps_sys::xbps_transaction_update_pkg(xh, cstr(name).as_ptr(), false),
-            ),
             PreviewOp::Remove(name) => (
-                name,
+                name.as_str(),
                 xbps_sys::xbps_transaction_remove_pkg(xh, cstr(name).as_ptr(), false),
             ),
             PreviewOp::Purge(name) => (
-                name,
+                name.as_str(),
                 xbps_sys::xbps_transaction_remove_pkg(xh, cstr(name).as_ptr(), true),
             ),
         };
-        if code != 0 && code != EEXIST {
+        if !preview_enqueue_succeeded(op, code) {
             op_errors.push(format!(
                 "{}: {}",
                 name,
@@ -1218,6 +1256,12 @@ unsafe fn run_preview_ops(
     Ok(preview)
 }
 
+fn preview_enqueue_succeeded(op: &PreviewOp, code: c_int) -> bool {
+    // update-all can leave an xbps self-update transaction ready while
+    // reporting that the remaining packages need a later pass.
+    code == 0 || code == EEXIST || (matches!(op, PreviewOp::UpdateAll) && code == EBUSY)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1229,5 +1273,15 @@ mod tests {
         assert_eq!(compare_versions("1.10_1", "1.9_1"), Ordering::Greater);
         assert_eq!(compare_versions("2.0_1", "2.0_1"), Ordering::Equal);
         assert_eq!(compare_versions("1.0_2", "1.0_10"), Ordering::Less);
+    }
+
+    #[test]
+    fn only_full_upgrade_accepts_self_update_prepare_boundary() {
+        assert!(preview_enqueue_succeeded(&PreviewOp::UpdateAll, EBUSY));
+        assert!(!preview_enqueue_succeeded(
+            &PreviewOp::Install("xbps".into()),
+            EBUSY
+        ));
+        assert!(preview_enqueue_succeeded(&PreviewOp::UpdateAll, EEXIST));
     }
 }
