@@ -552,11 +552,10 @@ fn respond_result(result: Result<(), String>) {
 
 fn handle_upgrade() {
     const EBUSY: i32 = 16;
-    let mut code = run_xbps(&["xbps-install", "-y", "-Su"]);
+    let code = run_xbps(&["xbps-install", "-y", "-u"]);
     if code == Some(EBUSY) {
-        println!("LOG xbps updated itself; re-running the system upgrade\u{2026}");
-        let _ = io::stdout().flush();
-        code = run_xbps(&["xbps-install", "-y", "-Su"]);
+        reply("ERROR xbps updated itself; run Full System Upgrade again to preview the remaining updates");
+        return;
     }
     respond_ok_or(code == Some(0), "upgrade failed");
 }

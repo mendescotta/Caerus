@@ -10,7 +10,7 @@ use std::time::Duration;
 
 const IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum TxnState {
     NotRunning,
     Spawning,
@@ -63,19 +63,7 @@ pub struct Transaction {
 
 impl Transaction {
     pub fn new() -> Self {
-        let inner = Rc::new(Inner {
-            stdin: RefCell::new(None),
-            line_rx: RefCell::new(None),
-            batches: RefCell::new(VecDeque::new()),
-            state: Cell::new(TxnState::NotRunning),
-            intentional_quit: Cell::new(false),
-            idle_timeout_id: RefCell::new(None),
-            next_listener_id: Cell::new(0),
-            on_log: RefCell::new(Vec::new()),
-            on_disconnected: RefCell::new(Vec::new()),
-        });
-
-        let txn = Self { inner };
+        let txn = Self::without_poll();
         {
             let weak = Rc::downgrade(&txn.inner);
             glib::source::timeout_add_local(Duration::from_millis(20), move || {
@@ -88,6 +76,22 @@ impl Transaction {
             });
         }
         txn
+    }
+
+    fn without_poll() -> Self {
+        let inner = Rc::new(Inner {
+            stdin: RefCell::new(None),
+            line_rx: RefCell::new(None),
+            batches: RefCell::new(VecDeque::new()),
+            state: Cell::new(TxnState::NotRunning),
+            intentional_quit: Cell::new(false),
+            idle_timeout_id: RefCell::new(None),
+            next_listener_id: Cell::new(0),
+            on_log: RefCell::new(Vec::new()),
+            on_disconnected: RefCell::new(Vec::new()),
+        });
+
+        Self { inner }
     }
 
     fn next_id(&self) -> u64 {
@@ -146,22 +150,17 @@ impl Transaction {
     }
 
     pub fn run_batch(&self, commands: Vec<String>, on_finished: impl FnOnce(bool) + 'static) {
-        let mut accepted: VecDeque<String> = VecDeque::with_capacity(commands.len());
-        for command in commands {
-            if !command_is_safe(&command) {
-                self.emit_log(&format!(
-                    "refusing to queue malformed command (contains control characters): {command:?}"
-                ));
-                continue;
-            }
-            accepted.push_back(command);
+        if commands.iter().any(|command| !command_is_safe(command)) {
+            self.emit_log("refusing malformed batch (contains control characters)");
+            on_finished(false);
+            return;
         }
-        if accepted.is_empty() {
+        if commands.is_empty() {
             on_finished(true);
             return;
         }
         self.inner.batches.borrow_mut().push_back(Batch {
-            commands: accepted,
+            commands: commands.into(),
             on_finished: Some(Box::new(on_finished)),
         });
 
@@ -512,5 +511,41 @@ mod tests {
         assert!(!command_is_safe("INSTALL foo\u{0}"));
         assert!(!command_is_safe("INSTALL foo\u{1b}[31m"));
         assert!(!command_is_safe("\rINSTALL foo"));
+    }
+
+    #[test]
+    fn malformed_batch_fails_without_queuing_valid_commands() {
+        let txn = Transaction::without_poll();
+        let result = Rc::new(Cell::new(None));
+        let result_cb = result.clone();
+        txn.run_batch(
+            vec!["INSTALL good".into(), "REMOVE bad\nINSTALL other".into()],
+            move |ok| result_cb.set(Some(ok)),
+        );
+        assert_eq!(result.get(), Some(false));
+        assert!(txn.inner.batches.borrow().is_empty());
+        assert_eq!(txn.inner.state.get(), TxnState::NotRunning);
+    }
+
+    #[test]
+    fn empty_batch_succeeds_without_starting_helper() {
+        let txn = Transaction::without_poll();
+        let result = Rc::new(Cell::new(None));
+        let result_cb = result.clone();
+        txn.run_batch(Vec::new(), move |ok| result_cb.set(Some(ok)));
+        assert_eq!(result.get(), Some(true));
+        assert_eq!(txn.inner.state.get(), TxnState::NotRunning);
+    }
+
+    #[test]
+    fn malformed_only_batch_fails() {
+        let txn = Transaction::without_poll();
+        let result = Rc::new(Cell::new(None));
+        let result_cb = result.clone();
+        txn.run_batch(vec!["INSTALL bad\nREMOVE other".into()], move |ok| {
+            result_cb.set(Some(ok));
+        });
+        assert_eq!(result.get(), Some(false));
+        assert!(txn.inner.batches.borrow().is_empty());
     }
 }

@@ -9,7 +9,8 @@ use crate::ui::filter_sidebar::FilterSidebar;
 use crate::ui::package_list::PackageList;
 use gio::prelude::*;
 use gtk::prelude::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::rc::Rc;
 
 struct WindowState {
@@ -50,6 +51,7 @@ struct WindowState {
     search_name_only_default: std::cell::Cell<bool>,
     auto_close_on_success: std::cell::Cell<bool>,
     default_sidebar_pos: std::cell::Cell<i32>,
+    action_busy: Cell<bool>,
 }
 
 struct WindowGeometry {
@@ -399,6 +401,7 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         search_name_only_default: std::cell::Cell::new(geometry.search_name_only_default),
         auto_close_on_success: std::cell::Cell::new(geometry.auto_close_on_success),
         default_sidebar_pos: std::cell::Cell::new(geometry.sidebar_pos),
+        action_busy: Cell::new(false),
     });
 
     wire_up(&state);
@@ -926,6 +929,9 @@ fn wire_keyboard_shortcuts(state: &Rc<WindowState>) {
     let window = state.window.clone();
     let state = state.clone();
     controller.connect_key_pressed(move |_, key, _keycode, modifiers| {
+        if state.action_busy.get() {
+            return glib::Propagation::Stop;
+        }
         let ctrl = modifiers.contains(gtk::gdk::ModifierType::CONTROL_MASK);
         match key {
             gtk::gdk::Key::f if ctrl => {
@@ -1293,6 +1299,9 @@ fn wire_up(state: &Rc<WindowState>) {
         let state = state.clone();
         window.connect_close_request(move |win| {
             use crate::ui::filter_sidebar::Section;
+            if state.action_busy.get() {
+                return glib::Propagation::Stop;
+            }
             WindowGeometry {
                 width: win.width(),
                 height: win.height(),
@@ -1326,12 +1335,36 @@ fn set_loading(state: &Rc<WindowState>, loading: bool) {
         state.btn_update.set_sensitive(false);
         state.btn_reload.set_sensitive(false);
         state.menu_button.set_sensitive(false);
+        state.btn_apply.set_sensitive(false);
+        state.btn_unmark_all.set_sensitive(false);
+        state.btn_mark_upgrades.set_sensitive(false);
     } else {
         state.spinner.stop();
-        state.btn_update.set_sensitive(true);
-        state.btn_reload.set_sensitive(true);
-        state.menu_button.set_sensitive(true);
+        let available = !state.action_busy.get() && !state.store.is_loading();
+        state.btn_update.set_sensitive(available);
+        state.btn_reload.set_sensitive(available);
+        state.menu_button.set_sensitive(available);
     }
+}
+
+fn set_action_busy(state: &Rc<WindowState>, busy: bool) {
+    state.action_busy.set(busy);
+    let available = !busy && !state.store.is_loading();
+    state.btn_update.set_sensitive(available);
+    state.btn_reload.set_sensitive(available);
+    state.menu_button.set_sensitive(available);
+    state
+        .btn_apply
+        .set_sensitive(available && state.store.count_marked() > 0);
+    state
+        .btn_unmark_all
+        .set_sensitive(available && state.store.count_marked() > 0);
+    state
+        .btn_mark_upgrades
+        .set_sensitive(available && state.store.count_upgradable() > 0);
+    state.pkg_list.widget().set_sensitive(!busy);
+    state.detail_pane.widget().set_sensitive(!busy);
+    state.sidebar.widget().set_sensitive(!busy);
 }
 
 fn do_reload(state: &Rc<WindowState>) {
@@ -1341,6 +1374,9 @@ fn do_reload(state: &Rc<WindowState>) {
 }
 
 fn trigger_update(state: &Rc<WindowState>, sync_first: bool, silent: bool) {
+    if state.action_busy.get() || state.store.is_loading() {
+        return;
+    }
     set_loading(state, true);
     if sync_first {
         state.status_label.set_text(if silent {
@@ -1387,86 +1423,251 @@ fn trigger_update(state: &Rc<WindowState>, sync_first: bool, silent: bool) {
     }
 }
 
-fn on_apply_clicked(state: &Rc<WindowState>) {
-    let installs = state.store.marked_names(PkgMark::Install);
-    let upgrades = state.store.marked_names(PkgMark::Upgrade);
-    let removes = state.store.marked_names(PkgMark::Remove);
-    let purges = state.store.marked_names(PkgMark::Purge);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ApplyKind {
+    Install,
+    Remove,
+    Purge,
+}
 
-    let mut commands = Vec::new();
-    if !installs.is_empty() || !upgrades.is_empty() {
-        let mut cmd = String::from("INSTALL");
-        for n in installs.iter().chain(upgrades.iter()) {
-            cmd.push(' ');
-            cmd.push_str(n);
+struct ApplyStep {
+    kind: ApplyKind,
+    command: String,
+    names: Vec<String>,
+    install_count: usize,
+}
+
+impl ApplyStep {
+    fn new(kind: ApplyKind, names: Vec<String>, install_count: usize) -> Self {
+        let verb = match kind {
+            ApplyKind::Install => "INSTALL",
+            ApplyKind::Remove => "REMOVE",
+            ApplyKind::Purge => "PURGE",
+        };
+        Self {
+            kind,
+            command: format!("{verb} {}", names.join(" ")),
+            names,
+            install_count,
         }
-        commands.push(cmd);
+    }
+
+    fn preview_ops(&self) -> Vec<PreviewOp> {
+        self.names
+            .iter()
+            .map(|name| match self.kind {
+                // The helper uses xbps-install for both new and installed packages.
+                ApplyKind::Install => PreviewOp::Install(name.clone()),
+                ApplyKind::Remove => PreviewOp::Remove(name.clone()),
+                ApplyKind::Purge => PreviewOp::Purge(name.clone()),
+            })
+            .collect()
+    }
+}
+
+fn apply_steps(
+    installs: Vec<String>,
+    upgrades: Vec<String>,
+    removes: Vec<String>,
+    purges: Vec<String>,
+) -> VecDeque<ApplyStep> {
+    let mut steps = VecDeque::new();
+    let install_count = installs.len();
+    let install_names: Vec<String> = installs.into_iter().chain(upgrades).collect();
+    if !install_names.is_empty() {
+        steps.push_back(ApplyStep::new(
+            ApplyKind::Install,
+            install_names,
+            install_count,
+        ));
     }
     if !removes.is_empty() {
-        let mut cmd = String::from("REMOVE");
-        for n in &removes {
-            cmd.push(' ');
-            cmd.push_str(n);
-        }
-        commands.push(cmd);
+        steps.push_back(ApplyStep::new(ApplyKind::Remove, removes, 0));
     }
     if !purges.is_empty() {
-        let mut cmd = String::from("PURGE");
-        for n in &purges {
-            cmd.push(' ');
-            cmd.push_str(n);
+        steps.push_back(ApplyStep::new(ApplyKind::Purge, purges, 0));
+    }
+    steps
+}
+
+struct ApplyFlow {
+    steps: VecDeque<ApplyStep>,
+    completed: usize,
+    failed: usize,
+    stopped: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ApplyEvent {
+    CommandSucceeded,
+    CommandFailed,
+    ConfirmationCancelled,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ApplyDecision {
+    Continue,
+    Stop,
+}
+
+impl ApplyFlow {
+    fn next_step(&mut self) -> Option<ApplyStep> {
+        if self.stopped {
+            return None;
         }
-        commands.push(cmd);
+        self.steps.pop_front()
     }
 
-    if commands.is_empty() {
+    fn record_event(&mut self, event: ApplyEvent) -> ApplyDecision {
+        match event {
+            ApplyEvent::CommandSucceeded => {
+                self.completed += 1;
+                ApplyDecision::Continue
+            }
+            ApplyEvent::CommandFailed => {
+                self.failed += 1;
+                self.stopped = true;
+                ApplyDecision::Stop
+            }
+            ApplyEvent::ConfirmationCancelled => {
+                self.stopped = true;
+                ApplyDecision::Stop
+            }
+        }
+    }
+}
+
+fn finish_apply(state: &Rc<WindowState>, flow: &Rc<RefCell<ApplyFlow>>, cancelled: bool) {
+    let flow = flow.borrow();
+    let message = if cancelled && flow.completed == 0 && flow.failed == 0 {
+        "Apply cancelled. Marks are unchanged."
+    } else if cancelled {
+        "Apply stopped. Completed changes are saved; remaining marks need review."
+    } else if flow.failed > 0 {
+        "Some commands failed. Completed changes are saved; review remaining marks and logs."
+    } else {
+        "Changes applied."
+    };
+    set_action_busy(state, false);
+    update_status_bar(state);
+    show_toast(state, message);
+}
+
+fn run_next_apply_step(state: &Rc<WindowState>, flow: &Rc<RefCell<ApplyFlow>>) {
+    let next_step = flow.borrow_mut().next_step();
+    let Some(step) = next_step else {
+        finish_apply(state, flow, false);
         return;
-    }
-
-    let ops: Vec<PreviewOp> = installs
-        .iter()
-        .map(|n| PreviewOp::Install(n.clone()))
-        .chain(upgrades.iter().map(|n| PreviewOp::Update(n.clone())))
-        .chain(removes.iter().map(|n| PreviewOp::Remove(n.clone())))
-        .chain(purges.iter().map(|n| PreviewOp::Purge(n.clone())))
-        .collect();
-
-    let state2 = state.clone();
+    };
+    let ops = step.preview_ops();
+    let state_for_preview = state.clone();
+    let flow_for_preview = flow.clone();
     state.store.preview_transaction_async(ops, move |preview| {
-        let state = state2;
-        let state2 = state.clone();
+        let state_for_confirm = state_for_preview.clone();
+        let flow_for_confirm = flow_for_preview.clone();
+        let command = step.command.clone();
+        let names_for_command = step.names.clone();
+        let (installs, upgrades, removes, purges): (&[String], &[String], &[String], &[String]) =
+            match step.kind {
+                ApplyKind::Install => (
+                    &step.names[..step.install_count],
+                    &step.names[step.install_count..],
+                    &[],
+                    &[],
+                ),
+                ApplyKind::Remove => (&[], &[], &step.names, &[]),
+                ApplyKind::Purge => (&[], &[], &[], &step.names),
+            };
         apply_confirm::confirm(
-            Some(state.window.upcast_ref()),
-            &installs,
-            &upgrades,
-            &removes,
-            &purges,
+            Some(state_for_preview.window.upcast_ref()),
+            installs,
+            upgrades,
+            removes,
+            purges,
             preview,
             move |confirmed| {
                 if !confirmed {
+                    flow_for_confirm
+                        .borrow_mut()
+                        .record_event(ApplyEvent::ConfirmationCancelled);
+                    finish_apply(&state_for_confirm, &flow_for_confirm, true);
                     return;
                 }
-                let state3 = state2.clone();
-                let commands_for_retry = commands.clone();
-                apply_dialog::run_recorded(
-                    Some(state2.window.upcast_ref()),
-                    &state2.session,
-                    &commands,
+                let state_after_command = state_for_confirm.clone();
+                let flow_after_command = flow_for_confirm.clone();
+                let names = names_for_command.clone();
+                apply_dialog::run_recorded_until_closed(
+                    Some(state_for_confirm.window.upcast_ref()),
+                    &state_for_confirm.session,
+                    std::slice::from_ref(&command),
                     "Applying Changes",
                     move |success| {
-                        if success {
-                            show_toast(&state3, "Changes applied. Reloading\u{2026}");
-                            state3.store.clear_all_marks();
-                            do_reload(&state3);
+                        let decision = flow_after_command.borrow_mut().record_event(if success {
+                            ApplyEvent::CommandSucceeded
                         } else {
-                            show_toast(&state3, "Some changes failed — see log.");
-                            offer_force_retry(&state3, commands_for_retry.clone());
+                            ApplyEvent::CommandFailed
+                        });
+                        if success {
+                            let names: std::collections::HashSet<_> =
+                                names.iter().cloned().collect();
+                            state_after_command.store.set_marks(&names, PkgMark::None);
                         }
+                        let state_after_reload = state_after_command.clone();
+                        let flow_after_reload = flow_after_command.clone();
+                        state_after_command.store.load_async_with_result(
+                            move |result| match result {
+                                Ok(()) => match decision {
+                                    ApplyDecision::Continue => {
+                                        run_next_apply_step(
+                                            &state_after_reload,
+                                            &flow_after_reload,
+                                        );
+                                    }
+                                    ApplyDecision::Stop => {
+                                        finish_apply(
+                                            &state_after_reload,
+                                            &flow_after_reload,
+                                            false,
+                                        );
+                                    }
+                                },
+                                Err(err) => {
+                                    finish_apply(&state_after_reload, &flow_after_reload, true);
+                                    show_toast(
+                                        &state_after_reload,
+                                        &format!("Could not reload package state: {err}"),
+                                    );
+                                }
+                            },
+                        );
                     },
                 );
             },
         );
     });
+}
+
+fn on_apply_clicked(state: &Rc<WindowState>) {
+    if state.action_busy.get() || state.store.is_loading() {
+        return;
+    }
+    let installs = state.store.marked_names(PkgMark::Install);
+    let upgrades = state.store.marked_names(PkgMark::Upgrade);
+    let removes = state.store.marked_names(PkgMark::Remove);
+    let purges = state.store.marked_names(PkgMark::Purge);
+
+    let steps = apply_steps(installs, upgrades, removes, purges);
+    if steps.is_empty() {
+        return;
+    }
+    set_action_busy(state, true);
+    let flow = Rc::new(RefCell::new(ApplyFlow {
+        steps,
+        completed: 0,
+        failed: 0,
+        stopped: false,
+    }));
+    run_next_apply_step(state, &flow);
 }
 
 fn on_hold_requested(state: &Rc<WindowState>, pkgname: &str, want_hold: bool) {
@@ -1501,42 +1702,105 @@ fn held_back_note(held: &[String]) -> String {
 }
 
 fn on_full_upgrade_clicked(state: &Rc<WindowState>) {
-    let upgrades = state.store.upgradable_names();
-    let held = state.store.held_back_names();
-    let held_note = held_back_note(&held);
-    if upgrades.is_empty() {
-        state
-            .status_label
-            .set_text(&format!("Everything is already up to date.{held_note}"));
+    if state.action_busy.get() || state.store.is_loading() {
         return;
     }
-    state.status_label.set_text(&format!(
-        "Upgrading {} package(s).{held_note}",
-        upgrades.len()
-    ));
-    let ops: Vec<PreviewOp> = upgrades
-        .iter()
-        .map(|n| PreviewOp::Update(n.clone()))
-        .collect();
+    set_action_busy(state, true);
+    let state_after_sync = state.clone();
+    apply_dialog::run_recorded_until_closed(
+        Some(state.window.upcast_ref()),
+        &state.session,
+        &["SYNC".to_string()],
+        "Syncing Repositories",
+        move |success| {
+            if !success {
+                set_action_busy(&state_after_sync, false);
+                show_toast(
+                    &state_after_sync,
+                    "Repository sync failed; upgrade was not started.",
+                );
+                return;
+            }
+            let state_after_reload = state_after_sync.clone();
+            state_after_sync
+                .store
+                .load_async_with_result(move |result| {
+                    if let Err(err) = result {
+                        set_action_busy(&state_after_reload, false);
+                        show_toast(
+                            &state_after_reload,
+                            &format!("Could not reload package state: {err}"),
+                        );
+                        return;
+                    }
+                    preview_full_upgrade(&state_after_reload);
+                });
+        },
+    );
+}
 
-    let state2 = state.clone();
-    state.store.preview_transaction_async(ops, move |preview| {
-        let state = state2;
-        let state2 = state.clone();
-        apply_confirm::confirm(
-            Some(state.window.upcast_ref()),
-            &[],
-            &upgrades,
-            &[],
-            &[],
-            preview,
-            move |confirmed| {
-                if confirmed {
-                    run_maintenance_command(&state2, "UPGRADE", "Full System Upgrade");
-                }
-            },
-        );
-    });
+fn preview_full_upgrade(state: &Rc<WindowState>) {
+    let upgrades = state.store.upgradable_names();
+    let held_note = held_back_note(&state.store.held_back_names());
+    state
+        .status_label
+        .set_text("Checking full upgrade transaction…");
+    let state_for_preview = state.clone();
+    state
+        .store
+        .preview_transaction_async(vec![PreviewOp::UpdateAll], move |preview| {
+            let state_for_confirm = state_for_preview.clone();
+            if matches!(&preview, Some(Ok(p)) if p.items.is_empty()) {
+                set_action_busy(&state_for_preview, false);
+                state_for_preview
+                    .status_label
+                    .set_text(&format!("Everything is already up to date.{held_note}"));
+                return;
+            }
+            apply_confirm::confirm(
+                Some(state_for_preview.window.upcast_ref()),
+                &[],
+                &upgrades,
+                &[],
+                &[],
+                preview,
+                move |confirmed| {
+                    if !confirmed {
+                        set_action_busy(&state_for_confirm, false);
+                        update_status_bar(&state_for_confirm);
+                        return;
+                    }
+                    let state_after_upgrade = state_for_confirm.clone();
+                    apply_dialog::run_recorded_until_closed(
+                        Some(state_for_confirm.window.upcast_ref()),
+                        &state_for_confirm.session,
+                        &["UPGRADE".to_string()],
+                        "Full System Upgrade",
+                        move |success| {
+                            let state_after_reload = state_after_upgrade.clone();
+                            state_after_upgrade
+                                .store
+                                .load_async_with_result(move |result| {
+                                    set_action_busy(&state_after_reload, false);
+                                    match result {
+                                        Ok(()) if success => {
+                                            show_toast(&state_after_reload, "Upgrade complete.");
+                                        }
+                                        Ok(()) => show_toast(
+                                            &state_after_reload,
+                                            "Upgrade failed or was incomplete; see log.",
+                                        ),
+                                        Err(err) => show_toast(
+                                            &state_after_reload,
+                                            &format!("Could not reload package state: {err}"),
+                                        ),
+                                    }
+                                });
+                        },
+                    );
+                },
+            );
+        });
 }
 
 fn on_remove_orphans_clicked(state: &Rc<WindowState>) {
@@ -1675,94 +1939,6 @@ fn run_maintenance_command(state: &Rc<WindowState>, cmd: &str, title: &str) {
     );
 }
 
-fn force_variant(cmd: &str) -> String {
-    for verb in ["INSTALL", "REMOVE", "PURGE"] {
-        if let Some(rest) = cmd.strip_prefix(verb) {
-            return format!("{verb}_FORCE{rest}");
-        }
-    }
-    cmd.to_string()
-}
-
-fn offer_force_retry(state: &Rc<WindowState>, commands: Vec<String>) {
-    let (dlg, outer) = crate::ui::dialog_util::modal_window(
-        "Retry With Force?",
-        Some(state.window.upcast_ref()),
-        false,
-        (440, -1),
-        10,
-    );
-
-    let heading = gtk::Label::new(Some(
-        "Some changes failed, possibly due to file conflicts or unresolved \
-         dependencies. Forcing through these checks can leave the system in \
-         an inconsistent state — only do this if you understand why the \
-         normal attempt failed.",
-    ));
-    heading.set_xalign(0.0);
-    heading.set_wrap(true);
-    outer.append(&heading);
-
-    let (btn_box, cancel_btn) = crate::ui::dialog_util::cancel_button_row(4);
-    let retry_btn = gtk::Button::with_label("Retry With Force");
-    retry_btn.add_css_class("destructive-action");
-    btn_box.append(&retry_btn);
-    outer.append(&btn_box);
-    dlg.set_default_widget(Some(&cancel_btn));
-
-    let give_up = {
-        let state = state.clone();
-        move || {
-            state.store.clear_all_marks();
-            do_reload(&state);
-        }
-    };
-
-    {
-        let dlg = dlg.clone();
-        let give_up = give_up.clone();
-        cancel_btn.connect_clicked(move |_| {
-            give_up();
-            dlg.destroy();
-        });
-    }
-    {
-        let state = state.clone();
-        let dlg = dlg.clone();
-        retry_btn.connect_clicked(move |_| {
-            dlg.destroy();
-            let forced: Vec<String> = commands.iter().map(|c| force_variant(c)).collect();
-            let state2 = state.clone();
-            apply_dialog::run_recorded(
-                Some(state.window.upcast_ref()),
-                &state.session,
-                &forced,
-                "Retrying With Force",
-                move |success| {
-                    show_toast(
-                        &state2,
-                        if success {
-                            "Changes applied. Reloading\u{2026}"
-                        } else {
-                            "Force retry also failed — see log. Reloading\u{2026}"
-                        },
-                    );
-                    state2.store.clear_all_marks();
-                    do_reload(&state2);
-                },
-            );
-        });
-    }
-    {
-        dlg.connect_close_request(move |_| {
-            give_up();
-            glib::Propagation::Proceed
-        });
-    }
-
-    crate::ui::dialog_util::present_focused(&dlg, &cancel_btn);
-}
-
 fn show_toast(state: &Rc<WindowState>, msg: &str) {
     #[cfg(feature = "adwaita")]
     {
@@ -1803,17 +1979,113 @@ fn update_apply_button(state: &Rc<WindowState>, marked: u32) {
         &state.apply_count_pill,
         (marked > 0).then_some(marked as usize),
     );
-    state.btn_apply.set_sensitive(marked > 0);
-    state.btn_unmark_all.set_sensitive(marked > 0);
+    state
+        .btn_apply
+        .set_sensitive(marked > 0 && !state.action_busy.get() && !state.store.is_loading());
+    state
+        .btn_unmark_all
+        .set_sensitive(marked > 0 && !state.action_busy.get() && !state.store.is_loading());
 }
 
 fn update_mark_upgrades_button(state: &Rc<WindowState>, upgradable: u32) {
-    state.btn_mark_upgrades.set_sensitive(upgradable > 0);
+    state
+        .btn_mark_upgrades
+        .set_sensitive(upgradable > 0 && !state.action_busy.get() && !state.store.is_loading());
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn three_step_flow() -> ApplyFlow {
+        ApplyFlow {
+            steps: apply_steps(
+                vec!["install-me".into()],
+                vec![],
+                vec!["remove-me".into()],
+                vec!["purge-me".into()],
+            ),
+            completed: 0,
+            failed: 0,
+            stopped: false,
+        }
+    }
+
+    #[test]
+    fn successful_apply_step_allows_next_group() {
+        let mut flow = three_step_flow();
+        assert_eq!(flow.next_step().unwrap().command, "INSTALL install-me");
+        assert_eq!(
+            flow.record_event(ApplyEvent::CommandSucceeded),
+            ApplyDecision::Continue
+        );
+        assert_eq!(flow.next_step().unwrap().command, "REMOVE remove-me");
+        assert_eq!(flow.completed, 1);
+        assert_eq!(flow.failed, 0);
+    }
+
+    #[test]
+    fn failed_apply_step_stops_before_remaining_groups() {
+        let mut flow = three_step_flow();
+        assert_eq!(flow.next_step().unwrap().command, "INSTALL install-me");
+        assert_eq!(
+            flow.record_event(ApplyEvent::CommandFailed),
+            ApplyDecision::Stop
+        );
+        assert!(flow.next_step().is_none());
+        assert_eq!(flow.steps.len(), 2);
+        assert_eq!(flow.completed, 0);
+        assert_eq!(flow.failed, 1);
+    }
+
+    #[test]
+    fn cancelled_apply_stops_with_remaining_groups_untouched() {
+        let mut flow = three_step_flow();
+        assert_eq!(flow.next_step().unwrap().command, "INSTALL install-me");
+        assert_eq!(
+            flow.record_event(ApplyEvent::ConfirmationCancelled),
+            ApplyDecision::Stop
+        );
+        assert!(flow.next_step().is_none());
+        assert_eq!(flow.steps.len(), 2);
+        assert_eq!(flow.completed, 0);
+        assert_eq!(flow.failed, 0);
+    }
+
+    #[test]
+    fn apply_groups_match_separate_helper_transactions() {
+        let mut steps = apply_steps(
+            vec!["new".into()],
+            vec!["old".into()],
+            vec!["remove-me".into()],
+            vec!["purge-me".into()],
+        );
+        let install = steps.pop_front().unwrap();
+        assert_eq!(install.command, "INSTALL new old");
+        assert_eq!(install.install_count, 1);
+        assert!(matches!(install.preview_ops().as_slice(),
+            [PreviewOp::Install(a), PreviewOp::Install(b)] if a == "new" && b == "old"));
+
+        let remove = steps.pop_front().unwrap();
+        assert_eq!(remove.command, "REMOVE remove-me");
+        assert!(
+            matches!(remove.preview_ops().as_slice(), [PreviewOp::Remove(name)] if name == "remove-me")
+        );
+
+        let purge = steps.pop_front().unwrap();
+        assert_eq!(purge.command, "PURGE purge-me");
+        assert!(
+            matches!(purge.preview_ops().as_slice(), [PreviewOp::Purge(name)] if name == "purge-me")
+        );
+        assert!(steps.is_empty());
+    }
+
+    #[test]
+    fn apply_omits_empty_groups() {
+        let steps = apply_steps(vec![], vec![], vec!["remove-me".into()], vec![]);
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps.front().unwrap().command, "REMOVE remove-me");
+    }
 
     #[test]
     fn held_back_note_lists_and_truncates() {
@@ -1827,23 +2099,5 @@ mod tests {
             held_back_note(&many),
             " 7 held back: p0, p1, p2, p3, p4, +2 more."
         );
-    }
-
-    #[test]
-    fn force_variant_adds_suffix_to_install_remove_purge() {
-        assert_eq!(force_variant("INSTALL foo bar"), "INSTALL_FORCE foo bar");
-        assert_eq!(force_variant("REMOVE foo"), "REMOVE_FORCE foo");
-        assert_eq!(
-            force_variant("PURGE foo bar baz"),
-            "PURGE_FORCE foo bar baz"
-        );
-    }
-
-    #[test]
-    fn force_variant_leaves_commands_without_a_force_verb_unchanged() {
-        assert_eq!(force_variant("UPGRADE"), "UPGRADE");
-        assert_eq!(force_variant("HOLD foo"), "HOLD foo");
-        assert_eq!(force_variant("SYNC"), "SYNC");
-        assert_eq!(force_variant("RECONFIGURE_ALL"), "RECONFIGURE_ALL");
     }
 }
