@@ -1,4 +1,5 @@
 mod backend;
+mod renderer;
 mod ui;
 
 use gio::prelude::*;
@@ -74,6 +75,7 @@ fn sync_color_scheme_from_portal() {
 }
 
 fn main() -> glib::ExitCode {
+    renderer::configure_at_startup();
     #[cfg(feature = "adwaita")]
     {
         adw::init().expect("libadwaita init failed");
