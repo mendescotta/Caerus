@@ -249,10 +249,9 @@ fn repo_line_state(line: &str, url: &str) -> Option<bool> {
     let line = line.trim();
     let (enabled, value) = if let Some(value) = line.strip_prefix("repository=") {
         (true, value)
-    } else if let Some(value) = line.strip_prefix("#repository=") {
-        (false, value)
     } else {
-        return None;
+        let value = line.strip_prefix("#repository=")?;
+        (false, value)
     };
     (value.trim() == url).then_some(enabled)
 }
