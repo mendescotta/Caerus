@@ -55,6 +55,7 @@ dependencies = [
  "glib",
  "gtk4",
  "libadwaita",
+ "libc",
  "xbps-sys",
 ]
 

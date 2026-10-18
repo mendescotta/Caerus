@@ -464,15 +464,19 @@ fn which(program: &str) -> Option<PathBuf> {
 /// current user when `allow_user_owned`, for development builds) and must not
 /// be group/world-writable. A writable directory is tolerated only when it is
 /// sticky (e.g. `/tmp`), which stops other users replacing our entries.
+fn owner_is_trusted(owner: u32, current_user: u32, allow_user_owned: bool) -> bool {
+    owner == 0 || (allow_user_owned && owner == current_user)
+}
+
 fn helper_is_trusted(path: &Path, allow_user_owned: bool) -> bool {
     use std::os::unix::fs::MetadataExt;
-    let Ok(me) = std::fs::metadata("/proc/self").map(|m| m.uid()) else {
-        return false;
-    };
+    // SAFETY: geteuid has no preconditions and only reads the process credentials.
+    let current_user = unsafe { libc::geteuid() };
     let Ok(resolved) = std::fs::canonicalize(path) else {
         return false;
     };
-    let trusted_owner = |m: &std::fs::Metadata| m.uid() == 0 || (allow_user_owned && m.uid() == me);
+    let trusted_owner =
+        |m: &std::fs::Metadata| owner_is_trusted(m.uid(), current_user, allow_user_owned);
     let Ok(file) = std::fs::metadata(&resolved) else {
         return false;
     };
@@ -492,6 +496,7 @@ fn command_is_safe(command: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::MetadataExt;
 
     /// Scratch directory under the system temp dir, removed on drop.
     struct Scratch(PathBuf);
@@ -540,7 +545,15 @@ mod tests {
         std::fs::write(&helper, "").unwrap();
         chmod(&helper, 0o755);
         assert!(helper_is_trusted(&helper, true));
-        assert!(!helper_is_trusted(&helper, false));
+        let owner = std::fs::metadata(&helper).unwrap().uid();
+        assert_eq!(helper_is_trusted(&helper, false), owner == 0);
+    }
+
+    #[test]
+    fn user_owner_requires_opt_in_but_root_is_always_trusted() {
+        assert!(owner_is_trusted(0, 1000, false));
+        assert!(!owner_is_trusted(1000, 1000, false));
+        assert!(owner_is_trusted(1000, 1000, true));
     }
 
     #[test]
