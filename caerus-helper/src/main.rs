@@ -143,6 +143,11 @@ fn open_locked(path: &std::path::Path) -> Result<std::fs::File, String> {
     Ok(file)
 }
 
+fn repo_dir_lock(dir: &str) -> Result<std::fs::File, String> {
+    // Serialize each repository operation from discovery through override creation.
+    open_locked(&std::path::Path::new(dir).join(".caerus.lock"))
+}
+
 fn valid_repo_url(url: &str) -> bool {
     !url.chars().any(|c| c.is_control() || c.is_whitespace())
         && ["https://", "http://", "ftp://", "file://", "/"]
@@ -157,6 +162,7 @@ fn add_repo(url: &str) -> Result<(), String> {
     if !valid_repo_url(url) {
         return Err("repository must be an http(s)/ftp/file URL or an absolute path".to_string());
     }
+    let _repo_lock = repo_dir_lock(ETC_XBPS_D)?;
     let mut file = open_locked(std::path::Path::new(MANAGED_REPO_CONF))?;
     let mut existing = String::new();
     file.read_to_string(&mut existing)
@@ -177,23 +183,22 @@ fn add_repo(url: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-fn conf_paths(dir: &str) -> Vec<std::path::PathBuf> {
-    let mut paths: Vec<_> = std::fs::read_dir(dir)
-        .map(|entries| {
-            entries
-                .filter_map(Result::ok)
-                .map(|e| e.path())
-                .filter(|p| {
-                    p.extension().is_some_and(|e| e == "conf")
-                        && p.file_name()
-                            .and_then(|n| n.to_str())
-                            .is_some_and(|n| !n.starts_with('.'))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+fn conf_paths(dir: &str) -> Result<Vec<std::path::PathBuf>, String> {
+    let entries = std::fs::read_dir(dir).map_err(|e| format!("{dir}: {e}"))?;
+    let mut paths = Vec::new();
+    for entry in entries {
+        let path = entry.map_err(|e| format!("{dir}: {e}"))?.path();
+        if path.extension().is_some_and(|e| e == "conf")
+            && path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| !n.starts_with('.'))
+        {
+            paths.push(path);
+        }
+    }
     paths.sort();
-    paths
+    Ok(paths)
 }
 
 fn open_locked_existing(path: &std::path::Path) -> Option<std::fs::File> {
@@ -240,48 +245,136 @@ fn rewrite_conf(
     Ok(hit)
 }
 
-fn toggle_repo(url: &str, enable: bool) -> Result<(), String> {
+fn repo_line_state(line: &str, url: &str) -> Option<bool> {
+    let line = line.trim();
+    let (enabled, value) = if let Some(value) = line.strip_prefix("repository=") {
+        (true, value)
+    } else {
+        let value = line.strip_prefix("#repository=")?;
+        (false, value)
+    };
+    (value.trim() == url).then_some(enabled)
+}
+
+fn rewrite_repo_lines(contents: &str, url: &str, enable: bool) -> (String, bool) {
     use std::fmt::Write as _;
 
+    let mut hit = false;
+    let mut updated = String::new();
+    for line in contents.lines() {
+        if repo_line_state(line, url).is_some_and(|enabled| enabled != enable) {
+            hit = true;
+            let prefix = if enable {
+                "repository="
+            } else {
+                "#repository="
+            };
+            let _ = writeln!(updated, "{prefix}{url}");
+        } else {
+            let _ = writeln!(updated, "{line}");
+        }
+    }
+    (updated, hit)
+}
+
+fn toggle_repo(url: &str, enable: bool) -> Result<(), String> {
     if has_control_char(url) {
         return Err("refusing to toggle a repository URL with control characters".to_string());
     }
-    let active = format!("repository={url}");
-    let disabled = format!("#{active}");
-    let (from, to) = if enable {
-        (&disabled, &active)
-    } else {
-        (&active, &disabled)
-    };
+    toggle_repo_in_dirs(url, enable, ETC_XBPS_D, VENDOR_XBPS_D)
+}
 
-    for path in conf_paths(ETC_XBPS_D) {
-        if rewrite_conf(&path, |l| (l == *from).then(|| to.clone()))? {
-            return Ok(());
+fn toggle_repo_in_dirs(
+    url: &str,
+    enable: bool,
+    etc_dir: &str,
+    vendor_dir: &str,
+) -> Result<(), String> {
+    let _repo_lock = repo_dir_lock(etc_dir)?;
+    for path in conf_paths(etc_dir)? {
+        let contents =
+            std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        if !rewrite_repo_lines(&contents, url, enable).1 {
+            continue;
+        }
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        // SAFETY: `file` is live for this call; flock borrows its fd and does not take ownership.
+        if unsafe { libc_flock(file.as_raw_fd(), LOCK_EX) } != 0 {
+            return Err(format!(
+                "{}: {}",
+                path.display(),
+                io::Error::last_os_error()
+            ));
+        }
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        let (updated, hit) = rewrite_repo_lines(&contents, url, enable);
+        if hit {
+            file.set_len(0).map_err(|e| e.to_string())?;
+            file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+            file.write_all(updated.as_bytes())
+                .map_err(|e| e.to_string())?;
         }
     }
     if enable {
         return Ok(());
     }
 
-    for path in conf_paths(VENDOR_XBPS_D) {
-        let Ok(contents) = std::fs::read_to_string(&path) else {
+    for path in conf_paths(vendor_dir)? {
+        let contents =
+            std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let (copy, hit) = rewrite_repo_lines(&contents, url, false);
+        if !hit {
             continue;
-        };
-        if !contents.lines().any(|l| l == active) {
-            continue;
-        }
-        let mut copy = String::new();
-        for l in contents.lines() {
-            let _ = writeln!(copy, "{}", if l == active { &disabled } else { l });
         }
         let Some(name) = path.file_name() else {
             continue;
         };
-        let target = std::path::Path::new(ETC_XBPS_D).join(name);
-        let mut file = open_locked(&target)?;
-        file.set_len(0).map_err(|e| e.to_string())?;
-        file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
-        return file.write_all(copy.as_bytes()).map_err(|e| e.to_string());
+        let target = std::path::Path::new(etc_dir).join(name);
+        // An /etc file shadows its vendor counterpart even when it contains no
+        // matching repository. Never truncate or replace that user override.
+        if target.exists() {
+            continue;
+        }
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&target)
+        {
+            Ok(mut file) => {
+                // SAFETY: `file` is live for this call; flock borrows its fd and does not take ownership.
+                if unsafe { libc_flock(file.as_raw_fd(), LOCK_EX) } != 0 {
+                    return Err(format!(
+                        "{}: {}",
+                        target.display(),
+                        io::Error::last_os_error()
+                    ));
+                }
+                file.write_all(copy.as_bytes()).map_err(|e| e.to_string())?;
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                // The path appeared after the shadow check. Treat it as a local
+                // override and only rewrite matching repository lines there.
+                let mut file = open_locked_existing(&target)
+                    .ok_or_else(|| format!("{}: override could not be opened", target.display()))?;
+                let mut contents = String::new();
+                file.read_to_string(&mut contents)
+                    .map_err(|e| format!("{}: {e}", target.display()))?;
+                let (updated, hit) = rewrite_repo_lines(&contents, url, false);
+                if hit {
+                    file.set_len(0).map_err(|e| e.to_string())?;
+                    file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+                    file.write_all(updated.as_bytes())
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+            Err(error) => return Err(format!("{}: {error}", target.display())),
+        }
     }
     Ok(())
 }
@@ -290,10 +383,15 @@ fn remove_repo(url: &str) -> Result<(), String> {
     if has_control_char(url) {
         return Err("refusing to remove a repository URL with control characters".to_string());
     }
-    let active = format!("repository={url}");
-    let disabled = format!("#{active}");
-    for path in conf_paths(ETC_XBPS_D) {
-        rewrite_conf(&path, |l| (l == active || l == disabled).then(String::new))?;
+    remove_repo_in_dir(url, ETC_XBPS_D)
+}
+
+fn remove_repo_in_dir(url: &str, etc_dir: &str) -> Result<(), String> {
+    let _repo_lock = repo_dir_lock(etc_dir)?;
+    for path in conf_paths(etc_dir)? {
+        rewrite_conf(&path, |line| {
+            repo_line_state(line, url).map(|_| String::new())
+        })?;
     }
     Ok(())
 }
@@ -557,6 +655,171 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct RepoFixture(std::path::PathBuf);
+
+    impl RepoFixture {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "caerus-helper-repos-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |duration| duration.as_nanos())
+            ));
+            std::fs::create_dir_all(path.join("etc")).expect("create fixture etc directory");
+            std::fs::create_dir_all(path.join("vendor")).expect("create fixture vendor directory");
+            Self(path)
+        }
+
+        fn etc(&self) -> std::path::PathBuf {
+            self.0.join("etc")
+        }
+
+        fn vendor(&self) -> std::path::PathBuf {
+            self.0.join("vendor")
+        }
+    }
+
+    impl Drop for RepoFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn disabling_repo_updates_all_local_duplicates_and_preserves_shadowing_override() {
+        let fixture = RepoFixture::new();
+        let url = "https://repo.example/current";
+        std::fs::write(
+            fixture.etc().join("10-first.conf"),
+            format!("#repository={url}\nfirst-setting=yes\n"),
+        )
+        .expect("write first local fixture");
+        std::fs::write(
+            fixture.etc().join("90-vendor.conf"),
+            format!("repository={url}  \nlocal-setting=keep\n"),
+        )
+        .expect("write shadowing local fixture");
+        std::fs::write(
+            fixture.vendor().join("90-vendor.conf"),
+            format!("repository={url}\nvendor-setting=keep\n"),
+        )
+        .expect("write vendor fixture");
+        std::fs::write(
+            fixture.etc().join("99-last.conf"),
+            format!("repository={url}\nlast-setting=yes\n"),
+        )
+        .expect("write last local fixture");
+
+        toggle_repo_in_dirs(
+            url,
+            false,
+            fixture.etc().to_str().expect("fixture path is UTF-8"),
+            fixture.vendor().to_str().expect("fixture path is UTF-8"),
+        )
+        .expect("disable repository in fixture");
+
+        assert_eq!(
+            std::fs::read_to_string(fixture.etc().join("10-first.conf"))
+                .expect("read first local fixture"),
+            format!("#repository={url}\nfirst-setting=yes\n")
+        );
+        assert_eq!(
+            std::fs::read_to_string(fixture.etc().join("90-vendor.conf"))
+                .expect("read shadowing local fixture"),
+            format!("#repository={url}\nlocal-setting=keep\n")
+        );
+        assert_eq!(
+            std::fs::read_to_string(fixture.etc().join("99-last.conf"))
+                .expect("read last local fixture"),
+            format!("#repository={url}\nlast-setting=yes\n")
+        );
+        assert_eq!(
+            std::fs::read_to_string(fixture.vendor().join("90-vendor.conf"))
+                .expect("read vendor fixture"),
+            format!("repository={url}\nvendor-setting=keep\n")
+        );
+    }
+
+    #[test]
+    fn disabling_vendor_repo_writes_overrides_for_all_effective_vendor_duplicates() {
+        let fixture = RepoFixture::new();
+        let url = "https://repo.example/current";
+        for name in ["10-vendor.conf", "20-vendor.conf"] {
+            std::fs::write(
+                fixture.vendor().join(name),
+                format!("repository={url}\nvendor-setting={name}\n"),
+            )
+            .expect("write vendor fixture");
+        }
+
+        toggle_repo_in_dirs(
+            url,
+            false,
+            fixture.etc().to_str().expect("fixture path is UTF-8"),
+            fixture.vendor().to_str().expect("fixture path is UTF-8"),
+        )
+        .expect("disable vendor repository in fixture");
+
+        for name in ["10-vendor.conf", "20-vendor.conf"] {
+            assert_eq!(
+                std::fs::read_to_string(fixture.etc().join(name))
+                    .expect("read generated local override"),
+                format!("#repository={url}\nvendor-setting={name}\n")
+            );
+        }
+    }
+
+    #[test]
+    fn vendor_disable_preserves_same_name_override_with_only_custom_repository() {
+        let fixture = RepoFixture::new();
+        let url = "https://repo.example/current";
+        let custom_url = "https://custom.example/current";
+        let local = fixture.etc().join("50-custom.conf");
+        let vendor = fixture.vendor().join("50-custom.conf");
+        let local_contents = format!("repository={custom_url}\ncustom-setting=keep\n");
+        std::fs::write(&local, &local_contents).expect("write local override");
+        std::fs::write(&vendor, format!("repository={url}\nvendor-setting=keep\n"))
+            .expect("write vendor config");
+
+        toggle_repo_in_dirs(
+            url,
+            false,
+            fixture.etc().to_str().expect("fixture path is UTF-8"),
+            fixture.vendor().to_str().expect("fixture path is UTF-8"),
+        )
+        .expect("disable shadowed vendor repository");
+
+        assert_eq!(
+            std::fs::read_to_string(local).expect("read local override"),
+            local_contents
+        );
+        assert_eq!(
+            std::fs::read_to_string(vendor).expect("read vendor config"),
+            format!("repository={url}\nvendor-setting=keep\n")
+        );
+    }
+
+    #[test]
+    fn remove_repo_matches_whitespace_normalized_lines() {
+        let fixture = RepoFixture::new();
+        let url = "https://repo.example/current";
+        let path = fixture.etc().join("10-repos.conf");
+        std::fs::write(
+            &path,
+            format!(" repository={url}  \n#repository={url} \nrepository=https://keep.example\n"),
+        )
+        .expect("write repository fixture");
+
+        remove_repo_in_dir(url, fixture.etc().to_str().expect("fixture path is UTF-8"))
+            .expect("remove matching repository lines");
+
+        assert_eq!(
+            std::fs::read_to_string(path).expect("read repository fixture"),
+            "repository=https://keep.example\n"
+        );
+    }
 
     #[test]
     fn purge_uses_recursive_removal_flag() {
