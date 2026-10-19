@@ -118,6 +118,7 @@ impl PackageStore {
                     match result {
                         LoadResult::Ok(packages) => {
                             let n = packages.len() as u32;
+                            crate::startup::trace(format_args!("worker returned {n} packages"));
 
                             let mut old_marks: HashMap<String, PkgMark> = HashMap::new();
                             let old_n = inner.list.n_items();
@@ -130,7 +131,6 @@ impl PackageStore {
                                 }
                             }
 
-                            inner.list.remove_all();
                             let objects: Vec<PackageObject> = packages
                                 .into_iter()
                                 .map(|mut pkg| {
@@ -142,7 +142,9 @@ impl PackageStore {
                                     PackageObject::new(pkg)
                                 })
                                 .collect();
-                            inner.list.splice(0, 0, &objects);
+                            crate::startup::trace("package objects constructed");
+                            inner.list.splice(0, old_n, &objects);
+                            crate::startup::trace("package model published");
                             inner.loaded.set(true);
                             for cb in inner.on_load_finished.borrow().iter() {
                                 cb(n);
@@ -228,24 +230,6 @@ impl PackageStore {
         }
     }
 
-    pub fn count_installed(&self) -> u32 {
-        let mut c = 0;
-        self.for_each(|o| {
-            if o.pkg().state != PkgState::NotInstalled {
-                c += 1;
-            }
-        });
-        c
-    }
-    pub fn count_upgradable(&self) -> u32 {
-        let mut c = 0;
-        self.for_each(|o| {
-            if o.pkg().state == PkgState::Upgradable {
-                c += 1;
-            }
-        });
-        c
-    }
     pub fn state_and_mark(&self, pkgname: &str) -> Option<(PkgState, PkgMark)> {
         let mut out = None;
         self.for_each(|o| {
@@ -469,7 +453,9 @@ fn worker_main(cmd_rx: mpsc::Receiver<Cmd>, result_tx: mpsc::Sender<LoadResult>)
     while let Ok(cmd) = cmd_rx.recv() {
         match cmd {
             Cmd::Reload => {
+                crate::startup::trace("XBPS cached metadata load started");
                 let result = do_reload(&mut xh, &mut inited);
+                crate::startup::trace("XBPS cached metadata load completed");
                 let _ = result_tx.send(result);
             }
             Cmd::GetDeps(name, reply) => {
@@ -760,6 +746,10 @@ fn do_reload(xh: &mut xbps_sys::xbps_handle, inited: &mut bool) -> LoadResult {
                  repositories may have failed to load, package list may be incomplete"
             );
         }
+        crate::startup::trace(format_args!(
+            "repositories read: {} package names",
+            ht.len()
+        ));
         let pkgdb_rc = xbps_sys::xbps_pkgdb_foreach_cb_multi(xh, Some(pkgdb_cb), ht_ptr);
         if pkgdb_rc != 0 {
             eprintln!(
@@ -768,6 +758,7 @@ fn do_reload(xh: &mut xbps_sys::xbps_handle, inited: &mut bool) -> LoadResult {
             );
         }
 
+        crate::startup::trace("installed package metadata read");
         let orphans = xbps_sys::xbps_find_pkg_orphans(xh, std::ptr::null_mut());
         if !orphans.is_null() {
             let n = xbps_sys::xbps_array_count(orphans);

@@ -1,0 +1,107 @@
+{
+  "date": "2026-10-19",
+  "method": "Fresh processes with warm filesystem caches; Xephyr :98, X11, Cairo, 1280x900; sync_at_launch=0; libadwaita feature; rustc 1.96.0",
+  "package_count": 20724,
+  "samples": {
+    "before-debug": [
+      {
+        "run": 1,
+        "process_to_list_frame_ms": 1755.2,
+        "ready": true,
+        "trace": "caerus startup      0.0 ms: process started\nMESA-EGL: warning: DRI3 error: Could not get DRI3 device\nMESA-EGL: warning: Ensure your X server supports DRI3 to get accelerated rendering\ncaerus startup    198.4 ms: window widgets and callbacks constructed\ncaerus startup    198.6 ms: XBPS cached metadata load started\ncaerus startup    239.8 ms: window presented\ncaerus startup    716.9 ms: repositories read: 20719 package names\ncaerus startup    782.7 ms: installed package metadata read\ncaerus startup    870.7 ms: XBPS cached metadata load completed\ncaerus startup    889.0 ms: worker returned 20724 packages\ncaerus startup    923.5 ms: package objects constructed\ncaerus startup   1307.4 ms: package model published\ncaerus startup   1348.6 ms: loading completed: 20724 packages, 20724 visible\ncaerus startup   1418.3 ms: secondary pages preparation started\ncaerus startup   1500.0 ms: secondary pages preparation completed\ncaerus startup   1732.0 ms: package list frame ready\n"
+      },
+      {
+        "run": 2,
+        "process_to_list_frame_ms": 1789.9,
+        "ready": true,
+        "trace": "caerus startup      0.0 ms: process started\nMESA-EGL: warning: DRI3 error: Could not get DRI3 device\nMESA-EGL: warning: Ensure your X server supports DRI3 to get accelerated rendering\ncaerus startup    210.3 ms: window widgets and callbacks constructed\ncaerus startup    210.5 ms: XBPS cached metadata load started\ncaerus startup    252.6 ms: window presented\ncaerus startup    733.1 ms: repositories read: 20719 package names\ncaerus startup    798.9 ms: installed package metadata read\ncaerus startup    892.9 ms: XBPS cached metadata load completed\ncaerus startup    903.4 ms: worker returned 20724 packages\ncaerus startup    936.8 ms: package objects constructed\ncaerus startup   1324.8 ms: package model published\ncaerus startup   1366.9 ms: loading completed: 20724 packages, 20724 visible\ncaerus startup   1439.2 ms: secondary pages preparation started\ncaerus startup   1521.3 ms: secondary pages preparation completed\ncaerus startup   1766.6 ms: package list frame ready\n"
+      },
+      {
+        "run": 3,
+        "process_to_list_frame_ms": 1794.5,
+        "ready": true,
+        "trace": "caerus startup      0.0 ms: process started\nMESA-EGL: warning: DRI3 error: Could not get DRI3 device\nMESA-EGL: warning: Ensure your X server supports DRI3 to get accelerated rendering\ncaerus startup    209.9 ms: window widgets and callbacks constructed\ncaerus startup    210.2 ms: XBPS cached metadata load started\ncaerus startup    253.7 ms: window presented\ncaerus startup    751.2 ms: repositories read: 20719 package names\ncaerus startup    817.4 ms: installed package metadata read\ncaerus startup    905.6 ms: XBPS cached metadata load completed\ncaerus startup    934.0 ms: worker returned 20724 packages\ncaerus startup    968.5 ms: package objects constructed\ncaerus startup   1325.4 ms: package model published\ncaerus startup   1369.3 ms: loading completed: 20724 packages, 20724 visible\ncaerus startup   1441.4 ms: secondary pages preparation started\ncaerus startup   1533.5 ms: secondary pages preparation completed\ncaerus startup   1771.6 ms: package list frame ready\n"
+      }
+    ],
+    "before-release": [
+      {
+        "run": 1,
+        "process_to_list_frame_ms": 1283.9,
+        "ready": true,
+        "trace": "caerus startup      0.0 ms: process started\nMESA-EGL: warning: DRI3 error: Could not get DRI3 device\nMESA-EGL: warning: Ensure your X server supports DRI3 to get accelerated rendering\ncaerus startup    204.2 ms: window widgets and callbacks constructed\ncaerus startup    204.4 ms: XBPS cached metadata load started\ncaerus startup    257.9 ms: window presented\ncaerus startup    688.6 ms: repositories read: 20719 package names\ncaerus startup    765.1 ms: installed package metadata read\ncaerus startup    849.7 ms: XBPS cached metadata load completed\ncaerus startup    875.5 ms: worker returned 20724 packages\ncaerus startup    881.9 ms: package objects constructed\ncaerus startup   1025.2 ms: package model published\ncaerus startup   1056.7 ms: loading completed: 20724 packages, 20724 visible\ncaerus startup   1072.6 ms: secondary pages preparation started\ncaerus startup   1118.7 ms: secondary pages preparation completed\ncaerus startup   1261.0 ms: package list frame ready\n"
+      },
+      {
+        "run": 2,
+        "process_to_list_frame_ms": 1286.6,
+        "ready": true,
+        "trace": "caerus startup      0.0 ms: process started\nMESA-EGL: warning: DRI3 error: Could not get DRI3 device\nMESA-EGL: warning: Ensure your X server supports DRI3 to get accelerated rendering\ncaerus startup    204.7 ms: window widgets and callbacks constructed\ncaerus startup    204.9 ms: XBPS cached metadata load started\ncaerus startup    249.2 ms: window presented\ncaerus startup    703.9 ms: repositories read: 20719 package names\ncaerus startup    770.2 ms: installed package metadata read\ncaerus startup    857.0 ms: XBPS cached metadata load completed\ncaerus startup    867.0 ms: worker returned 20724 packages\ncaerus startup    878.2 ms: package objects constructed\ncaerus startup   1035.5 ms: package model published\ncaerus startup   1066.4 ms: loading completed: 20724 packages, 20724 visible\ncaerus startup   1081.7 ms: secondary pages preparation started\ncaerus startup   1122.4 ms: secondary pages preparation completed\ncaerus startup   1264.0 ms: package list frame ready\n"
+      },
+      {
+        "run": 3,
+        "process_to_list_frame_ms": 1295.5,
+        "ready": true,
+        "trace": "caerus startup      0.0 ms: process started\nMESA-EGL: warning: DRI3 error: Could not get DRI3 device\nMESA-EGL: warning: Ensure your X server supports DRI3 to get accelerated rendering\ncaerus startup    213.3 ms: window widgets and callbacks constructed\ncaerus startup    213.5 ms: XBPS cached metadata load started\ncaerus startup    259.5 ms: window presented\ncaerus startup    692.2 ms: repositories read: 20719 package names\ncaerus startup    757.3 ms: installed package metadata read\ncaerus startup    848.2 ms: XBPS cached metadata load completed\ncaerus startup    876.3 ms: worker returned 20724 packages\ncaerus startup    882.9 ms: package objects constructed\ncaerus startup   1043.5 ms: package model published\ncaerus startup   1075.5 ms: loading completed: 20724 packages, 20724 visible\ncaerus startup   1090.3 ms: secondary pages preparation started\ncaerus startup   1132.4 ms: secondary pages preparation completed\ncaerus startup   1272.9 ms: package list frame ready\n"
+      }
+    ],
+    "final-debug": [
+      {
+        "run": 1,
+        "process_to_list_frame_ms": 1836.6,
+        "ready": true,
+        "trace": "caerus startup      0.0 ms: process started\nMESA-EGL: warning: DRI3 error: Could not get DRI3 device\nMESA-EGL: warning: Ensure your X server supports DRI3 to get accelerated rendering\ncaerus startup    217.1 ms: window widgets and callbacks constructed\ncaerus startup    217.4 ms: XBPS cached metadata load started\ncaerus startup    262.6 ms: window presented\ncaerus startup    775.7 ms: repositories read: 20719 package names\ncaerus startup    851.1 ms: installed package metadata read\ncaerus startup    942.7 ms: XBPS cached metadata load completed\ncaerus startup    972.6 ms: worker returned 20724 packages\ncaerus startup   1007.6 ms: package objects constructed\ncaerus startup   1483.3 ms: package model published\ncaerus startup   1548.4 ms: loading completed: 20724 packages, 20724 visible\ncaerus startup   1564.1 ms: secondary pages preparation started\ncaerus startup   1608.8 ms: Discover inventory indexed: 158 available applications\ncaerus startup   1608.8 ms: secondary pages preparation completed\ncaerus startup   1809.2 ms: package list frame ready\n"
+      },
+      {
+        "run": 2,
+        "process_to_list_frame_ms": 1876.7,
+        "ready": true,
+        "trace": "caerus startup      0.0 ms: process started\nMESA-EGL: warning: DRI3 error: Could not get DRI3 device\nMESA-EGL: warning: Ensure your X server supports DRI3 to get accelerated rendering\ncaerus startup    269.5 ms: window widgets and callbacks constructed\ncaerus startup    269.8 ms: XBPS cached metadata load started\ncaerus startup    314.1 ms: window presented\ncaerus startup    837.3 ms: repositories read: 20719 package names\ncaerus startup    915.0 ms: installed package metadata read\ncaerus startup   1017.6 ms: XBPS cached metadata load completed\ncaerus startup   1023.9 ms: worker returned 20724 packages\ncaerus startup   1063.3 ms: package objects constructed\ncaerus startup   1566.5 ms: package model published\ncaerus startup   1621.9 ms: loading completed: 20724 packages, 20724 visible\ncaerus startup   1637.0 ms: secondary pages preparation started\ncaerus startup   1669.6 ms: Discover inventory indexed: 158 available applications\ncaerus startup   1669.6 ms: secondary pages preparation completed\ncaerus startup   1853.8 ms: package list frame ready\n"
+      },
+      {
+        "run": 3,
+        "process_to_list_frame_ms": 1694.9,
+        "ready": true,
+        "trace": "caerus startup      0.0 ms: process started\nMESA-EGL: warning: DRI3 error: Could not get DRI3 device\nMESA-EGL: warning: Ensure your X server supports DRI3 to get accelerated rendering\ncaerus startup    218.2 ms: window widgets and callbacks constructed\ncaerus startup    218.4 ms: XBPS cached metadata load started\ncaerus startup    268.9 ms: window presented\ncaerus startup    801.1 ms: repositories read: 20719 package names\ncaerus startup    877.8 ms: installed package metadata read\ncaerus startup    967.5 ms: XBPS cached metadata load completed\ncaerus startup    997.1 ms: worker returned 20724 packages\ncaerus startup   1042.5 ms: package objects constructed\ncaerus startup   1427.1 ms: package model published\ncaerus startup   1468.2 ms: loading completed: 20724 packages, 20724 visible\ncaerus startup   1478.4 ms: secondary pages preparation started\ncaerus startup   1505.8 ms: Discover inventory indexed: 158 available applications\ncaerus startup   1505.8 ms: secondary pages preparation completed\ncaerus startup   1671.1 ms: package list frame ready\n"
+      }
+    ],
+    "final-release": [
+      {
+        "run": 1,
+        "process_to_list_frame_ms": 1192.5,
+        "ready": true,
+        "trace": "caerus startup      0.0 ms: process started\nMESA-EGL: warning: DRI3 error: Could not get DRI3 device\nMESA-EGL: warning: Ensure your X server supports DRI3 to get accelerated rendering\ncaerus startup    207.4 ms: window widgets and callbacks constructed\ncaerus startup    207.6 ms: XBPS cached metadata load started\ncaerus startup    249.4 ms: window presented\ncaerus startup    676.4 ms: repositories read: 20719 package names\ncaerus startup    741.8 ms: installed package metadata read\n\n(caerus-after-release:14975): Gtk-WARNING **: 21:42:43.000: gtk_svg_advance: time went backward: self->current_time=11105106964 current_time=11105105964 delta=1000 clock_frame_time=11105105964\ncaerus startup    826.0 ms: XBPS cached metadata load completed\ncaerus startup    837.2 ms: worker returned 20724 packages\ncaerus startup    843.8 ms: package objects constructed\ncaerus startup   1004.3 ms: package model published\ncaerus startup   1030.4 ms: loading completed: 20724 packages, 20724 visible\ncaerus startup   1032.7 ms: secondary pages preparation started\ncaerus startup   1039.1 ms: Discover inventory indexed: 158 available applications\ncaerus startup   1039.2 ms: secondary pages preparation completed\ncaerus startup   1169.7 ms: package list frame ready\n"
+      },
+      {
+        "run": 2,
+        "process_to_list_frame_ms": 1210.6,
+        "ready": true,
+        "trace": "caerus startup      0.0 ms: process started\nMESA-EGL: warning: DRI3 error: Could not get DRI3 device\nMESA-EGL: warning: Ensure your X server supports DRI3 to get accelerated rendering\ncaerus startup    205.4 ms: window widgets and callbacks constructed\ncaerus startup    205.5 ms: XBPS cached metadata load started\ncaerus startup    249.3 ms: window presented\ncaerus startup    690.2 ms: repositories read: 20719 package names\ncaerus startup    758.6 ms: installed package metadata read\ncaerus startup    844.1 ms: XBPS cached metadata load completed\ncaerus startup    859.9 ms: worker returned 20724 packages\ncaerus startup    866.7 ms: package objects constructed\ncaerus startup   1018.6 ms: package model published\ncaerus startup   1044.9 ms: loading completed: 20724 packages, 20724 visible\ncaerus startup   1047.4 ms: secondary pages preparation started\ncaerus startup   1053.9 ms: Discover inventory indexed: 158 available applications\ncaerus startup   1053.9 ms: secondary pages preparation completed\ncaerus startup   1187.7 ms: package list frame ready\n"
+      },
+      {
+        "run": 3,
+        "process_to_list_frame_ms": 1224.7,
+        "ready": true,
+        "trace": "caerus startup      0.0 ms: process started\nMESA-EGL: warning: DRI3 error: Could not get DRI3 device\nMESA-EGL: warning: Ensure your X server supports DRI3 to get accelerated rendering\ncaerus startup    202.0 ms: window widgets and callbacks constructed\ncaerus startup    202.2 ms: XBPS cached metadata load started\ncaerus startup    247.3 ms: window presented\ncaerus startup    704.0 ms: repositories read: 20719 package names\ncaerus startup    773.9 ms: installed package metadata read\ncaerus startup    863.9 ms: XBPS cached metadata load completed\ncaerus startup    879.7 ms: worker returned 20724 packages\ncaerus startup    886.3 ms: package objects constructed\ncaerus startup   1038.5 ms: package model published\ncaerus startup   1064.7 ms: loading completed: 20724 packages, 20724 visible\ncaerus startup   1068.3 ms: secondary pages preparation started\ncaerus startup   1075.8 ms: Discover inventory indexed: 158 available applications\ncaerus startup   1075.8 ms: secondary pages preparation completed\ncaerus startup   1201.5 ms: package list frame ready\n"
+      }
+    ],
+    "compact-d-release": [
+      {
+        "run": 1,
+        "process_to_list_frame_ms": 1219.9,
+        "ready": true,
+        "trace": "caerus startup      0.0 ms: process started\nMESA-EGL: warning: DRI3 error: Could not get DRI3 device\nMESA-EGL: warning: Ensure your X server supports DRI3 to get accelerated rendering\ncaerus startup    223.9 ms: window widgets and callbacks constructed\ncaerus startup    224.1 ms: XBPS cached metadata load started\ncaerus startup    256.7 ms: window presented\ncaerus startup    701.2 ms: repositories read: 20719 package names\ncaerus startup    766.8 ms: installed package metadata read\ncaerus startup    851.5 ms: XBPS cached metadata load completed\ncaerus startup    868.6 ms: worker returned 20724 packages\ncaerus startup    877.7 ms: package objects constructed\ncaerus startup   1046.8 ms: package model published\ncaerus startup   1074.1 ms: loading completed: 20724 packages, 20724 visible\ncaerus startup   1076.8 ms: secondary pages preparation started\ncaerus startup   1083.4 ms: Discover inventory indexed: 158 available applications\ncaerus startup   1083.4 ms: secondary pages preparation completed\ncaerus startup   1197.3 ms: package list frame ready\n"
+      },
+      {
+        "run": 2,
+        "process_to_list_frame_ms": 1188.9,
+        "ready": true,
+        "trace": "caerus startup      0.0 ms: process started\nMESA-EGL: warning: DRI3 error: Could not get DRI3 device\nMESA-EGL: warning: Ensure your X server supports DRI3 to get accelerated rendering\ncaerus startup    215.8 ms: window widgets and callbacks constructed\ncaerus startup    216.0 ms: XBPS cached metadata load started\ncaerus startup    246.4 ms: window presented\ncaerus startup    694.9 ms: repositories read: 20719 package names\ncaerus startup    760.8 ms: installed package metadata read\ncaerus startup    845.6 ms: XBPS cached metadata load completed\ncaerus startup    849.5 ms: worker returned 20724 packages\ncaerus startup    857.8 ms: package objects constructed\ncaerus startup   1019.9 ms: package model published\ncaerus startup   1046.1 ms: loading completed: 20724 packages, 20724 visible\ncaerus startup   1048.4 ms: secondary pages preparation started\ncaerus startup   1054.8 ms: Discover inventory indexed: 158 available applications\ncaerus startup   1054.8 ms: secondary pages preparation completed\ncaerus startup   1165.8 ms: package list frame ready\n"
+      },
+      {
+        "run": 3,
+        "process_to_list_frame_ms": 1195.9,
+        "ready": true,
+        "trace": "caerus startup      0.0 ms: process started\nMESA-EGL: warning: DRI3 error: Could not get DRI3 device\nMESA-EGL: warning: Ensure your X server supports DRI3 to get accelerated rendering\ncaerus startup    220.6 ms: window widgets and callbacks constructed\ncaerus startup    220.8 ms: XBPS cached metadata load started\ncaerus startup    253.9 ms: window presented\ncaerus startup    687.9 ms: repositories read: 20719 package names\ncaerus startup    753.6 ms: installed package metadata read\ncaerus startup    838.1 ms: XBPS cached metadata load completed\ncaerus startup    857.2 ms: worker returned 20724 packages\ncaerus startup    865.7 ms: package objects constructed\ncaerus startup   1029.0 ms: package model published\ncaerus startup   1054.8 ms: loading completed: 20724 packages, 20724 visible\ncaerus startup   1057.1 ms: secondary pages preparation started\ncaerus startup   1063.6 ms: Discover inventory indexed: 158 available applications\ncaerus startup   1063.6 ms: secondary pages preparation completed\ncaerus startup   1173.2 ms: package list frame ready\n"
+      }
+    ]
+  }
+}

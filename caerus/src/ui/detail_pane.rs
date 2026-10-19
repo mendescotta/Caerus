@@ -34,6 +34,7 @@ struct Inner {
     update_chip: gtk::Label,
     tags_box: gtk::Box,
     desc: gtk::Label,
+    action_row: gtk::FlowBox,
     btn_install: gtk::Button,
     btn_upgrade: gtk::Button,
     btn_remove: gtk::Button,
@@ -146,8 +147,24 @@ fn card_simple_no_header() -> gtk::Box {
     card.set_hexpand(true);
     card.set_halign(gtk::Align::Fill);
     card.set_valign(gtk::Align::Start);
-    card.set_size_request(260, -1);
+    card.set_size_request(230, -1);
     card
+}
+
+fn collapsible_card(card: &gtk::Box) -> gtk::Expander {
+    let section = gtk::Expander::new(None);
+    section.add_css_class("inspector-section");
+    if let Some(header) = card.first_child() {
+        card.remove(&header);
+        header.set_margin_bottom(0);
+        section.set_label_widget(Some(&header));
+    }
+    card.remove_css_class("card");
+    section.set_child(Some(card));
+    card.bind_property("visible", &section, "visible")
+        .sync_create()
+        .build();
+    section
 }
 
 fn set_card_visible(card: &gtk::Box, visible: bool) {
@@ -204,6 +221,10 @@ fn build_kv_row(key: &str, value: KvValue) -> gtk::Box {
             link.add_css_class("inline-link");
             link.set_halign(gtk::Align::Start);
             link.set_hexpand(true);
+            if let Some(label) = link.child().and_downcast::<gtk::Label>() {
+                label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+                label.set_max_width_chars(20);
+            }
             row.append(&link);
         }
     }
@@ -303,25 +324,26 @@ impl DetailPane {
     pub fn new(store: PackageStore) -> Self {
         let widget = gtk::Box::new(gtk::Orientation::Vertical, 0);
         widget.set_height_request(220);
+        widget.add_css_class("package-inspector");
         widget.set_margin_start(12);
-        widget.set_margin_end(12);
-        widget.set_margin_top(10);
-        widget.set_margin_bottom(10);
+        widget.set_margin_end(0);
+        widget.set_margin_top(0);
+        widget.set_margin_bottom(0);
 
         let header_card = gtk::Box::new(gtk::Orientation::Vertical, 0);
         header_card.add_css_class("card");
         header_card.set_hexpand(true);
         header_card.set_halign(gtk::Align::Fill);
         header_card.set_valign(gtk::Align::Start);
-        header_card.set_size_request(260, -1);
+        header_card.set_size_request(230, -1);
 
-        let pkg_head = gtk::Box::new(gtk::Orientation::Horizontal, 14);
+        let pkg_head = gtk::Box::new(gtk::Orientation::Horizontal, 10);
         let icon_frame = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         icon_frame.add_css_class("pkg-icon");
         icon_frame.set_halign(gtk::Align::Start);
         icon_frame.set_valign(gtk::Align::Start);
         let icon_image = gtk::Image::from_icon_name("package-x-generic-symbolic");
-        icon_image.set_pixel_size(28);
+        icon_image.set_pixel_size(24);
         icon_frame.append(&icon_image);
         pkg_head.append(&icon_frame);
 
@@ -394,10 +416,8 @@ impl DetailPane {
         btn_upgrade.add_css_class("suggested-action");
         let btn_remove = gtk::Button::with_label("Mark for removal");
         btn_remove.set_visible(false);
-        btn_remove.add_css_class("destructive-action");
         let btn_purge = gtk::Button::with_label("Remove + unused dependencies");
         btn_purge.set_visible(false);
-        btn_purge.add_css_class("destructive-action");
         btn_purge.set_tooltip_text(Some(
             "Remove this package and any dependencies left orphaned by doing so",
         ));
@@ -405,9 +425,15 @@ impl DetailPane {
         btn_unmark.set_visible(false);
         action_row.insert(&btn_install, -1);
         action_row.insert(&btn_upgrade, -1);
-        action_row.insert(&btn_remove, -1);
-        action_row.insert(&btn_purge, -1);
         action_row.insert(&btn_unmark, -1);
+        for button in [&btn_install, &btn_upgrade, &btn_unmark] {
+            if let Some(child) = button.parent() {
+                button
+                    .bind_property("visible", &child, "visible")
+                    .sync_create()
+                    .build();
+            }
+        }
         header_card.append(&action_row);
 
         let secondary_row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -445,6 +471,8 @@ impl DetailPane {
             button.set_label(label);
             button.update_property(&[gtk::accessible::Property::Label(label)]);
         }
+        secondary_row.append(&btn_remove);
+        secondary_row.append(&btn_purge);
         secondary_row.append(&hold_overlay);
         secondary_row.append(&repolock_overlay);
         secondary_row.append(&automark_overlay);
@@ -462,11 +490,11 @@ impl DetailPane {
         header_card.append(&more);
 
         let size_install_card = card_simple("Size & Installation");
-        let size_install_list = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        let size_install_list = gtk::Box::new(gtk::Orientation::Vertical, 6);
         size_install_card.append(&size_install_list);
 
         let source_card = card_simple("Source");
-        let source_list = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        let source_list = gtk::Box::new(gtk::Orientation::Vertical, 6);
         source_card.append(&source_list);
 
         let (deps_card, deps_pill) = card_with_pill("Dependencies");
@@ -540,22 +568,17 @@ impl DetailPane {
         files_expander.set_margin_top(4);
         files_card.append(&files_expander);
 
-        let cards_col = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        let cards_col = gtk::Box::new(gtk::Orientation::Vertical, 6);
         cards_col.set_hexpand(true);
         cards_col.set_halign(gtk::Align::Fill);
 
-        let card_order: [&gtk::Box; 7] = [
-            &header_card,
-            &size_install_card,
-            &source_card,
-            &deps_card,
-            &rdeps_card,
-            &provides_card,
-            &files_card,
-        ];
-        for card in card_order {
+        for card in [&header_card, &size_install_card, &source_card] {
             cards_col.append(card);
         }
+        for card in [&deps_card, &rdeps_card, &provides_card] {
+            cards_col.append(&collapsible_card(card));
+        }
+        cards_col.append(&files_card);
 
         let content_scroll = gtk::ScrolledWindow::new();
         content_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
@@ -604,6 +627,7 @@ impl DetailPane {
             update_chip,
             tags_box,
             desc,
+            action_row,
             btn_install,
             btn_upgrade,
             btn_remove,
@@ -874,6 +898,10 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
         owned.as_ref()
     };
 
+    inner.action_row.set_visible(pkg.is_some_and(|pkg| {
+        pkg.mark != PkgMark::None
+            || matches!(pkg.state, PkgState::NotInstalled | PkgState::Upgradable)
+    }));
     let Some(pkg) = pkg else {
         inner.btn_install.set_visible(false);
         inner.btn_remove.set_visible(false);

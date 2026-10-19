@@ -1,7 +1,7 @@
 use crate::backend::custom_filters::{filter_hides, ActiveFilter};
 use crate::backend::package::{
-    pkg_format_size, pkg_state_icon, pkg_state_tooltip, FilterMode, Package, PackageObject,
-    PkgMark, PkgState, ORPHANED_MAINTAINER,
+    pkg_format_size, pkg_state_tooltip, FilterMode, Package, PackageObject, PkgMark, PkgState,
+    ORPHANED_MAINTAINER,
 };
 use crate::backend::package_store::PackageStore;
 use crate::ui::deps_confirm;
@@ -25,6 +25,8 @@ struct Inner {
     current_repo_filter: RefCell<Option<String>>,
     selection: RefCell<Option<gtk::MultiSelection>>,
     column_view: RefCell<Option<gtk::ColumnView>>,
+    narrow: Cell<bool>,
+    wide_columns: RefCell<Vec<(gtk::ColumnViewColumn, bool)>>,
     on_package_selected: PackageSelectedCbs,
     on_marks_changed: MarksChangedCbs,
     on_reset_filters: RefCell<Vec<Box<dyn Fn()>>>,
@@ -144,6 +146,8 @@ impl PackageList {
             current_repo_filter: RefCell::new(None),
             selection: RefCell::new(None),
             column_view: RefCell::new(None),
+            narrow: Cell::new(false),
+            wide_columns: RefCell::new(Vec::new()),
             on_package_selected: RefCell::new(Vec::new()),
             on_marks_changed: RefCell::new(Vec::new()),
             on_reset_filters: RefCell::new(Vec::new()),
@@ -175,6 +179,117 @@ impl PackageList {
         ));
         update_results(&self.inner);
     }
+    #[cfg(test)]
+    pub fn assert_compact_layout(&self) {
+        fn label_y(widget: &gtk::Widget, root: &gtk::ColumnView, text: &str) -> Option<f32> {
+            if let Some(label) = widget.downcast_ref::<gtk::Label>() {
+                if label.text() == text && label.is_mapped() {
+                    return label.compute_bounds(root).map(|bounds| bounds.y());
+                }
+            }
+            let mut child = widget.first_child();
+            while let Some(widget) = child {
+                if let Some(y) = label_y(&widget, root, text) {
+                    return Some(y);
+                }
+                child = widget.next_sibling();
+            }
+            None
+        }
+        let view = self.inner.column_view.borrow().clone().unwrap();
+        let first =
+            label_y(view.upcast_ref(), &view, "firefox").expect("first package row is mapped");
+        let second =
+            label_y(view.upcast_ref(), &view, "firefox-esr").expect("second package row is mapped");
+        let row_height = (second - first).abs();
+        assert!(
+            row_height > 0.0 && row_height <= 34.0,
+            "compact row height was {row_height}"
+        );
+        let sizes = view
+            .columns()
+            .iter::<gtk::ColumnViewColumn>()
+            .flatten()
+            .find(|column| column.title().as_deref() == Some("Download Size"))
+            .unwrap();
+        sizes.set_visible(true);
+        self.set_narrow(true);
+        assert!(!sizes.is_visible());
+        self.set_narrow(false);
+        assert!(
+            sizes.is_visible(),
+            "responsive changes must preserve optional column choices"
+        );
+        sizes.set_visible(false);
+    }
+
+    #[cfg(test)]
+    pub fn assert_cached_rows_survive_refresh(&self) {
+        let before = self.visible_counts().0;
+        self.set_loading(true);
+        assert_eq!(
+            self.inner.result_stack.visible_child_name().as_deref(),
+            Some("list")
+        );
+        assert_eq!(self.visible_counts().0, before);
+        self.set_error("fixture reload failure");
+        assert_eq!(
+            self.inner.result_stack.visible_child_name().as_deref(),
+            Some("list")
+        );
+        self.set_loading(false);
+    }
+
+    #[cfg(test)]
+    pub fn assert_activation_preserves_marks(&self) {
+        let before = self.inner.store.count_marked();
+        self.inner
+            .column_view
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .emit_by_name::<()>("activate", &[&0u32]);
+        assert_eq!(
+            self.inner.store.count_marked(),
+            before,
+            "opening a package must not mark an install or removal"
+        );
+    }
+
+    pub fn set_narrow(&self, narrow: bool) {
+        if self.inner.narrow.replace(narrow) == narrow {
+            return;
+        }
+        if narrow {
+            if let Some(view) = self.inner.column_view.borrow().as_ref() {
+                let mut saved = self.inner.wide_columns.borrow_mut();
+                for column in view.columns().iter::<gtk::ColumnViewColumn>().flatten() {
+                    if column.title().as_deref() == Some("Package") {
+                        column.set_expand(true);
+                    }
+                    if !matches!(
+                        column.title().as_deref(),
+                        None | Some("" | "Package" | "State")
+                    ) {
+                        saved.push((column.clone(), column.is_visible()));
+                        column.set_visible(false);
+                    }
+                }
+            }
+        } else {
+            if let Some(view) = self.inner.column_view.borrow().as_ref() {
+                for column in view.columns().iter::<gtk::ColumnViewColumn>().flatten() {
+                    if column.title().as_deref() == Some("Package") {
+                        column.set_expand(false);
+                    }
+                }
+            }
+            for (column, visible) in self.inner.wide_columns.borrow_mut().drain(..) {
+                column.set_visible(visible);
+            }
+        }
+    }
+
     pub fn widget(&self) -> &gtk::Box {
         &self.inner.widget
     }
@@ -432,7 +547,8 @@ fn build(inner: Rc<Inner>) {
     let column_view = gtk::ColumnView::new(Some(selection.clone()));
     *inner.column_view.borrow_mut() = Some(column_view.clone());
     column_view.set_show_row_separators(true);
-    column_view.set_show_column_separators(true);
+    column_view.set_show_column_separators(false);
+    column_view.add_css_class("package-catalog");
     column_view.set_vexpand(true);
 
     {
@@ -503,43 +619,9 @@ fn build(inner: Rc<Inner>) {
         column_view.append_column(&col_check);
     }
 
-    let col_status = make_col(
-        "",
-        28,
-        false,
-        false,
-        |item| item.set_child(Some(&gtk::Image::new())),
-        |item| {
-            let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
-                return;
-            };
-
-            let Some(img) = crate::ui::dialog_util::expect_item_child::<gtk::Image>(item) else {
-                return;
-            };
-            let p = obj.pkg();
-            match pkg_state_icon(p.state, p.mark) {
-                Some(icon) => {
-                    img.set_icon_name(Some(icon));
-                    img.set_tooltip_text(Some(pkg_state_tooltip(p.state, p.mark)));
-                }
-                None => img.clear(),
-            }
-        },
-    );
-    set_column_sorter(&col_status, |a, b| {
-        let (ra, rb) = (pkg_sort_rank(a), pkg_sort_rank(b));
-        if ra == rb {
-            a.name.to_lowercase().cmp(&b.name.to_lowercase())
-        } else {
-            ra.cmp(&rb)
-        }
-    });
-    column_view.append_column(&col_status);
-
     let col_name = make_col(
         "Package",
-        200,
+        150,
         true,
         false,
         {
@@ -581,6 +663,7 @@ fn build(inner: Rc<Inner>) {
             };
             let p = obj.pkg();
             l.set_text(&p.name);
+            l.set_tooltip_text(Some(&format!("{}\n{}", p.name, p.short_desc)));
             if p.mark == PkgMark::None {
                 l.remove_css_class("pkg-marked");
             } else {
@@ -595,7 +678,7 @@ fn build(inner: Rc<Inner>) {
 
     let col_desc = make_col(
         "Description",
-        320,
+        240,
         true,
         true,
         |item| {
@@ -614,6 +697,7 @@ fn build(inner: Rc<Inner>) {
                 return;
             };
             l.set_text(&obj.pkg().short_desc);
+            l.set_tooltip_text(Some(&obj.pkg().short_desc));
         },
     );
     set_column_sorter(&col_desc, |a, b| {
@@ -623,7 +707,7 @@ fn build(inner: Rc<Inner>) {
     });
     column_view.append_column(&col_desc);
 
-    let col_inst = make_col("Installed", 110, true, false, label_cell, |item| {
+    let col_inst = make_col("Installed", 104, true, false, label_cell, |item| {
         let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
             return;
         };
@@ -634,10 +718,8 @@ fn build(inner: Rc<Inner>) {
         let p = obj.pkg();
         if let Some(v) = &p.version_installed {
             l.set_text(v);
-            l.add_css_class("pkg-installed");
         } else {
             l.set_text("\u{2014}");
-            l.remove_css_class("pkg-installed");
         }
     });
     #[cfg(not(feature = "apk"))]
@@ -649,7 +731,7 @@ fn build(inner: Rc<Inner>) {
     });
     column_view.append_column(&col_inst);
 
-    let col_avail = make_col("Available", 110, true, false, label_cell, |item| {
+    let col_avail = make_col("Available", 104, true, false, label_cell, |item| {
         let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
             return;
         };
@@ -658,7 +740,8 @@ fn build(inner: Rc<Inner>) {
             return;
         };
         let p = obj.pkg();
-        l.set_text(p.version_available.as_deref().unwrap_or("\u{2014}"));
+        l.set_text(p.version_available.as_deref().unwrap_or("—"));
+        l.set_tooltip_text(p.version_available.as_deref());
         if p.state == PkgState::Upgradable {
             l.add_css_class("pkg-upgradable");
         } else {
@@ -673,6 +756,36 @@ fn build(inner: Rc<Inner>) {
         )
     });
     column_view.append_column(&col_avail);
+
+    let col_status = make_col("State", 116, true, false, label_cell, |item| {
+        let Some(object) = item.item().map(|object| pkg_of(&object)) else {
+            return;
+        };
+        let Some(label) = crate::ui::dialog_util::expect_item_child::<gtk::Label>(item) else {
+            return;
+        };
+        let package = object.pkg();
+        label.set_text(match package.mark {
+            PkgMark::Install => "Install queued",
+            PkgMark::Upgrade => "Upgrade queued",
+            PkgMark::Remove => "Remove queued",
+            PkgMark::Purge => "Purge queued",
+            PkgMark::None => match package.state {
+                PkgState::Installed => "Installed",
+                PkgState::NotInstalled => "Available",
+                PkgState::Upgradable => "Update available",
+                PkgState::OnHold => "Held",
+                PkgState::Broken => "Broken",
+            },
+        });
+        label.set_tooltip_text(Some(pkg_state_tooltip(package.state, package.mark)));
+    });
+    set_column_sorter(&col_status, |a, b| {
+        pkg_sort_rank(a)
+            .cmp(&pkg_sort_rank(b))
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    column_view.append_column(&col_status);
 
     let col_isize = make_col("Installed Size", 110, true, false, label_cell, |item| {
         let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
@@ -738,14 +851,8 @@ fn build(inner: Rc<Inner>) {
     column_view.sort_by_column(Some(&col_name), gtk::SortType::Ascending);
 
     {
-        let inner = inner.clone();
-        let selection = selection;
-        column_view.connect_activate(move |view, position| {
-            let Some(obj) = selection.item(position).map(|o| pkg_of(&o)) else {
-                return;
-            };
-            let root = view.root().and_downcast::<gtk::Window>();
-            toggle_mark(root, &inner.store, &inner, &obj);
+        column_view.connect_activate(move |_, position| {
+            selection.select_item(position, true);
         });
     }
 
@@ -753,11 +860,34 @@ fn build(inner: Rc<Inner>) {
     scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
     scroll.set_vexpand(true);
     scroll.set_child(Some(&column_view));
+    let columns_button = gtk::MenuButton::new();
+    columns_button.set_icon_name("view-list-symbolic");
+    columns_button.set_tooltip_text(Some("Show additional package columns"));
+    let columns_popover = gtk::Popover::new();
+    let options = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    for (column, visible) in [
+        (&col_desc, true),
+        (&col_inst, true),
+        (&col_avail, true),
+        (&col_isize, false),
+        (&col_dsize, false),
+    ] {
+        column.set_visible(visible);
+        let toggle = gtk::CheckButton::with_label(column.title().as_deref().unwrap_or("Column"));
+        column
+            .bind_property("visible", &toggle, "active")
+            .bidirectional()
+            .sync_create()
+            .build();
+        options.append(&toggle);
+    }
+    columns_popover.set_child(Some(&options));
+    columns_button.set_popover(Some(&columns_popover));
     let filter_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    filter_bar.set_margin_start(8);
-    filter_bar.set_margin_end(8);
-    filter_bar.set_margin_top(6);
-    filter_bar.set_margin_bottom(6);
+    filter_bar.set_margin_start(0);
+    filter_bar.set_margin_end(0);
+    filter_bar.set_margin_top(0);
+    filter_bar.set_margin_bottom(4);
     inner.filter_summary.set_hexpand(true);
     inner.filter_summary.set_xalign(0.0);
     inner.filter_summary.set_wrap(true);
@@ -774,7 +904,9 @@ fn build(inner: Rc<Inner>) {
         });
     }
     filter_bar.append(&inner.filter_summary);
+    reset.add_css_class("flat");
     filter_bar.append(&reset);
+    filter_bar.append(&columns_button);
     inner.widget.append(&filter_bar);
     inner.result_stack.set_vexpand(true);
     inner.result_stack.add_named(&scroll, Some("list"));
@@ -805,32 +937,6 @@ fn build(inner: Rc<Inner>) {
                 vadj.set_value(saved);
             });
         });
-    }
-}
-
-fn toggle_mark(
-    root: Option<gtk::Window>,
-    store: &PackageStore,
-    inner: &Rc<Inner>,
-    obj: &PackageObject,
-) {
-    let (name, state, mark, essential) = {
-        let p = obj.pkg();
-        (p.name.clone(), p.state, p.mark, p.essential)
-    };
-
-    if mark != PkgMark::None {
-        set_mark_and_notify(store, inner, &name, PkgMark::None);
-        return;
-    }
-
-    match state {
-        PkgState::NotInstalled => request_install_with_confirm(root, store, inner, &name, |_| {}),
-        PkgState::Upgradable => set_mark_and_notify(store, inner, &name, PkgMark::Upgrade),
-        _ if !essential => {
-            request_remove_with_confirm(root, store, inner, &name, PkgMark::Remove, |_| {});
-        }
-        _ => {}
     }
 }
 
@@ -1282,10 +1388,7 @@ fn update_results(inner: &Inner) {
         .borrow()
         .as_ref()
         .map_or(0, ListModelExt::n_items);
-    let filter = match &*inner.current_filter.borrow() {
-        ActiveFilter::Preset(mode) => format!("{mode:?}"),
-        ActiveFilter::Custom { name, .. } => name.clone(),
-    };
+    let filter = crate::ui::filter_sidebar::filter_label(&inner.current_filter.borrow());
     let query = inner.current_search.borrow();
     let repository = inner.current_repo_filter.borrow();
     let summary = format!(
@@ -1305,11 +1408,21 @@ fn update_results(inner: &Inner) {
             crate::backend::repo_names::display_repo(r)
         ))
     );
+    let summary = if inner.store.list().n_items() > 0 {
+        inner.load_message.borrow().as_ref().map_or_else(
+            || summary.clone(),
+            |message| format!("{summary} · {message} Showing existing data."),
+        )
+    } else {
+        summary
+    };
     inner.filter_summary.set_text(&summary);
     inner
         .filter_summary
         .update_property(&[gtk::accessible::Property::Description(&summary)]);
-    if let Some(message) = inner.load_message.borrow().as_ref() {
+    // A refresh must not replace already available rows with a blank loading page.
+    let published = inner.store.list().n_items() > 0;
+    if let Some(message) = inner.load_message.borrow().as_ref().filter(|_| !published) {
         inner.message.set_text(message);
         inner.result_stack.set_visible_child_name("message");
     } else if count == 0 {

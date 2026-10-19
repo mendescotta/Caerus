@@ -4,10 +4,10 @@
 
 A GTK4 front end for [Void Linux's](https://voidlinux.org/) XBPS.
 
-<img src="screenshots/main-window.png" width="100%">
+<img src="design/mockups/compact/implemented/compact-inventory.png" width="100%">
 
-More views: [Updates](screenshots/updates.png), [Discover](screenshots/discover.png),
-[package details in a narrow window](screenshots/package-details-narrow.png).
+More views: [Updates](screenshots/updates.png), [Discover](design/mockups/compact/implemented/discover-sections.png),
+[package details in a narrow window](design/mockups/compact/implemented/compact-narrow-details.png).
 
 ## Features
 
@@ -19,8 +19,16 @@ More views: [Updates](screenshots/updates.png), [Discover](screenshots/discover.
 - Repository and alternatives management
 - Pending-change queue with individual unmarking and dependency/version previews
 - Transaction stages, package outcomes, copyable logs and detailed history
-- Bundled application catalog with local desktop icons (Discover can be hidden)
-- Compact navigation and a separate package-details page in narrow windows
+- Searchable Discover catalog: 174 applications across 13 sections, limited to
+  applications available from enabled repositories, in wrapping columns
+  (Discover can be hidden)
+- Compact package table with descriptions, versions and state, a desktop filter/tool sidebar,
+  optional size columns, and a smaller inspector with collapsible sections
+- Adaptive task navigation and a separate package-details page in narrow windows
+
+Caerus loads cached repository metadata automatically at launch. Existing
+package rows remain visible during a local reload. If sync at launch is enabled,
+local data loads before authentication or network access begins.
 
 Refresh repositories before reviewing a system upgrade. Applying an upgrade
 uses the repository metadata you reviewed; it does not refresh again during
@@ -65,10 +73,17 @@ Run `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
 `cargo test`, and `bash scripts/audit.sh`. Also build `--features adwaita` and check
 APK with `cargo clippy -p caerus --no-default-features --features apk --all-targets -- -D warnings`.
 
+Set `CAERUS_TRACE_STARTUP=1` to log startup milestones. For performance checks,
+use `cargo build --release`; an unoptimized debug build is not representative.
+See [the startup audit](docs/startup-audit-2026-10-19.md).
+
 The display smoke test covers task pages, discovery availability, package
 search and a simulated partial transaction with history. Run it on a test
 display with `cargo test -p caerus -- --ignored --test-threads=1`. Its helper
-fixture runs unprivileged and never modifies host packages.
+fixture runs unprivileged and never modifies host packages. Set
+`CAERUS_TEST_LOCAL_STARTUP=1` for the additional check that loads the host’s
+cached inventory without a repository refresh and compares it to a local reload.
+This opt-in test requires existing repository metadata; it never applies packages.
 
 The helper emits versioned `EVENT 1` messages for command boundaries, observed
 package stages and completion, alongside the existing `LOG`, `OK` and `ERROR`

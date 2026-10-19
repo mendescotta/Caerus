@@ -14,4 +14,6 @@ pub mod repo_manager;
 pub mod vkpurge_dialog;
 pub mod window;
 
+pub mod catalog;
+pub mod discover;
 pub mod workflows;
