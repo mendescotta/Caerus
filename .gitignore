@@ -1,6 +1,6 @@
 /target
 /.claude
 audit-report.json
-
+/temp
 /docs/superpowers/
 DEVNOTES.md

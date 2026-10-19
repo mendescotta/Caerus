@@ -48,6 +48,7 @@ fn pkg_of(obj: &glib::Object) -> PackageObject {
         .unwrap_or_else(|_| glib::Object::new::<PackageObject>())
 }
 
+#[cfg(not(feature = "apk"))]
 fn cmp_opt_version(a: Option<&str>, b: Option<&str>) -> CmpOrdering {
     match (a, b) {
         (None, None) => CmpOrdering::Equal,
@@ -581,6 +582,7 @@ fn build(inner: Rc<Inner>) {
             l.remove_css_class("pkg-installed");
         }
     });
+    #[cfg(not(feature = "apk"))]
     set_column_sorter(&col_inst, |a, b| {
         cmp_opt_version(
             a.version_installed.as_deref(),
@@ -605,6 +607,7 @@ fn build(inner: Rc<Inner>) {
             l.remove_css_class("pkg-upgradable");
         }
     });
+    #[cfg(not(feature = "apk"))]
     set_column_sorter(&col_avail, |a, b| {
         cmp_opt_version(
             a.version_available.as_deref(),
@@ -764,6 +767,7 @@ pub fn mark_applies_to(pkg: &Package, mark: PkgMark) -> bool {
     match mark {
         PkgMark::Install => pkg.state == PkgState::NotInstalled && pkg.mark == PkgMark::None,
         PkgMark::Upgrade => pkg.state == PkgState::Upgradable && pkg.mark == PkgMark::None,
+        PkgMark::Purge if cfg!(feature = "apk") => false,
         PkgMark::Remove | PkgMark::Purge => {
             pkg.state != PkgState::NotInstalled && pkg.mark == PkgMark::None && !pkg.essential
         }
@@ -1042,7 +1046,12 @@ mod tests {
 
     #[test]
     fn remove_and_purge_spare_essential_and_not_installed() {
-        for mark in [PkgMark::Remove, PkgMark::Purge] {
+        let marks = if cfg!(feature = "apk") {
+            vec![PkgMark::Remove]
+        } else {
+            vec![PkgMark::Remove, PkgMark::Purge]
+        };
+        for mark in marks {
             assert!(mark_applies_to(
                 &pkg("a", PkgState::Installed, PkgMark::None, false),
                 mark
@@ -1084,7 +1093,14 @@ mod tests {
     fn single_selection_menu_uses_singular_labels() {
         let items = context_menu_items(&[pkg("a", PkgState::Installed, PkgMark::None, false)]);
         let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
-        assert_eq!(labels, ["Mark for Removal", "Mark for Purge"]);
+        assert_eq!(
+            labels,
+            if cfg!(feature = "apk") {
+                vec!["Mark for Removal"]
+            } else {
+                vec!["Mark for Removal", "Mark for Purge"]
+            }
+        );
     }
 
     #[test]
@@ -1098,11 +1114,15 @@ mod tests {
         let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
         assert_eq!(
             labels,
-            [
-                "Mark 2 for Installation",
-                "Mark 1 for Removal",
-                "Mark 1 for Purge"
-            ]
+            if cfg!(feature = "apk") {
+                vec!["Mark 2 for Installation", "Mark 1 for Removal"]
+            } else {
+                vec![
+                    "Mark 2 for Installation",
+                    "Mark 1 for Removal",
+                    "Mark 1 for Purge",
+                ]
+            }
         );
     }
 

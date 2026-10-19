@@ -219,6 +219,31 @@ pub(crate) fn configured_repo_urls() -> std::collections::HashSet<String> {
 }
 
 fn scan_configured_repos() -> Vec<(String, bool, bool)> {
+    if is_apk_backend() {
+        #[cfg(feature = "apk")]
+        if let Some(repositories) = resolved_apk_repositories() {
+            return repositories
+                .into_iter()
+                .map(|url| (url, false, true))
+                .collect();
+        }
+        let mut repos = std::collections::BTreeMap::new();
+        for (path, vendor) in apk_repository_files() {
+            let Ok(contents) = std::fs::read_to_string(path) else {
+                continue;
+            };
+            for line in contents.lines().map(str::trim) {
+                if line.is_empty() || line.starts_with('#') || line.contains('$') {
+                    continue;
+                }
+                repos.entry(line.to_owned()).or_insert((!vendor, true));
+            }
+        }
+        return repos
+            .into_iter()
+            .map(|(url, (editable, enabled))| (url, editable, enabled))
+            .collect();
+    }
     let mut map: std::collections::BTreeMap<String, (bool, bool)> =
         std::collections::BTreeMap::new();
     let mut etc_names: std::collections::HashSet<std::ffi::OsString> =
@@ -270,6 +295,76 @@ fn scan_configured_repos() -> Vec<(String, bool, bool)> {
     map.into_iter().map(|(u, (r, e))| (u, r, e)).collect()
 }
 
+#[cfg(feature = "apk")]
+fn resolved_apk_repositories() -> Option<std::collections::BTreeSet<String>> {
+    let output = std::process::Command::new("apk")
+        .args([
+            "query",
+            "--from",
+            "repositories",
+            "--fields",
+            "repositories",
+            "--format",
+            "json",
+            "*",
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let packages: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    let mut urls = std::collections::BTreeSet::new();
+    for package in packages.as_array()? {
+        let Some(repositories) = package
+            .get("repositories")
+            .and_then(serde_json::Value::as_array)
+        else {
+            continue;
+        };
+        for repository in repositories {
+            let Some(url) = repository.as_str() else {
+                continue;
+            };
+            if url != "lib/apk/db/installed" {
+                urls.insert(url.to_owned());
+            }
+        }
+    }
+    Some(urls)
+}
+
+fn is_apk_backend() -> bool {
+    std::fs::read_to_string("/etc/os-release")
+        .ok()
+        .is_some_and(|release| release.lines().any(|line| line == "ID=chimera"))
+}
+
+fn apk_repository_files() -> Vec<(std::path::PathBuf, bool)> {
+    let mut paths = Vec::new();
+    for (path, vendor) in [
+        ("/etc/apk/repositories", false),
+        ("/etc/apk/repositories.d", false),
+        ("/usr/lib/apk/repositories.d", true),
+        ("/usr/share/apk/repositories.d", true),
+    ] {
+        let path = std::path::Path::new(path);
+        if path.is_file() {
+            paths.push((path.to_path_buf(), vendor));
+        } else if let Ok(entries) = std::fs::read_dir(path) {
+            paths.extend(
+                entries
+                    .filter_map(Result::ok)
+                    .map(|entry| entry.path())
+                    .filter(|entry| entry.is_file())
+                    .map(|entry| (entry, vendor)),
+            );
+        }
+    }
+    paths.sort_by(|a, b| a.0.cmp(&b.0));
+    paths
+}
+
 struct Inner {
     dlg: gtk::Window,
     session: Transaction,
@@ -301,12 +396,18 @@ fn refresh(inner: &Rc<Inner>) {
         if !in_etc {
             let badge = gtk::Label::new(Some("vendor"));
             badge.add_css_class("dim-label");
-            badge.set_tooltip_text(Some(
-                "Void default repository — can be disabled, but not removed here",
-            ));
+            badge.set_tooltip_text(Some(if is_apk_backend() {
+                "System package configuration"
+            } else {
+                "Void default repository — can be disabled, but not removed here"
+            }));
             row_box.append(&badge);
         }
 
+        if is_apk_backend() {
+            inner.repos_list.append(&repo_row(row_box));
+            continue;
+        }
         let switch = gtk::Switch::new();
         switch.set_state(enabled);
         switch.set_active(enabled);
@@ -385,6 +486,14 @@ fn refresh(inner: &Rc<Inner>) {
     }
 }
 
+fn repo_row(row_box: gtk::Box) -> gtk::ListBoxRow {
+    let row = gtk::ListBoxRow::new();
+    row.set_selectable(false);
+    row.set_activatable(false);
+    row.set_child(Some(&row_box));
+    row
+}
+
 pub fn show(parent: Option<&gtk::Window>, session: &Transaction, on_changed: impl Fn() + 'static) {
     let (dlg, outer) = modal_window("Repositories", parent, true, (500, 380), 8);
 
@@ -407,6 +516,13 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction, on_changed: imp
     add_row.append(&entry);
     add_row.append(&add_btn);
     outer.append(&add_row);
+    if is_apk_backend() {
+        entry.set_sensitive(false);
+        add_btn.set_sensitive(false);
+        entry.set_tooltip_text(Some(
+            "Repository editing is not supported by the APK backend",
+        ));
+    }
 
     close_button(&outer, &dlg, 4);
 

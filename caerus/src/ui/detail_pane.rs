@@ -837,7 +837,9 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
 
     let installed = pkg.state != PkgState::NotInstalled;
 
-    inner.hold_overlay.set_visible(installed);
+    inner
+        .hold_overlay
+        .set_visible(installed && !cfg!(feature = "apk"));
     if installed {
         let is_held = pkg.state == PkgState::OnHold;
         set_dot_state(&inner.hold_dot, is_held);
@@ -848,7 +850,9 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
         }));
     }
 
-    inner.repolock_overlay.set_visible(installed);
+    inner
+        .repolock_overlay
+        .set_visible(installed && !cfg!(feature = "apk"));
     if installed {
         set_dot_state(&inner.repolock_dot, pkg.is_repolocked);
         inner
@@ -861,9 +865,15 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
             }));
     }
 
-    inner.btn_reinstall.set_visible(installed);
-    inner.btn_reconfigure.set_visible(installed);
-    inner.btn_download.set_visible(!installed);
+    inner
+        .btn_reinstall
+        .set_visible(installed && !cfg!(feature = "apk"));
+    inner
+        .btn_reconfigure
+        .set_visible(installed && !cfg!(feature = "apk"));
+    inner
+        .btn_download
+        .set_visible(!installed && !cfg!(feature = "apk"));
 
     if pkg.mark != PkgMark::None {
         inner.btn_install.set_visible(false);
@@ -889,10 +899,12 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
         inner.btn_remove.set_sensitive(!pkg.essential);
         inner.btn_remove.set_tooltip_text(if pkg.essential {
             Some("Essential package — removal disabled")
+        } else if cfg!(feature = "apk") {
+            Some("APK removes this package's world constraint; it may remain installed if another package requires it")
         } else {
             None
         });
-        inner.btn_purge.set_visible(true);
+        inner.btn_purge.set_visible(!cfg!(feature = "apk"));
         inner.btn_purge.set_sensitive(!pkg.essential);
         inner.btn_purge.set_tooltip_text(if pkg.essential {
             Some("Essential package — purge disabled")

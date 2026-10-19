@@ -21,7 +21,7 @@ extern "C" {
 
 const LOCK_EX: i32 = 2;
 
-fn run_xbps(argv: &[&str]) -> Option<i32> {
+fn run_command(argv: &[&str]) -> Option<i32> {
     let mut child = match Command::new(argv[0])
         .args(&argv[1..])
         .stdout(Stdio::piped())
@@ -75,6 +75,37 @@ fn run_xbps(argv: &[&str]) -> Option<i32> {
     child.wait().map_or(None, |status| status.code())
 }
 
+fn uses_apk() -> bool {
+    std::fs::read_to_string("/etc/os-release")
+        .ok()
+        .is_some_and(|release| {
+            release.lines().any(|line| {
+                line.strip_prefix("ID=")
+                    .is_some_and(|id| id.trim_matches('"') == "chimera")
+            })
+        })
+}
+
+fn apk_argv_for(verb: &str) -> Option<&'static [&'static str]> {
+    Some(match verb {
+        "INSTALL" => &["apk", "add", "--interactive=no", "--"],
+        "UPDATE" => &["apk", "upgrade", "--interactive=no", "--"],
+        "REMOVE" => &["apk", "del", "--interactive=no", "--"],
+        _ => return None,
+    })
+}
+
+fn valid_apk_package_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with('-')
+        && name != "."
+        && name != ".."
+        && !name.ends_with(".apk")
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"+_.-".contains(&byte))
+}
+
 fn split_pkgnames(rest: &str) -> Vec<String> {
     rest.split_whitespace().map(str::to_owned).collect()
 }
@@ -101,14 +132,27 @@ fn argv_for(verb: &str) -> Option<&'static [&'static str]> {
 }
 
 fn run_pkg_command(verb: &str, pkgs: &[String], err_msg: &str) {
-    let Some(base) = argv_for(verb) else {
+    if uses_apk() && pkgs.iter().any(|name| !valid_apk_package_name(name)) {
+        respond_ok_or(false, "invalid APK package name");
+        return;
+    }
+    let base = if uses_apk() {
+        apk_argv_for(verb)
+    } else {
+        argv_for(verb)
+    };
+    let Some(base) = base else {
+        if uses_apk() {
+            respond_ok_or(false, "operation is not supported by the APK backend");
+            return;
+        }
         eprintln!("caerus-helper: unknown verb: {verb}");
         respond_ok_or(false, err_msg);
         return;
     };
     let mut argv: Vec<&str> = base.to_vec();
     argv.extend(pkgs.iter().map(String::as_str));
-    let code = run_xbps(&argv);
+    let code = run_command(&argv);
     respond_ok_or(code == Some(0), err_msg);
 }
 
@@ -300,6 +344,7 @@ fn remove_repo(url: &str) -> Result<(), String> {
 
 const PKG_VERBS: &[(&str, &str)] = &[
     ("INSTALL", "install failed"),
+    ("UPDATE", "package upgrade failed"),
     ("REMOVE", "remove failed"),
     ("PURGE", "purge failed"),
     ("INSTALL_FORCE", "forced install failed"),
@@ -454,11 +499,18 @@ fn respond_result(result: Result<(), String>) {
 
 fn handle_upgrade() {
     const EBUSY: i32 = 16;
-    let mut code = run_xbps(&["xbps-install", "-y", "-Su"]);
+    if uses_apk() {
+        respond_ok_or(
+            run_command(&["apk", "upgrade", "--interactive=no"]) == Some(0),
+            "system upgrade failed",
+        );
+        return;
+    }
+    let mut code = run_command(&["xbps-install", "-y", "-Su"]);
     if code == Some(EBUSY) {
         println!("LOG xbps updated itself; re-running the system upgrade\u{2026}");
         let _ = io::stdout().flush();
-        code = run_xbps(&["xbps-install", "-y", "-Su"]);
+        code = run_command(&["xbps-install", "-y", "-Su"]);
     }
     respond_ok_or(code == Some(0), "upgrade failed");
 }
@@ -472,7 +524,7 @@ fn handle_vkpurge(rest: &str) {
     } else {
         let mut argv: Vec<&str> = vec!["vkpurge", "rm"];
         argv.extend(versions.iter().map(String::as_str));
-        let code = run_xbps(&argv);
+        let code = run_command(&argv);
         respond_ok_or(code == Some(0), "kernel purge failed");
     }
 }
@@ -484,12 +536,16 @@ fn handle_alternative(rest: &str) {
     } else if parts.iter().any(|p| p.starts_with('-')) {
         reply("ERROR group/pkgname must not start with '-'");
     } else {
-        let code = run_xbps(&["xbps-alternatives", "-g", parts[0], "-s", parts[1]]);
+        let code = run_command(&["xbps-alternatives", "-g", parts[0], "-s", parts[1]]);
         respond_ok_or(code == Some(0), "setting alternative failed");
     }
 }
 
 fn handle_repo(verb: &str, url: &str) -> bool {
+    if uses_apk() {
+        reply("ERROR repository editing is not supported by the APK backend");
+        return true;
+    }
     let url = url.trim();
     if url.is_empty() {
         reply("ERROR no url specified");
@@ -510,8 +566,31 @@ fn handle_line(line: &str) {
         handle_upgrade();
         return;
     }
+    if uses_apk()
+        && ["VKPURGE", "ALTERNATIVE", "SYNC_TRUST"]
+            .iter()
+            .any(|verb| line == *verb || line.starts_with(&format!("{verb} ")))
+    {
+        reply("ERROR operation is not supported by the APK backend");
+        return;
+    }
+    if uses_apk() && line == "SYNC" {
+        respond_ok_or(
+            run_command(&["apk", "update"]) == Some(0),
+            "repository update failed",
+        );
+        return;
+    }
+    if uses_apk() && ["ORPHANS", "CLEANCACHE", "RECONFIGURE_ALL", "VERIFY"].contains(&line) {
+        reply("ERROR operation is not supported by the APK backend");
+        return;
+    }
     if let Some((_, argv, err)) = FIXED_VERBS.iter().find(|(v, _, _)| *v == line) {
-        respond_ok_or(run_xbps(argv) == Some(0), err);
+        if uses_apk() {
+            reply("ERROR operation is not supported by the APK backend");
+            return;
+        }
+        respond_ok_or(run_command(argv) == Some(0), err);
         return;
     }
     let Some((verb, rest)) = line.split_once(' ') else {
@@ -530,6 +609,9 @@ fn handle_line(line: &str) {
     match verb {
         "VKPURGE" => handle_vkpurge(rest),
         "ALTERNATIVE" => handle_alternative(rest),
+        "SYNC_TRUST" if uses_apk() => {
+            reply("ERROR repository key pinning is not supported by the APK backend");
+        }
         "SYNC_TRUST" => handle_sync_trust(rest),
         _ if handle_repo(verb, rest) => {}
         _ => reply(&format!("ERROR unknown command: {line}")),
@@ -699,8 +781,42 @@ mod tests {
     #[test]
     fn every_pkg_verb_has_an_argv() {
         for (verb, _) in PKG_VERBS {
-            assert!(argv_for(verb).is_some(), "{verb}");
+            if *verb == "UPDATE" {
+                assert!(argv_for(verb).is_none());
+                assert!(apk_argv_for(verb).is_some());
+            } else {
+                assert!(argv_for(verb).is_some(), "{verb}");
+            }
         }
+    }
+
+    #[test]
+    fn apk_argv_only_maps_operations_with_matching_semantics() {
+        assert_eq!(
+            apk_argv_for("INSTALL"),
+            Some(["apk", "add", "--interactive=no", "--"].as_slice())
+        );
+        assert_eq!(
+            apk_argv_for("REMOVE"),
+            Some(["apk", "del", "--interactive=no", "--"].as_slice())
+        );
+        assert_eq!(
+            apk_argv_for("UPDATE"),
+            Some(["apk", "upgrade", "--interactive=no", "--"].as_slice())
+        );
+        assert_eq!(apk_argv_for("PURGE"), None);
+        assert_eq!(apk_argv_for("DOWNLOAD"), None);
+        assert_eq!(apk_argv_for("HOLD"), None);
+        assert_eq!(apk_argv_for("INSTALL_FORCE"), None);
+    }
+
+    #[test]
+    fn apk_package_names_reject_paths_and_package_files() {
+        assert!(valid_apk_package_name("libfoo+bar"));
+        assert!(!valid_apk_package_name("--help"));
+        assert!(!valid_apk_package_name("../payload"));
+        assert!(!valid_apk_package_name("/tmp/payload.apk"));
+        assert!(!valid_apk_package_name("payload.apk"));
     }
 
     #[test]
