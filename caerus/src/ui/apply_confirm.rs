@@ -4,6 +4,7 @@ use crate::ui::dialog_util::{
     cancel_button_row, count_pill, modal_window, present_focused, set_count, text_list_row,
 };
 use gtk::prelude::*;
+use std::cell::Cell;
 use std::rc::Rc;
 
 fn section_header(title: &str, count: usize) -> gtk::Box {
@@ -152,6 +153,11 @@ pub fn confirm(
 
     if let Some(Err(err)) = &preview {
         error_banner(&outer, err);
+    } else if preview.is_none() {
+        error_banner(
+            &outer,
+            &TransactionError::Other("Transaction preview is unavailable.".to_string()),
+        );
     }
 
     let scroll = gtk::ScrolledWindow::new();
@@ -193,7 +199,7 @@ pub fn confirm(
 
     let (btn_box, cancel_btn) = cancel_button_row(10);
 
-    let had_error = matches!(preview, Some(Err(_)));
+    let had_error = !matches!(preview, Some(Ok(_)));
     let apk_preview_failed = cfg!(feature = "apk") && !matches!(preview, Some(Ok(_)));
     let destructive = !removes.is_empty() || !purges.is_empty() || had_error;
     let apply_label = if had_error { "Apply Anyway" } else { "Apply" };
@@ -210,27 +216,37 @@ pub fn confirm(
     dlg.set_default_widget(Some(if destructive { &cancel_btn } else { &apply_btn }));
 
     let cb = Rc::new(cb);
+    let responded = Rc::new(Cell::new(false));
 
     {
         let cb = cb.clone();
         let dlg = dlg.clone();
+        let responded = responded.clone();
         cancel_btn.connect_clicked(move |_| {
-            cb(false);
-            dlg.destroy();
+            if !responded.replace(true) {
+                dlg.destroy();
+                cb(false);
+            }
         });
     }
     {
         let cb = cb.clone();
         let dlg = dlg.clone();
+        let responded = responded.clone();
         apply_btn.connect_clicked(move |_| {
-            cb(true);
-            dlg.destroy();
+            if !responded.replace(true) {
+                dlg.destroy();
+                cb(true);
+            }
         });
     }
     {
         let cb = cb;
         dlg.connect_close_request(move |_| {
-            cb(false);
+            if !responded.replace(true) {
+                let cb = cb.clone();
+                glib::idle_add_local_once(move || cb(false));
+            }
             glib::Propagation::Proceed
         });
     }

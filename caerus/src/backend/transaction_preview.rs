@@ -1,5 +1,6 @@
 #[derive(Debug, Clone)]
 pub enum PreviewOp {
+    UpdateAll,
     Install(String),
     Update(String),
     Remove(String),

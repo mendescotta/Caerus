@@ -78,6 +78,18 @@ pub fn run(
     title: &str,
     done_cb: impl Fn(bool) + 'static,
 ) {
+    run_inner(parent, session, commands, title, done_cb, false, None);
+}
+
+fn run_inner(
+    parent: Option<&gtk::Window>,
+    session: &Transaction,
+    commands: &[String],
+    title: &str,
+    done_cb: impl Fn(bool) + 'static,
+    done_after_close: bool,
+    record_commands: Option<Vec<String>>,
+) {
     let (dlg, outer) = modal_window(title, parent, true, (520, 200), 8);
 
     let total_pkgs = count_target_packages(commands);
@@ -279,6 +291,8 @@ pub fn run(
             }
         })
     };
+    let result_on_close = Rc::new(Cell::new(None));
+    let done_cb = Rc::new(done_cb);
     let on_finished = {
         let spinner = spinner;
         let progress_bar = progress_bar;
@@ -286,7 +300,8 @@ pub fn run(
         let status_label = status_label;
         let close_btn = close_btn.clone();
         let session_for_cleanup = session.clone();
-        let dlg_for_close = dlg.clone();
+        let result_on_close = result_on_close.clone();
+        let done_cb = done_cb.clone();
         move |success: bool| {
             pulsing.set(false);
             spinner.stop();
@@ -304,25 +319,43 @@ pub fn run(
                 "Finished with errors."
             });
             close_btn.set_sensitive(true);
-            done_cb(success);
+            if let Some(commands) = &record_commands {
+                crate::backend::history::record(commands, success);
+            }
+            if done_after_close {
+                result_on_close.set(Some(success));
+            } else {
+                done_cb(success);
+            }
 
             session_for_cleanup.disconnect_log(log_id);
             session_for_cleanup.disconnect_disconnected(disconnected_id);
 
             if success && AUTO_CLOSE_ON_SUCCESS.get() {
-                dlg_for_close.destroy();
+                close_btn.emit_clicked();
             }
         }
     };
 
     {
         let dlg_c = dlg.clone();
-        close_btn.connect_clicked(move |_| dlg_c.destroy());
+        let result_on_close = result_on_close.clone();
+        let done_cb = done_cb.clone();
+        close_btn.connect_clicked(move |_| {
+            dlg_c.destroy();
+            if let Some(success) = result_on_close.take() {
+                done_cb(success);
+            }
+        });
     }
     {
         let close_btn = close_btn;
         dlg.connect_close_request(move |_| {
             if close_btn.is_sensitive() {
+                if let Some(success) = result_on_close.take() {
+                    let done_cb = done_cb.clone();
+                    glib::idle_add_local_once(move || done_cb(success));
+                }
                 glib::Propagation::Proceed
             } else {
                 glib::Propagation::Stop
@@ -332,6 +365,26 @@ pub fn run(
 
     dlg.present();
     session.run_batch(commands.to_vec(), on_finished);
+}
+
+/// Records the command result when it finishes, then calls `done_cb` after
+/// the progress window closes so another modal can be opened safely.
+pub fn run_recorded_until_closed(
+    parent: Option<&gtk::Window>,
+    session: &Transaction,
+    commands: &[String],
+    title: &str,
+    done_cb: impl Fn(bool) + 'static,
+) {
+    run_inner(
+        parent,
+        session,
+        commands,
+        title,
+        done_cb,
+        true,
+        Some(commands.to_vec()),
+    );
 }
 
 pub fn run_recorded(

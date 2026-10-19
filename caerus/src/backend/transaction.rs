@@ -10,7 +10,7 @@ use std::time::Duration;
 
 const IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum TxnState {
     NotRunning,
     Spawning,
@@ -63,19 +63,7 @@ pub struct Transaction {
 
 impl Transaction {
     pub fn new() -> Self {
-        let inner = Rc::new(Inner {
-            stdin: RefCell::new(None),
-            line_rx: RefCell::new(None),
-            batches: RefCell::new(VecDeque::new()),
-            state: Cell::new(TxnState::NotRunning),
-            intentional_quit: Cell::new(false),
-            idle_timeout_id: RefCell::new(None),
-            next_listener_id: Cell::new(0),
-            on_log: RefCell::new(Vec::new()),
-            on_disconnected: RefCell::new(Vec::new()),
-        });
-
-        let txn = Self { inner };
+        let txn = Self::without_poll();
         {
             let weak = Rc::downgrade(&txn.inner);
             glib::source::timeout_add_local(Duration::from_millis(20), move || {
@@ -88,6 +76,22 @@ impl Transaction {
             });
         }
         txn
+    }
+
+    fn without_poll() -> Self {
+        let inner = Rc::new(Inner {
+            stdin: RefCell::new(None),
+            line_rx: RefCell::new(None),
+            batches: RefCell::new(VecDeque::new()),
+            state: Cell::new(TxnState::NotRunning),
+            intentional_quit: Cell::new(false),
+            idle_timeout_id: RefCell::new(None),
+            next_listener_id: Cell::new(0),
+            on_log: RefCell::new(Vec::new()),
+            on_disconnected: RefCell::new(Vec::new()),
+        });
+
+        Self { inner }
     }
 
     fn next_id(&self) -> u64 {
@@ -146,22 +150,17 @@ impl Transaction {
     }
 
     pub fn run_batch(&self, commands: Vec<String>, on_finished: impl FnOnce(bool) + 'static) {
-        let mut accepted: VecDeque<String> = VecDeque::with_capacity(commands.len());
-        for command in commands {
-            if !command_is_safe(&command) {
-                self.emit_log(&format!(
-                    "refusing to queue malformed command (contains control characters): {command:?}"
-                ));
-                continue;
-            }
-            accepted.push_back(command);
+        if commands.iter().any(|command| !command_is_safe(command)) {
+            self.emit_log("refusing malformed batch (contains control characters)");
+            on_finished(false);
+            return;
         }
-        if accepted.is_empty() {
+        if commands.is_empty() {
             on_finished(true);
             return;
         }
         self.inner.batches.borrow_mut().push_back(Batch {
-            commands: accepted,
+            commands: commands.into(),
             on_finished: Some(Box::new(on_finished)),
         });
 
@@ -198,9 +197,11 @@ impl Transaction {
     fn find_helper_path() -> Option<PathBuf> {
         const INSTALL_PATH: &str = "/usr/libexec/caerus-helper";
 
+        // Development overrides may be owned by the current user; the system
+        // install and PATH lookups must be root-owned end to end.
         if let Ok(over) = std::env::var("CAERUS_HELPER_PATH") {
             let p = PathBuf::from(&over);
-            if is_executable(&p) && helper_is_trusted(&p) {
+            if is_executable(&p) && helper_is_trusted(&p, true) {
                 return Some(p);
             }
         }
@@ -208,18 +209,18 @@ impl Transaction {
         if let Ok(self_exe) = std::fs::read_link("/proc/self/exe") {
             if let Some(dir) = self_exe.parent() {
                 let candidate = dir.join("caerus-helper");
-                if is_executable(&candidate) && helper_is_trusted(&candidate) {
+                if is_executable(&candidate) && helper_is_trusted(&candidate, true) {
                     return Some(candidate);
                 }
             }
         }
 
         let p = PathBuf::from(INSTALL_PATH);
-        if is_executable(&p) {
+        if is_executable(&p) && helper_is_trusted(&p, false) {
             return Some(p);
         }
 
-        which("caerus-helper")
+        which("caerus-helper").filter(|p| helper_is_trusted(p, false))
     }
 
     fn spawn_helper(&self) -> bool {
@@ -456,20 +457,35 @@ fn which(program: &str) -> Option<PathBuf> {
     None
 }
 
-fn helper_is_trusted(path: &Path) -> bool {
+/// Whether `path` may be run as root through pkexec.
+///
+/// The file and every ancestor directory must be owned by root (or by the
+/// current user when `allow_user_owned`, for development builds) and must not
+/// be group/world-writable. A writable directory is tolerated only when it is
+/// sticky (e.g. `/tmp`), which stops other users replacing our entries.
+fn owner_is_trusted(owner: u32, current_user: u32, allow_user_owned: bool) -> bool {
+    owner == 0 || (allow_user_owned && owner == current_user)
+}
+
+fn helper_is_trusted(path: &Path, allow_user_owned: bool) -> bool {
     use std::os::unix::fs::MetadataExt;
-    let Ok(me) = std::fs::metadata("/proc/self").map(|m| m.uid()) else {
+    // SAFETY: geteuid has no preconditions and only reads the process credentials.
+    let current_user = unsafe { libc::geteuid() };
+    let Ok(resolved) = std::fs::canonicalize(path) else {
         return false;
     };
-    let trusted_owner = |m: &std::fs::Metadata| m.uid() == 0 || m.uid() == me;
-    let locked_down = |m: &std::fs::Metadata| m.mode() & 0o022 == 0;
-    let Ok(file) = std::fs::metadata(path) else {
+    let trusted_owner =
+        |m: &std::fs::Metadata| owner_is_trusted(m.uid(), current_user, allow_user_owned);
+    let Ok(file) = std::fs::metadata(&resolved) else {
         return false;
     };
-    let Some(Ok(dir)) = path.parent().map(std::fs::metadata) else {
+    if !file.is_file() || !trusted_owner(&file) || file.mode() & 0o022 != 0 {
         return false;
-    };
-    trusted_owner(&file) && locked_down(&file) && trusted_owner(&dir) && locked_down(&dir)
+    }
+    resolved.ancestors().skip(1).all(|dir| {
+        std::fs::metadata(dir)
+            .is_ok_and(|m| trusted_owner(&m) && (m.mode() & 0o022 == 0 || m.mode() & 0o1000 != 0))
+    })
 }
 
 fn command_is_safe(command: &str) -> bool {
@@ -479,21 +495,79 @@ fn command_is_safe(command: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::MetadataExt;
+
+    /// Scratch directory under the system temp dir, removed on drop.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("caerus-{name}-{}", std::process::id()));
+            if std::fs::symlink_metadata(&dir).is_ok_and(|m| m.is_dir()) {
+                let _ = std::fs::remove_dir_all(&dir);
+            }
+            std::fs::create_dir(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn chmod(path: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
 
     #[test]
     fn world_writable_helper_is_not_trusted() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("caerus-helper-trust-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let scratch = Scratch::new("helper-trust");
+        let dir = &scratch.0;
+        chmod(dir, 0o755);
         let helper = dir.join("caerus-helper");
         std::fs::write(&helper, "").unwrap();
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(helper_is_trusted(&helper));
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o757)).unwrap();
-        assert!(!helper_is_trusted(&helper));
-        assert!(!helper_is_trusted(&dir.join("missing")));
+        chmod(&helper, 0o755);
+        assert!(helper_is_trusted(&helper, true));
+        chmod(&helper, 0o757);
+        assert!(!helper_is_trusted(&helper, true));
+        assert!(!helper_is_trusted(&dir.join("missing"), true));
+    }
+
+    #[test]
+    fn user_owned_helper_needs_explicit_opt_in() {
+        let scratch = Scratch::new("helper-owner");
+        let helper = scratch.0.join("caerus-helper");
+        chmod(&scratch.0, 0o755);
+        std::fs::write(&helper, "").unwrap();
+        chmod(&helper, 0o755);
+        assert!(helper_is_trusted(&helper, true));
+        let owner = std::fs::metadata(&helper).unwrap().uid();
+        assert_eq!(helper_is_trusted(&helper, false), owner == 0);
+    }
+
+    #[test]
+    fn user_owner_requires_opt_in_but_root_is_always_trusted() {
+        assert!(owner_is_trusted(0, 1000, false));
+        assert!(!owner_is_trusted(1000, 1000, false));
+        assert!(owner_is_trusted(1000, 1000, true));
+    }
+
+    #[test]
+    fn writable_ancestor_directory_is_not_trusted() {
+        let scratch = Scratch::new("helper-ancestor");
+        let inner = scratch.0.join("bin");
+        std::fs::create_dir(&inner).unwrap();
+        chmod(&inner, 0o755);
+        let helper = inner.join("caerus-helper");
+        std::fs::write(&helper, "").unwrap();
+        chmod(&helper, 0o755);
+        chmod(&scratch.0, 0o755);
+        assert!(helper_is_trusted(&helper, true));
+        chmod(&scratch.0, 0o777);
+        assert!(!helper_is_trusted(&helper, true));
     }
 
     #[test]
@@ -512,5 +586,41 @@ mod tests {
         assert!(!command_is_safe("INSTALL foo\u{0}"));
         assert!(!command_is_safe("INSTALL foo\u{1b}[31m"));
         assert!(!command_is_safe("\rINSTALL foo"));
+    }
+
+    #[test]
+    fn malformed_batch_fails_without_queuing_valid_commands() {
+        let txn = Transaction::without_poll();
+        let result = Rc::new(Cell::new(None));
+        let result_cb = result.clone();
+        txn.run_batch(
+            vec!["INSTALL good".into(), "REMOVE bad\nINSTALL other".into()],
+            move |ok| result_cb.set(Some(ok)),
+        );
+        assert_eq!(result.get(), Some(false));
+        assert!(txn.inner.batches.borrow().is_empty());
+        assert_eq!(txn.inner.state.get(), TxnState::NotRunning);
+    }
+
+    #[test]
+    fn empty_batch_succeeds_without_starting_helper() {
+        let txn = Transaction::without_poll();
+        let result = Rc::new(Cell::new(None));
+        let result_cb = result.clone();
+        txn.run_batch(Vec::new(), move |ok| result_cb.set(Some(ok)));
+        assert_eq!(result.get(), Some(true));
+        assert_eq!(txn.inner.state.get(), TxnState::NotRunning);
+    }
+
+    #[test]
+    fn malformed_only_batch_fails() {
+        let txn = Transaction::without_poll();
+        let result = Rc::new(Cell::new(None));
+        let result_cb = result.clone();
+        txn.run_batch(vec!["INSTALL bad\nREMOVE other".into()], move |ok| {
+            result_cb.set(Some(ok));
+        });
+        assert_eq!(result.get(), Some(false));
+        assert!(txn.inner.batches.borrow().is_empty());
     }
 }

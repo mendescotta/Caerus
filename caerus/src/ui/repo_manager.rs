@@ -244,12 +244,15 @@ fn scan_configured_repos() -> Vec<(String, bool, bool)> {
             .map(|(url, (editable, enabled))| (url, editable, enabled))
             .collect();
     }
-    let mut map: std::collections::BTreeMap<String, (bool, bool)> =
+    scan_configured_repos_in("/etc/xbps.d", "/usr/share/xbps.d")
+}
+
+fn scan_configured_repos_in(etc_dir: &str, vendor_dir: &str) -> Vec<(String, bool, bool)> {
+    let mut map: std::collections::BTreeMap<String, (bool, bool, bool)> =
         std::collections::BTreeMap::new();
     let mut etc_names: std::collections::HashSet<std::ffi::OsString> =
         std::collections::HashSet::new();
-    for dir in ["/etc/xbps.d", "/usr/share/xbps.d"] {
-        let is_etc = dir == "/etc/xbps.d";
+    for (dir, is_etc) in [(etc_dir, true), (vendor_dir, false)] {
         let Ok(entries) = std::fs::read_dir(dir) else {
             continue;
         };
@@ -276,23 +279,33 @@ fn scan_configured_repos() -> Vec<(String, bool, bool)> {
                 continue;
             };
             for line in contents.lines() {
-                if let Some(url) = line.strip_prefix("repository=") {
+                let line = line.trim();
+                let repository = line
+                    .strip_prefix("repository=")
+                    .map(|url| (url, true))
+                    .or_else(|| {
+                        is_etc
+                            .then(|| line.strip_prefix("#repository="))
+                            .flatten()
+                            .map(|url| (url, false))
+                    });
+                if let Some((url, enabled)) = repository {
                     let url = url.trim();
                     if !url.is_empty() {
-                        map.entry(url.to_string()).or_insert((is_etc, true));
-                    }
-                } else if is_etc {
-                    if let Some(url) = line.strip_prefix("#repository=") {
-                        let url = url.trim();
-                        if !url.is_empty() {
-                            map.entry(url.to_string()).or_insert((true, false));
-                        }
+                        let state = map.entry(url.to_string()).or_insert((false, false, false));
+                        state.0 |= is_etc;
+                        state.1 |= !is_etc;
+                        state.2 |= enabled;
                     }
                 }
             }
         }
     }
-    map.into_iter().map(|(u, (r, e))| (u, r, e)).collect()
+    map.into_iter()
+        .map(|(url, (has_etc, has_effective_vendor, enabled))| {
+            (url, has_etc && !has_effective_vendor, enabled)
+        })
+        .collect()
 }
 
 #[cfg(feature = "apk")]
@@ -592,6 +605,88 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction, on_changed: imp
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct RepoFixture(std::path::PathBuf);
+
+    impl RepoFixture {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "caerus-ui-repos-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |duration| duration.as_nanos())
+            ));
+            std::fs::create_dir_all(path.join("etc")).expect("create fixture etc directory");
+            std::fs::create_dir_all(path.join("vendor")).expect("create fixture vendor directory");
+            Self(path)
+        }
+
+        fn etc(&self) -> std::path::PathBuf {
+            self.0.join("etc")
+        }
+
+        fn vendor(&self) -> std::path::PathBuf {
+            self.0.join("vendor")
+        }
+    }
+
+    impl Drop for RepoFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn repo_scan_aggregates_enabled_duplicates_and_normalizes_whitespace() {
+        let fixture = RepoFixture::new();
+        let url = "https://repo.example/current";
+        std::fs::write(
+            fixture.etc().join("10-first.conf"),
+            format!("#repository={url}\n"),
+        )
+        .expect("write first local fixture");
+        std::fs::write(
+            fixture.etc().join("90-shadow.conf"),
+            format!("repository={url}  \nlocal-setting=keep\n"),
+        )
+        .expect("write shadowing local fixture");
+        std::fs::write(
+            fixture.vendor().join("90-shadow.conf"),
+            format!("repository={url}\n"),
+        )
+        .expect("write vendor fixture");
+
+        let repos = scan_configured_repos_in(
+            fixture.etc().to_str().expect("fixture path is UTF-8"),
+            fixture.vendor().to_str().expect("fixture path is UTF-8"),
+        );
+
+        assert_eq!(repos, vec![(url.to_string(), true, true)]);
+    }
+
+    #[test]
+    fn repo_with_effective_vendor_duplicate_is_not_removable_from_local_copy() {
+        let fixture = RepoFixture::new();
+        let url = "https://repo.example/current";
+        std::fs::write(
+            fixture.etc().join("10-local.conf"),
+            format!("#repository={url}\n"),
+        )
+        .expect("write local fixture");
+        std::fs::write(
+            fixture.vendor().join("20-vendor.conf"),
+            format!("repository={url}\n"),
+        )
+        .expect("write vendor fixture");
+
+        let repos = scan_configured_repos_in(
+            fixture.etc().to_str().expect("fixture path is UTF-8"),
+            fixture.vendor().to_str().expect("fixture path is UTF-8"),
+        );
+
+        assert_eq!(repos, vec![(url.to_string(), false, true)]);
+    }
 
     #[test]
     fn fingerprint_parsed_from_helper_log() {

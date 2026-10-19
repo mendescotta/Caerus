@@ -89,17 +89,31 @@ fn now_local() -> String {
 mod tests {
     use super::*;
 
-    fn scratch(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("caerus-history-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    /// Scratch directory under the system temp dir, removed on drop.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir =
+                std::env::temp_dir().join(format!("caerus-history-{}-{name}", std::process::id()));
+            if std::fs::symlink_metadata(&dir).is_ok_and(|m| m.is_dir()) {
+                let _ = std::fs::remove_dir_all(&dir);
+            }
+            std::fs::create_dir(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
     }
 
     #[test]
     fn small_log_is_not_rotated() {
-        let dir = scratch("small");
+        let scratch = Scratch::new("small");
+        let dir = &scratch.0;
         let log = dir.join("history.log");
         std::fs::write(&log, "x").unwrap();
         rotate_if_large(&log, 10);
@@ -109,7 +123,8 @@ mod tests {
 
     #[test]
     fn large_log_moves_to_backup() {
-        let dir = scratch("large");
+        let scratch = Scratch::new("large");
+        let dir = &scratch.0;
         let log = dir.join("history.log");
         std::fs::write(&log, "0123456789ab").unwrap();
         rotate_if_large(&log, 10);

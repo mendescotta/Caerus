@@ -1216,7 +1216,9 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
     inner.name.set_text(&pkg.name);
 
     let ver = match (&pkg.version_installed, &pkg.version_available) {
-        (Some(inst), Some(avail)) if inst != avail => Some(format!("{inst}  \u{2192}  {avail}")),
+        (Some(inst), Some(avail)) if pkg.has_newer_available_version() => {
+            Some(format!("{inst}  \u{2192}  {avail}"))
+        }
         (Some(inst), _) => Some(inst.clone()),
         (None, Some(avail)) => Some(avail.clone()),
         (None, None) => None,
