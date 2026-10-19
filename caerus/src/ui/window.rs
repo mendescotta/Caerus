@@ -21,6 +21,12 @@ struct WindowState {
     pkg_list: PackageList,
     detail_pane: DetailPane,
     main_paned: gtk::Paned,
+    right_paned: gtk::Paned,
+    detail_page: gtk::Box,
+    workflows: crate::ui::workflows::Workflows,
+    pending_bar: gtk::Box,
+    pending_label: gtk::Label,
+    narrow: std::cell::Cell<bool>,
 
     spinner: gtk::Spinner,
     btn_update: gtk::Button,
@@ -29,6 +35,7 @@ struct WindowState {
     btn_unmark_all: gtk::Button,
     btn_apply: gtk::Button,
     apply_count_pill: gtk::Label,
+    apply_label: gtk::Label,
     menu_button: gtk::MenuButton,
     menu_stack: gtk::Stack,
     btn_toggle_sidebar: gtk::Button,
@@ -68,6 +75,7 @@ struct WindowGeometry {
     sidebar_visible: bool,
     sidebar_minimal: bool,
     auto_close_on_success: bool,
+    discovery_visible: bool,
 }
 
 const SECTION_KEYS: [&str; 4] = ["filters", "repositories", "maintenance", "tools"];
@@ -88,6 +96,7 @@ impl Default for WindowGeometry {
             sidebar_visible: true,
             sidebar_minimal: false,
             auto_close_on_success: false,
+            discovery_visible: true,
         }
     }
 }
@@ -127,6 +136,12 @@ impl WindowGeometry {
             };
             let key = key.trim();
             let value = value.trim();
+            if key == "discovery_visible" {
+                if let Ok(b) = value.parse::<i32>() {
+                    geometry.discovery_visible = b != 0;
+                }
+                continue;
+            }
             if key == "sync_at_launch" {
                 if let Ok(b) = value.parse::<i32>() {
                     geometry.sync_at_launch = b != 0;
@@ -217,6 +232,10 @@ impl WindowGeometry {
             i32::from(self.sidebar_minimal),
             i32::from(self.auto_close_on_success)
         );
+        contents.push_str(&format!(
+            "discovery_visible={}\n",
+            i32::from(self.discovery_visible)
+        ));
         for (i, key) in SECTION_KEYS.iter().enumerate() {
             contents.push_str(&format!(
                 "expanded_{key}={}\nvisible_{key}={}\n",
@@ -256,6 +275,7 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
 
     let spinner = gtk::Spinner::new();
     let btn_update = gtk::Button::from_icon_name("software-update-available-symbolic");
+    btn_update.set_label("Refresh");
     btn_update.set_tooltip_text(Some("Sync repositories and reload package list"));
     let btn_reload = gtk::Button::from_icon_name("view-refresh-symbolic");
     btn_reload.set_tooltip_text(Some("Reload local package list without syncing"));
@@ -281,6 +301,8 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     let apply_btn_content = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     apply_btn_content.append(&gtk::Image::from_icon_name("object-select-symbolic"));
     let apply_count_pill = crate::ui::dialog_util::count_pill();
+    let apply_label = gtk::Label::new(Some("Review changes"));
+    apply_btn_content.append(&apply_label);
     apply_btn_content.append(&apply_count_pill);
     btn_apply.set_child(Some(&apply_btn_content));
 
@@ -351,8 +373,35 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     status_bar.add_css_class("statusbar");
     status_bar.append(&status_label);
 
+    let workflows = crate::ui::workflows::Workflows::new(&main_paned);
+    let detail_page = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    let details_back = gtk::Button::with_label("Back to packages");
+    details_back.set_halign(gtk::Align::Start);
+    details_back.set_margin_start(12);
+    details_back.set_margin_top(8);
+    details_back.set_margin_bottom(8);
+    {
+        let stack = workflows.stack.clone();
+        details_back.connect_clicked(move |_| stack.set_visible_child_name("packages"));
+    }
+    detail_page.append(&details_back);
+    let pending_bar = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    pending_bar.add_css_class("pending-bar");
+    let pending_label = gtk::Label::new(None);
+    pending_label.set_xalign(0.0);
+    pending_label.set_hexpand(true);
+    pending_label.set_wrap(true);
+    let review = gtk::Button::with_label("Review changes");
+    review.add_css_class("suggested-action");
+    let clear = gtk::Button::with_label("Clear");
+    pending_bar.append(&pending_label);
+    pending_bar.append(&clear);
+    pending_bar.append(&review);
+    pending_bar.set_visible(false);
     let root_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    root_box.append(&main_paned);
+    root_box.append(&workflows.navigation);
+    root_box.append(&workflows.stack);
+    root_box.append(&pending_bar);
     root_box.append(&status_bar);
 
     #[cfg(feature = "adwaita")]
@@ -376,6 +425,12 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         pkg_list,
         detail_pane,
         main_paned,
+        right_paned,
+        detail_page,
+        workflows,
+        pending_bar,
+        pending_label,
+        narrow: std::cell::Cell::new(false),
         spinner,
         btn_update,
         btn_reload,
@@ -383,6 +438,7 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         btn_unmark_all,
         btn_apply,
         apply_count_pill,
+        apply_label,
         menu_button,
         menu_stack,
         btn_toggle_sidebar: btn_toggle_sidebar.clone(),
@@ -404,6 +460,25 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         action_busy: Cell::new(false),
     });
 
+    {
+        let weak = Rc::downgrade(&state);
+        review.connect_clicked(move |_| {
+            if let Some(state) = weak.upgrade() {
+                show_pending_changes(&state);
+            }
+        });
+    }
+    {
+        let weak = Rc::downgrade(&state);
+        clear.connect_clicked(move |_| {
+            if let Some(state) = weak.upgrade() {
+                state.store.clear_all_marks();
+                state.detail_pane.refresh_actions();
+                update_status_bar(&state);
+            }
+        });
+    }
+    wire_workflows(&state);
     wire_up(&state);
     wire_keyboard_shortcuts(&state);
 
@@ -430,12 +505,25 @@ pub fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     apply_sidebar_mode(&state, geometry.sidebar_visible, geometry.sidebar_minimal);
     crate::ui::apply_dialog::set_auto_close_on_success(geometry.auto_close_on_success);
 
+    state
+        .workflows
+        .discover_button
+        .set_visible(geometry.discovery_visible);
     populate_menu_popover(&state);
 
     state
         .btn_search_name_only
         .set_active(geometry.search_name_only_default);
 
+    // Maintenance/tools now have their own task page; sidebar stays focused on filters.
+    state
+        .sidebar
+        .section_widget(crate::ui::filter_sidebar::Section::Maintenance)
+        .set_visible(false);
+    state
+        .sidebar
+        .section_widget(crate::ui::filter_sidebar::Section::Tools)
+        .set_visible(false);
     trigger_update(&state, geometry.sync_at_launch, true);
 
     window
@@ -527,6 +615,7 @@ fn flat_menu_button(label: &str) -> gtk::Button {
 fn menu_page_header(stack: &gtk::Stack, title: &str) -> gtk::Box {
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     let back = gtk::Button::with_label("\u{2039}");
+    back.update_property(&[gtk::accessible::Property::Label("Back to main menu")]);
     back.set_has_frame(false);
     {
         let stack = stack.clone();
@@ -542,6 +631,7 @@ fn menu_page_header(stack: &gtk::Stack, title: &str) -> gtk::Box {
 }
 
 fn switch_row_with(switch: &gtk::Switch, label: &str, accel: Option<&str>) -> gtk::Box {
+    switch.update_property(&[gtk::accessible::Property::Label(label)]);
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     row.set_margin_start(8);
     row.set_margin_end(8);
@@ -572,7 +662,7 @@ fn switch_row(label: &str, accel: Option<&str>) -> (gtk::Box, gtk::Switch) {
 
 fn apply_sidebar_mode(state: &Rc<WindowState>, visible: bool, minimal: bool) {
     let was_minimal = state.sidebar_minimal.get();
-    if minimal && !was_minimal {
+    if minimal && !was_minimal && !state.narrow.get() {
         state.default_sidebar_pos.set(state.main_paned.position());
     }
 
@@ -603,7 +693,7 @@ fn apply_sidebar_mode(state: &Rc<WindowState>, visible: bool, minimal: bool) {
 
 fn cycle_sidebar_mode(state: &Rc<WindowState>) {
     let visible = state.sidebar.widget().get_visible();
-    let minimal = state.sidebar_minimal.get();
+    let minimal = state.sidebar_minimal.get() || state.narrow.get();
     let (next_visible, next_minimal) = if !visible {
         (true, false)
     } else if !minimal {
@@ -713,7 +803,10 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
     view.append(&minimal_row);
     view.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
 
-    for section in crate::ui::filter_sidebar::Section::ALL {
+    for section in [
+        crate::ui::filter_sidebar::Section::Filters,
+        crate::ui::filter_sidebar::Section::Repositories,
+    ] {
         let (row, sw) = switch_row(section.label(), None);
         state
             .sidebar
@@ -757,6 +850,15 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
         .sync_create()
         .build();
     view.append(&status_row);
+    let (discover_row, sw_discover) = switch_row("Show Discover", None);
+    state
+        .workflows
+        .discover_button
+        .bind_property("visible", &sw_discover, "active")
+        .bidirectional()
+        .sync_create()
+        .build();
+    view.append(&discover_row);
     stack.add_named(&view, Some("view"));
 
     let settings = gtk::Box::new(gtk::Orientation::Vertical, 2);
@@ -928,7 +1030,8 @@ fn show_shortcuts_dialog(parent: &gtk::ApplicationWindow) {
     );
 
     let shortcuts: &[(&str, &str)] = &[
-        ("Ctrl+F", "Focus search"),
+        ("Ctrl+F", "Focus package search"),
+        ("Ctrl+Enter", "Review pending changes"),
         ("Escape", "Clear search, or close the current dialog"),
         ("F5", "Reload package list"),
         ("F9", "Toggle sidebar"),
@@ -977,19 +1080,39 @@ fn wire_keyboard_shortcuts(state: &Rc<WindowState>) {
         let ctrl = modifiers.contains(gtk::gdk::ModifierType::CONTROL_MASK);
         match key {
             gtk::gdk::Key::f if ctrl => {
+                state.workflows.stack.set_visible_child_name("packages");
                 state.search_entry.grab_focus();
+                let entry = state.search_entry.clone();
+                glib::idle_add_local_once(move || {
+                    entry.grab_focus();
+                });
                 glib::Propagation::Stop
             }
             gtk::gdk::Key::q if ctrl => {
                 state.window.close();
                 glib::Propagation::Stop
             }
-            gtk::gdk::Key::a if ctrl && !state.search_entry.has_focus() => {
+            gtk::gdk::Key::a
+                if ctrl
+                    && !state.search_entry.has_focus()
+                    && state.workflows.stack.visible_child_name().as_deref()
+                        == Some("packages") =>
+            {
                 state.pkg_list.select_all();
                 glib::Propagation::Stop
             }
             gtk::gdk::Key::Escape if !state.search_entry.text().is_empty() => {
                 state.search_entry.set_text("");
+                glib::Propagation::Stop
+            }
+            gtk::gdk::Key::Return if ctrl => {
+                show_pending_changes(&state);
+                glib::Propagation::Stop
+            }
+            gtk::gdk::Key::Escape
+                if state.workflows.stack.visible_child_name().as_deref() == Some("details") =>
+            {
+                state.workflows.stack.set_visible_child_name("packages");
                 glib::Propagation::Stop
             }
             gtk::gdk::Key::F5 => {
@@ -1009,7 +1132,11 @@ fn wire_keyboard_shortcuts(state: &Rc<WindowState>) {
                 state.menu_button.popup();
                 glib::Propagation::Stop
             }
-            gtk::gdk::Key::Delete if !state.search_entry.has_focus() => {
+            gtk::gdk::Key::Delete
+                if !state.search_entry.has_focus()
+                    && state.workflows.stack.visible_child_name().as_deref()
+                        == Some("packages") =>
+            {
                 let root = state.window.clone().upcast::<gtk::Window>();
                 state.pkg_list.delete_selected(Some(root));
                 glib::Propagation::Stop
@@ -1037,6 +1164,7 @@ fn wire_up(state: &Rc<WindowState>) {
         store.connect_load_finished(move |_n| {
             set_loading(&state, false);
             update_status_bar(&state);
+            refresh_workflow_packages(&state);
             state.sidebar.set_available_repositories(
                 state.pkg_list.available_repositories(),
                 &crate::ui::repo_manager::configured_repo_urls(),
@@ -1048,6 +1176,8 @@ fn wire_up(state: &Rc<WindowState>) {
         let state = state.clone();
         store.connect_load_error(move |msg| {
             set_loading(&state, false);
+            state.workflows.load_error(msg);
+            state.pkg_list.set_error(msg);
             show_toast(&state, &format!("Error loading packages: {msg}"));
         });
     }
@@ -1074,6 +1204,9 @@ fn wire_up(state: &Rc<WindowState>) {
         pkg_list.connect_package_selected(move |pkg| {
             *state.selected_pkg.borrow_mut() = pkg.clone();
             state.detail_pane.show_package(pkg.as_ref());
+            if pkg.is_some() && state.narrow.get() && state.btn_toggle_detail_pane.is_active() {
+                state.workflows.stack.set_visible_child_name("details");
+            }
         });
     }
     {
@@ -1193,48 +1326,11 @@ fn wire_up(state: &Rc<WindowState>) {
     }
 
     {
-        use crate::ui::filter_sidebar::SidebarAction;
         let state = state.clone();
         state
             .clone()
             .sidebar
-            .connect_action(move |action| match action {
-                SidebarAction::FullUpgrade => on_full_upgrade_clicked(&state),
-                SidebarAction::RemoveOrphans => on_remove_orphans_clicked(&state),
-                SidebarAction::CleanCache => {
-                    run_maintenance_command(&state, "CLEANCACHE", "Cleaning Package Cache");
-                }
-                SidebarAction::VerifyDb => {
-                    run_maintenance_command(&state, "VERIFY", "Verifying Package Database");
-                }
-                SidebarAction::Reconfigure => on_reconfigure_all_clicked(&state),
-                SidebarAction::PurgeKernels => {
-                    crate::ui::vkpurge_dialog::show(
-                        Some(state.window.upcast_ref()),
-                        &state.session,
-                    );
-                }
-                SidebarAction::FindOwner => {
-                    crate::ui::file_owner_dialog::show(Some(state.window.upcast_ref()));
-                }
-                SidebarAction::Alternatives => {
-                    crate::ui::alternatives_dialog::show(
-                        Some(state.window.upcast_ref()),
-                        &state.session,
-                    );
-                }
-                SidebarAction::History => {
-                    crate::ui::history_dialog::show(Some(state.window.upcast_ref()));
-                }
-                SidebarAction::ManageRepos => {
-                    let state_for_reload = state.clone();
-                    crate::ui::repo_manager::show(
-                        Some(state.window.upcast_ref()),
-                        &state.session,
-                        move || do_reload(&state_for_reload),
-                    );
-                }
-            });
+            .connect_action(move |action| dispatch_action(&state, action));
     }
 
     {
@@ -1310,13 +1406,16 @@ fn wire_up(state: &Rc<WindowState>) {
         let btn_apply = state.btn_apply.clone();
         let state = state.clone();
         btn_apply.connect_clicked(move |_| {
-            on_apply_clicked(&state);
+            show_pending_changes(&state);
         });
     }
     {
         let search_entry = state.search_entry.clone();
         let state = state.clone();
         search_entry.connect_search_changed(move |e| {
+            if !e.text().trim().is_empty() {
+                state.workflows.stack.set_visible_child_name("packages");
+            }
             state.pkg_list.set_search(&e.text());
             update_status_bar(&state);
         });
@@ -1347,7 +1446,7 @@ fn wire_up(state: &Rc<WindowState>) {
             WindowGeometry {
                 width: win.width(),
                 height: win.height(),
-                sidebar_pos: if state.sidebar_minimal.get() {
+                sidebar_pos: if state.sidebar_minimal.get() || state.narrow.get() {
                     state.default_sidebar_pos.get()
                 } else {
                     state.main_paned.position()
@@ -1363,6 +1462,7 @@ fn wire_up(state: &Rc<WindowState>) {
                 sidebar_visible: state.sidebar.widget().get_visible(),
                 sidebar_minimal: state.sidebar_minimal.get(),
                 auto_close_on_success: state.auto_close_on_success.get(),
+                discovery_visible: state.workflows.discover_button.get_visible(),
             }
             .save();
             state.session.shutdown();
@@ -1372,6 +1472,8 @@ fn wire_up(state: &Rc<WindowState>) {
 }
 
 fn set_loading(state: &Rc<WindowState>, loading: bool) {
+    state.workflows.set_loading(loading);
+    state.pkg_list.set_loading(loading);
     if loading {
         state.spinner.start();
         state.btn_update.set_sensitive(false);
@@ -1432,6 +1534,7 @@ fn trigger_update(state: &Rc<WindowState>, sync_first: bool, silent: bool) {
             let commands_for_history = commands.clone();
             state.session.run_batch(commands, move |success| {
                 crate::backend::history::record(&commands_for_history, success);
+                state2.workflows.sync_finished(success);
                 if success {
                     show_toast(&state2, "Repositories synced. Loading package list\u{2026}");
                 } else {
@@ -1447,6 +1550,7 @@ fn trigger_update(state: &Rc<WindowState>, sync_first: bool, silent: bool) {
                 &commands,
                 "Syncing Repositories",
                 move |success| {
+                    state2.workflows.sync_finished(success);
                     if !success {
                         show_toast(
                             &state2,
@@ -1622,6 +1726,10 @@ fn run_next_apply_step(state: &Rc<WindowState>, flow: &Rc<RefCell<ApplyFlow>>) {
         let flow_for_confirm = flow_for_preview.clone();
         let command = step.command.clone();
         let names_for_command = step.names.clone();
+        let changes = preview.as_ref().and_then(|p| p.as_ref().ok()).map_or_else(
+            String::new,
+            crate::backend::transaction_preview::TransactionPreview::changes,
+        );
         let (installs, upgrades, removes, purges): (&[String], &[String], &[String], &[String]) =
             match step.kind {
                 ApplyKind::Install => (
@@ -1657,6 +1765,7 @@ fn run_next_apply_step(state: &Rc<WindowState>, flow: &Rc<RefCell<ApplyFlow>>) {
                     &state_for_confirm.session,
                     std::slice::from_ref(&command),
                     "Applying Changes",
+                    changes.clone(),
                     move |success| {
                         let decision = flow_after_command.borrow_mut().record_event(if success {
                             ApplyEvent::CommandSucceeded
@@ -1768,6 +1877,7 @@ fn on_full_upgrade_clicked(state: &Rc<WindowState>) {
         &state.session,
         &["SYNC".to_string()],
         "Syncing Repositories",
+        String::new(),
         move |success| {
             if !success {
                 set_action_busy(&state_after_sync, false);
@@ -1810,6 +1920,10 @@ fn preview_full_upgrade(state: &Rc<WindowState>) {
         .store
         .preview_transaction_async(preview_ops, move |preview| {
             let state_for_confirm = state_for_preview.clone();
+            let changes = preview.as_ref().and_then(|p| p.as_ref().ok()).map_or_else(
+                String::new,
+                crate::backend::transaction_preview::TransactionPreview::changes,
+            );
             if matches!(&preview, Some(Ok(p)) if p.items.is_empty()) {
                 set_action_busy(&state_for_preview, false);
                 state_for_preview
@@ -1836,6 +1950,7 @@ fn preview_full_upgrade(state: &Rc<WindowState>) {
                         &state_for_confirm.session,
                         &["UPGRADE".to_string()],
                         "Full System Upgrade",
+                        changes.clone(),
                         move |success| {
                             let state_after_reload = state_after_upgrade.clone();
                             state_after_upgrade
@@ -2018,7 +2133,21 @@ fn update_status_bar(state: &Rc<WindowState>) {
     let upgradable = state.store.count_upgradable();
     let marked = state.store.count_marked();
 
-    if state.pkg_list.has_active_filters() {
+    let page = state.workflows.stack.visible_child_name();
+    if page.as_deref() == Some("updates") {
+        state.status_label.set_text(&format!(
+            "{upgradable} updates available. {} held back. {marked} marked.",
+            state.store.held_back_names().len()
+        ));
+    } else if page.as_deref() == Some("discover") {
+        state.status_label.set_text(&format!(
+            "Applications from enabled repositories. {marked} marked."
+        ));
+    } else if page.as_deref() == Some("maintenance") {
+        state
+            .status_label
+            .set_text("System maintenance and package tools.");
+    } else if state.pkg_list.has_active_filters() {
         let (total, installed, not_installed) = state.pkg_list.visible_counts();
         state.status_label.set_text(&format!(
             "{total} shown — {installed} installed, {not_installed} not installed.  {marked} marked."
@@ -2030,6 +2159,19 @@ fn update_status_bar(state: &Rc<WindowState>) {
             "{total} packages.  {installed} installed.  {upgradable} upgradable.  {marked} marked."
         ));
     }
+    let installs = state.store.marked_names(PkgMark::Install).len();
+    let upgrades = state.store.marked_names(PkgMark::Upgrade).len();
+    let removes = state.store.marked_names(PkgMark::Remove).len();
+    let purges = state.store.marked_names(PkgMark::Purge).len();
+    let summary = format!(
+        "{installs} installs · {upgrades} upgrades · {} removals",
+        removes + purges
+    );
+    state.pending_label.set_text(&summary);
+    state
+        .pending_label
+        .update_property(&[gtk::accessible::Property::Description(&summary)]);
+    state.pending_bar.set_visible(marked > 0);
     update_apply_button(state, marked);
     update_mark_upgrades_button(state, upgradable);
 }
@@ -2051,6 +2193,338 @@ fn update_mark_upgrades_button(state: &Rc<WindowState>, upgradable: u32) {
     state
         .btn_mark_upgrades
         .set_sensitive(upgradable > 0 && !state.action_busy.get() && !state.store.is_loading());
+}
+
+fn dispatch_action(state: &Rc<WindowState>, action: crate::ui::filter_sidebar::SidebarAction) {
+    use crate::ui::filter_sidebar::SidebarAction;
+    match action {
+        SidebarAction::FullUpgrade => on_full_upgrade_clicked(state),
+        SidebarAction::RemoveOrphans => on_remove_orphans_clicked(state),
+        SidebarAction::CleanCache => {
+            run_maintenance_command(state, "CLEANCACHE", "Cleaning Package Cache");
+        }
+        SidebarAction::VerifyDb => {
+            run_maintenance_command(state, "VERIFY", "Verifying Package Database");
+        }
+        SidebarAction::Reconfigure => on_reconfigure_all_clicked(state),
+        SidebarAction::PurgeKernels => {
+            crate::ui::vkpurge_dialog::show(Some(state.window.upcast_ref()), &state.session);
+        }
+        SidebarAction::FindOwner => {
+            crate::ui::file_owner_dialog::show(Some(state.window.upcast_ref()));
+        }
+        SidebarAction::Alternatives => {
+            crate::ui::alternatives_dialog::show(Some(state.window.upcast_ref()), &state.session);
+        }
+        SidebarAction::History => {
+            crate::ui::history_dialog::show(Some(state.window.upcast_ref()));
+        }
+        SidebarAction::ManageRepos => {
+            let state_for_reload = state.clone();
+            crate::ui::repo_manager::show(
+                Some(state.window.upcast_ref()),
+                &state.session,
+                move || do_reload(&state_for_reload),
+            );
+        }
+    }
+}
+
+fn refresh_workflow_packages(state: &Rc<WindowState>) {
+    let list = state.store.list();
+    let mut packages: Vec<_> = (0..list.n_items())
+        .filter_map(|i| {
+            crate::backend::package_store::package_obj_at(&list, i).map(|o| o.pkg().clone())
+        })
+        .collect();
+    packages.sort_by(|a, b| a.name.cmp(&b.name));
+    state.workflows.refresh_packages(&packages);
+}
+
+fn open_package(state: &Rc<WindowState>, name: &str) {
+    state.workflows.stack.set_visible_child_name("packages");
+    state.search_entry.set_text("");
+    state.pkg_list.set_search("");
+    state.sidebar.reset_to_all();
+    state.btn_toggle_detail_pane.set_active(true);
+    if state.pkg_list.select_package_by_name(name) && state.narrow.get() {
+        state.workflows.stack.set_visible_child_name("details");
+    }
+}
+
+fn wire_workflows(state: &Rc<WindowState>) {
+    {
+        let weak = Rc::downgrade(state);
+        state
+            .workflows
+            .stack
+            .connect_visible_child_name_notify(move |_| {
+                if let Some(state) = weak.upgrade() {
+                    update_status_bar(&state);
+                }
+            });
+    }
+
+    {
+        let weak = Rc::downgrade(state);
+        state
+            .workflows
+            .discover_button
+            .connect_visible_notify(move |button| {
+                if let Some(state) = weak.upgrade() {
+                    if !button.get_visible()
+                        && state.workflows.stack.visible_child_name().as_deref() == Some("discover")
+                    {
+                        state.workflows.stack.set_visible_child_name("packages");
+                    }
+                }
+            });
+    }
+
+    {
+        let weak = Rc::downgrade(state);
+        state.btn_toggle_detail_pane.connect_toggled(move |button| {
+            if let Some(state) = weak.upgrade() {
+                if state.narrow.get() {
+                    if button.is_active() && state.selected_pkg.borrow().is_some() {
+                        state.workflows.stack.set_visible_child_name("details");
+                    } else if state.workflows.stack.visible_child_name().as_deref()
+                        == Some("details")
+                    {
+                        state.workflows.stack.set_visible_child_name("packages");
+                    }
+                }
+            }
+        });
+    }
+
+    {
+        let weak = Rc::downgrade(state);
+        state.workflows.refresh.connect_clicked(move |_| {
+            if let Some(state) = weak.upgrade() {
+                trigger_update(&state, true, false);
+            }
+        });
+    }
+    {
+        let weak = Rc::downgrade(state);
+        state.workflows.upgrade.connect_clicked(move |_| {
+            if let Some(state) = weak.upgrade() {
+                on_full_upgrade_clicked(&state);
+            }
+        });
+    }
+    {
+        let weak = Rc::downgrade(state);
+        state.workflows.history.connect_clicked(move |_| {
+            if let Some(state) = weak.upgrade() {
+                crate::ui::history_dialog::show(Some(state.window.upcast_ref()));
+            }
+        });
+    }
+    for (button, action) in &state.workflows.maintenance {
+        let weak = Rc::downgrade(state);
+        let action = *action;
+        button.connect_clicked(move |_| {
+            if let Some(state) = weak.upgrade() {
+                dispatch_action(&state, action);
+            }
+        });
+    }
+    {
+        let weak = Rc::downgrade(state);
+        state.workflows.connect_open_package(move |name| {
+            if let Some(state) = weak.upgrade() {
+                open_package(&state, name);
+            }
+        });
+    }
+    {
+        let weak = Rc::downgrade(state);
+        state.pkg_list.connect_reset_filters(move || {
+            if let Some(state) = weak.upgrade() {
+                state.search_entry.set_text("");
+                state.pkg_list.set_search("");
+                state.sidebar.reset_to_all();
+                update_status_bar(&state);
+            }
+        });
+    }
+    let weak = Rc::downgrade(state);
+    state.window.connect_realize(move |window| {
+        if let Some(surface) = window.surface() {
+            let weak = weak.clone();
+            surface.connect_width_notify(move |_| queue_adaptive_layout(weak.clone()));
+        }
+        queue_adaptive_layout(weak.clone());
+    });
+    // Explicit names cover icon-only controls in both expanded and rail layouts.
+    for (button, label) in [
+        (&state.btn_reload, "Reload cached package data"),
+        (&state.btn_mark_upgrades, "Mark all updates"),
+        (&state.btn_unmark_all, "Clear pending changes"),
+        (&state.btn_toggle_sidebar, "Change sidebar layout"),
+        (&state.btn_apply, "Review pending changes"),
+    ] {
+        button.update_property(&[gtk::accessible::Property::Label(label)]);
+    }
+    state
+        .btn_toggle_detail_pane
+        .update_property(&[gtk::accessible::Property::Label("Show package details")]);
+    state
+        .btn_search_name_only
+        .update_property(&[gtk::accessible::Property::Label(
+            "Search package names only",
+        )]);
+    state
+        .search_entry
+        .update_property(&[gtk::accessible::Property::Label("Search packages")]);
+}
+
+// Respond to actual surface resizes instead of keeping the frame clock running
+// while idle. Defer reparenting until GTK has finished its current allocation.
+fn queue_adaptive_layout(weak: std::rc::Weak<WindowState>) {
+    glib::idle_add_local_once(move || {
+        if let Some(state) = weak.upgrade() {
+            let width = state.window.surface().map_or(0, |surface| surface.width());
+            if width > 0 {
+                update_adaptive_layout(&state, width);
+            }
+        }
+    });
+}
+
+fn update_adaptive_layout(state: &Rc<WindowState>, width: i32) {
+    let narrow = width < 1050;
+    if state.narrow.replace(narrow) != narrow {
+        let detail = state.detail_pane.widget();
+        state.apply_label.set_visible(!narrow);
+        state
+            .search_entry
+            .set_width_request(if narrow { 150 } else { 220 });
+        if narrow {
+            state.btn_update.set_icon_name("view-refresh-symbolic");
+        } else {
+            state.btn_update.set_label("Refresh");
+        }
+        if narrow {
+            state.right_paned.set_end_child(None::<&gtk::Widget>);
+            state.detail_page.append(detail);
+            state
+                .workflows
+                .stack
+                .add_named(&state.detail_page, Some("details"));
+            // Leave the user's sidebar preference intact; a rail preserves list space.
+            state
+                .main_paned
+                .set_position(crate::ui::filter_sidebar::RAIL_WIDTH);
+            state.sidebar.set_minimal(true);
+        } else {
+            if state.workflows.stack.visible_child_name().as_deref() == Some("details") {
+                state.workflows.stack.set_visible_child_name("packages");
+            }
+            state.detail_page.remove(detail);
+            state.workflows.stack.remove(&state.detail_page);
+            state.right_paned.set_end_child(Some(detail));
+            apply_sidebar_mode(
+                state,
+                state.sw_sidebar_visible.is_active(),
+                state.sidebar_minimal.get(),
+            );
+            set_right_paned_position(&state.right_paned, width - state.main_paned.position());
+        }
+    }
+}
+
+fn show_pending_changes(state: &Rc<WindowState>) {
+    use crate::ui::dialog_util::{modal_window, present_focused};
+    let (dialog, content) = modal_window(
+        "Pending Changes",
+        Some(state.window.upcast_ref()),
+        true,
+        (600, 460),
+        12,
+    );
+    let note = gtk::Label::new(Some(if cfg!(feature = "apk") {
+        "Review installs first, then upgrades, then removals. Remaining choices stay queued for the next review. The next screen includes dependency and version changes."
+    } else {
+        "Review installs and upgrades first, then removals. Removals with unused dependencies are reviewed last. Remaining choices stay queued. The next screen includes dependency and version changes."
+    }));
+    note.set_wrap(true);
+    note.set_xalign(0.0);
+    content.append(&note);
+    let list = gtk::ListBox::new();
+    list.set_selection_mode(gtk::SelectionMode::None);
+    for mark in [
+        PkgMark::Install,
+        PkgMark::Upgrade,
+        PkgMark::Remove,
+        PkgMark::Purge,
+    ] {
+        let mut names = state.store.marked_names(mark);
+        names.sort();
+        for name in names {
+            let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            let label = gtk::Label::new(Some(&format!(
+                "{name} · {}",
+                match mark {
+                    PkgMark::Install => "Install",
+                    PkgMark::Upgrade => "Upgrade",
+                    PkgMark::Remove => "Remove",
+                    PkgMark::Purge => "Remove with unused dependencies",
+                    PkgMark::None => "",
+                }
+            )));
+            label.set_xalign(0.0);
+            label.set_hexpand(true);
+            label.set_wrap(true);
+            let remove = gtk::Button::with_label("Unmark");
+            remove.update_property(&[gtk::accessible::Property::Label(&format!("Unmark {name}"))]);
+            row.append(&label);
+            row.append(&remove);
+            list.append(&row);
+            let weak = Rc::downgrade(state);
+            let row_weak = row.downgrade();
+            remove.connect_clicked(move |_| {
+                if let Some(state) = weak.upgrade() {
+                    state.store.set_mark(&name, PkgMark::None);
+                    update_status_bar(&state);
+                    state.detail_pane.refresh_actions();
+                    if let Some(row) = row_weak.upgrade() {
+                        row.set_sensitive(false);
+                        row.set_visible(false);
+                    }
+                }
+            });
+        }
+    }
+    let scroll = gtk::ScrolledWindow::new();
+    scroll.set_vexpand(true);
+    scroll.set_child(Some(&list));
+    content.append(&scroll);
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    actions.set_halign(gtk::Align::End);
+    let cancel = gtk::Button::with_label("Keep editing");
+    let review = gtk::Button::with_label("Review transaction");
+    review.add_css_class("suggested-action");
+    actions.append(&cancel);
+    actions.append(&review);
+    content.append(&actions);
+    {
+        let dialog = dialog.clone();
+        cancel.connect_clicked(move |_| dialog.close());
+    }
+    {
+        let weak = Rc::downgrade(state);
+        let dialog = dialog.clone();
+        review.connect_clicked(move |_| {
+            dialog.destroy();
+            if let Some(state) = weak.upgrade() {
+                on_apply_clicked(&state);
+            }
+        });
+    }
+    present_focused(&dialog, &review);
 }
 
 #[cfg(test)]

@@ -27,6 +27,7 @@ struct Inner {
     store: PackageStore,
     current_pkgname: RefCell<Option<String>>,
 
+    icon: gtk::Image,
     name: gtk::Label,
     version: gtk::Label,
     state_chip: gtk::Label,
@@ -220,6 +221,19 @@ fn rebuild_kv_card(card: &gtk::Box, list_box: &gtk::Box, rows: Vec<(&str, KvValu
 
 fn rebuild_size_install(inner: &Inner, extra: Option<&PackageExtraInfo>) {
     let mut rows = Vec::new();
+    if let Some(root) = extra.and_then(|e| e.apk_world_root) {
+        rows.push((
+            "Install reason",
+            KvValue::Text(
+                if root {
+                    "World root — explicitly requested"
+                } else {
+                    "Dependency — another world constraint may keep this installed"
+                }
+                .into(),
+            ),
+        ));
+    }
     if inner.install_size.get() > 0 {
         rows.push((
             "Installed size",
@@ -315,25 +329,37 @@ impl DetailPane {
         title_col.set_hexpand(true);
         title_col.set_halign(gtk::Align::Fill);
 
-        let title_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        let title_row = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        title_row.set_hexpand(true);
         let name = gtk::Label::new(None);
         name.set_xalign(0.0);
         name.set_selectable(true);
         name.add_css_class("detail-name");
+        name.set_wrap(true);
+        name.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+        name.set_max_width_chars(30);
         title_row.append(&name);
 
         let version = gtk::Label::new(None);
         version.set_xalign(0.0);
         version.set_selectable(true);
         version.add_css_class("dim-label");
+        version.set_wrap(true);
+        version.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+        version.set_max_width_chars(30);
         version.set_valign(gtk::Align::Baseline);
         title_row.append(&version);
 
         let state_chip = chip("", None);
-        title_row.append(&state_chip);
+        state_chip.set_halign(gtk::Align::Start);
+        let chips = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        chips.append(&state_chip);
         let update_chip = chip("", None);
+        update_chip.set_wrap(true);
+        update_chip.set_halign(gtk::Align::Start);
         update_chip.set_visible(false);
-        title_row.append(&update_chip);
+        chips.append(&update_chip);
+        title_row.append(&chips);
         title_col.append(&title_row);
 
         let tags_box = gtk::Box::new(gtk::Orientation::Horizontal, 4);
@@ -354,18 +380,22 @@ impl DetailPane {
         pkg_head.append(&title_col);
         header_card.append(&pkg_head);
 
-        let action_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        let action_row = gtk::FlowBox::new();
+        action_row.set_selection_mode(gtk::SelectionMode::None);
+        action_row.set_column_spacing(8);
+        action_row.set_row_spacing(8);
+        action_row.set_max_children_per_line(2);
         action_row.set_margin_top(12);
-        let btn_install = gtk::Button::with_label("Install");
+        let btn_install = gtk::Button::with_label("Mark for install");
         btn_install.set_visible(false);
         btn_install.add_css_class("suggested-action");
-        let btn_upgrade = gtk::Button::with_label("Upgrade");
+        let btn_upgrade = gtk::Button::with_label("Mark for upgrade");
         btn_upgrade.set_visible(false);
         btn_upgrade.add_css_class("suggested-action");
-        let btn_remove = gtk::Button::with_label("Remove");
+        let btn_remove = gtk::Button::with_label("Mark for removal");
         btn_remove.set_visible(false);
         btn_remove.add_css_class("destructive-action");
-        let btn_purge = gtk::Button::with_label("Purge");
+        let btn_purge = gtk::Button::with_label("Remove + unused dependencies");
         btn_purge.set_visible(false);
         btn_purge.add_css_class("destructive-action");
         btn_purge.set_tooltip_text(Some(
@@ -373,11 +403,11 @@ impl DetailPane {
         ));
         let btn_unmark = gtk::Button::with_label("Unmark");
         btn_unmark.set_visible(false);
-        action_row.append(&btn_install);
-        action_row.append(&btn_upgrade);
-        action_row.append(&btn_remove);
-        action_row.append(&btn_purge);
-        action_row.append(&btn_unmark);
+        action_row.insert(&btn_install, -1);
+        action_row.insert(&btn_upgrade, -1);
+        action_row.insert(&btn_remove, -1);
+        action_row.insert(&btn_purge, -1);
+        action_row.insert(&btn_unmark, -1);
         header_card.append(&action_row);
 
         let secondary_row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -404,13 +434,32 @@ impl DetailPane {
             "Fetch and verify the package file without installing it",
         ));
 
+        for (button, label) in [
+            (&btn_hold, "Hold / release version"),
+            (&btn_repolock, "Lock / unlock repository"),
+            (&btn_automark, "Automatic / manual install"),
+            (&btn_reinstall, "Reinstall…"),
+            (&btn_reconfigure, "Reconfigure…"),
+            (&btn_download, "Download only…"),
+        ] {
+            button.set_label(label);
+            button.update_property(&[gtk::accessible::Property::Label(label)]);
+        }
         secondary_row.append(&hold_overlay);
         secondary_row.append(&repolock_overlay);
         secondary_row.append(&automark_overlay);
         secondary_row.append(&btn_reinstall);
         secondary_row.append(&btn_reconfigure);
         secondary_row.append(&btn_download);
-        header_card.append(&secondary_row);
+        let more = gtk::MenuButton::new();
+        more.set_label("More actions");
+        more.set_halign(gtk::Align::Start);
+        more.set_margin_top(8);
+        let popover = gtk::Popover::new();
+        secondary_row.set_orientation(gtk::Orientation::Vertical);
+        popover.set_child(Some(&secondary_row));
+        more.set_popover(Some(&popover));
+        header_card.append(&more);
 
         let size_install_card = card_simple("Size & Installation");
         let size_install_list = gtk::Box::new(gtk::Orientation::Vertical, 8);
@@ -548,6 +597,7 @@ impl DetailPane {
             widget,
             store,
             current_pkgname: RefCell::new(None),
+            icon: icon_image,
             name,
             version,
             state_chip,
@@ -661,6 +711,10 @@ impl DetailPane {
 
     pub fn connect_jump_to_package(&self, f: impl Fn(String) + 'static) {
         self.inner.on_jump_to_package.borrow_mut().push(Box::new(f));
+    }
+
+    pub fn refresh_actions(&self) {
+        update_action_buttons(&self.inner, None);
     }
 
     pub fn show_package(&self, pkg: Option<&Package>) {
@@ -842,6 +896,15 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
         .set_visible(installed && !cfg!(feature = "apk"));
     if installed {
         let is_held = pkg.state == PkgState::OnHold;
+        let action = if is_held {
+            "Release version hold"
+        } else {
+            "Hold version"
+        };
+        inner.btn_hold.set_label(action);
+        inner
+            .btn_hold
+            .update_property(&[gtk::accessible::Property::Label(action)]);
         set_dot_state(&inner.hold_dot, is_held);
         inner.btn_hold.set_tooltip_text(Some(if is_held {
             "Release Hold — allow upgrades again"
@@ -855,6 +918,15 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
         .set_visible(installed && !cfg!(feature = "apk"));
     if installed {
         set_dot_state(&inner.repolock_dot, pkg.is_repolocked);
+        let action = if pkg.is_repolocked {
+            "Unlock repository"
+        } else {
+            "Lock repository"
+        };
+        inner.btn_repolock.set_label(action);
+        inner
+            .btn_repolock
+            .update_property(&[gtk::accessible::Property::Label(action)]);
         inner
             .btn_repolock
             .set_tooltip_text(Some(if pkg.is_repolocked {
@@ -909,7 +981,7 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
         inner.btn_purge.set_tooltip_text(if pkg.essential {
             Some("Essential package — purge disabled")
         } else {
-            None
+            Some("Remove this package and dependencies left unused; configuration files follow XBPS rules")
         });
     }
 }
@@ -1226,6 +1298,13 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
     inner.version.set_visible(ver.is_some());
     inner.version.set_text(ver.as_deref().unwrap_or(""));
 
+    let image = crate::ui::workflows::application_icon(&pkg.name);
+    if let Some(icon) = image.gicon() {
+        inner.icon.set_from_gicon(&icon);
+    }
+    if image.gicon().is_none() {
+        inner.icon.set_icon_name(image.icon_name().as_deref());
+    }
     set_header_chips(inner, pkg);
 
     clear_box_children(&inner.tags_box);
@@ -1283,6 +1362,15 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
                 if let Some(flag) = auto_flag {
                     inner.current_automatic.set(Some(flag.automatic_install));
                     set_dot_state(&inner.automark_dot, flag.automatic_install);
+                    let action = if flag.automatic_install {
+                        "Mark as manually installed"
+                    } else {
+                        "Mark as dependency"
+                    };
+                    inner.btn_automark.set_label(action);
+                    inner
+                        .btn_automark
+                        .update_property(&[gtk::accessible::Property::Label(action)]);
                     inner
                         .btn_automark
                         .set_tooltip_text(Some(if flag.automatic_install {

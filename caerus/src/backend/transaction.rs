@@ -151,7 +151,7 @@ impl Transaction {
 
     pub fn run_batch(&self, commands: Vec<String>, on_finished: impl FnOnce(bool) + 'static) {
         if commands.iter().any(|command| !command_is_safe(command)) {
-            self.emit_log("refusing malformed batch (contains control characters)");
+            self.emit_log("ERROR refusing malformed batch (contains control characters)");
             on_finished(false);
             return;
         }
@@ -577,6 +577,20 @@ mod tests {
         assert!(command_is_safe("ADDREPO https://repo.example/current?a=b"));
         assert!(command_is_safe("INSTALL p\u{e4}ckage"));
         assert!(command_is_safe(""));
+    }
+
+    #[test]
+    fn malformed_batch_fails_before_any_command_is_sent() {
+        let transaction = Transaction::new();
+        let result = Rc::new(Cell::new(None));
+        let callback = result.clone();
+        transaction.run_batch(
+            vec!["SYNC".into(), "INSTALL foo\nREMOVE bar".into()],
+            move |success| callback.set(Some(success)),
+        );
+        assert_eq!(result.get(), Some(false));
+        assert!(transaction.inner.batches.borrow().is_empty());
+        assert!(transaction.inner.stdin.borrow().is_none());
     }
 
     #[test]

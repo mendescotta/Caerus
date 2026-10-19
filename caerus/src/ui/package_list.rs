@@ -27,6 +27,12 @@ struct Inner {
     column_view: RefCell<Option<gtk::ColumnView>>,
     on_package_selected: PackageSelectedCbs,
     on_marks_changed: MarksChangedCbs,
+    on_reset_filters: RefCell<Vec<Box<dyn Fn()>>>,
+    search_sorter: RefCell<Option<gtk::CustomSorter>>,
+    result_stack: gtk::Stack,
+    message: gtk::Label,
+    filter_summary: gtk::Label,
+    load_message: RefCell<Option<String>>,
 }
 
 #[derive(Clone)]
@@ -140,6 +146,12 @@ impl PackageList {
             column_view: RefCell::new(None),
             on_package_selected: RefCell::new(Vec::new()),
             on_marks_changed: RefCell::new(Vec::new()),
+            on_reset_filters: RefCell::new(Vec::new()),
+            search_sorter: RefCell::new(None),
+            result_stack: gtk::Stack::new(),
+            message: gtk::Label::new(None),
+            filter_summary: gtk::Label::new(None),
+            load_message: RefCell::new(None),
         });
 
         build(inner.clone());
@@ -147,6 +159,22 @@ impl PackageList {
         Self { inner }
     }
 
+    pub fn connect_reset_filters(&self, callback: impl Fn() + 'static) {
+        self.inner
+            .on_reset_filters
+            .borrow_mut()
+            .push(Box::new(callback));
+    }
+    pub fn set_loading(&self, loading: bool) {
+        *self.inner.load_message.borrow_mut() = loading.then(|| "Loading packages…".into());
+        update_results(&self.inner);
+    }
+    pub fn set_error(&self, message: &str) {
+        *self.inner.load_message.borrow_mut() = Some(format!(
+            "Could not load packages: {message}. Use Refresh to try again."
+        ));
+        update_results(&self.inner);
+    }
     pub fn widget(&self) -> &gtk::Box {
         &self.inner.widget
     }
@@ -239,24 +267,49 @@ impl PackageList {
         self.inner
             .custom_filter
             .changed(gtk::FilterChange::Different);
+        update_results(&self.inner);
     }
     pub fn set_search(&self, query: &str) {
-        *self.inner.current_search.borrow_mut() = query.to_string();
+        let normalized = query.trim().to_lowercase();
+        // SearchEntry can emit a delayed duplicate after a package jump. A
+        // redundant filter rebuild would discard the selection we just made.
+        if *self.inner.current_search.borrow() == normalized {
+            return;
+        }
+        *self.inner.current_search.borrow_mut() = normalized;
+        if let Some(sorter) = self.inner.search_sorter.borrow().as_ref() {
+            sorter.changed(gtk::SorterChange::Different);
+        }
         self.inner
             .custom_filter
             .changed(gtk::FilterChange::Different);
+        update_results(&self.inner);
+        if let Some(view) = self.inner.column_view.borrow().as_ref() {
+            let weak = view.downgrade();
+            glib::idle_add_local_once(move || {
+                if let Some(view) = weak.upgrade() {
+                    if view.root().is_some()
+                        && view.model().is_some_and(|model| model.n_items() > 0)
+                    {
+                        view.scroll_to(0, None, gtk::ListScrollFlags::NONE, None);
+                    }
+                }
+            });
+        }
     }
     pub fn set_search_mode(&self, name_only: bool) {
         self.inner.search_name_only.set(name_only);
         self.inner
             .custom_filter
             .changed(gtk::FilterChange::Different);
+        update_results(&self.inner);
     }
     pub fn set_repository_filter(&self, repo: Option<String>) {
         *self.inner.current_repo_filter.borrow_mut() = repo;
         self.inner
             .custom_filter
             .changed(gtk::FilterChange::Different);
+        update_results(&self.inner);
     }
     pub fn has_active_search(&self) -> bool {
         !self.inner.current_search.borrow().is_empty()
@@ -424,6 +477,11 @@ fn build(inner: Rc<Inner>) {
                     && p.state != PkgState::Upgradable
                     && p.state != PkgState::NotInstalled;
                 let blocked = p.essential && would_remove;
+                cb.update_property(&[gtk::accessible::Property::Label(&format!(
+                    "{}: {}",
+                    p.name,
+                    pkg_state_tooltip(p.state, p.mark)
+                ))]);
 
                 let handler_id = unsafe { cb.data::<glib::SignalHandlerId>("toggle-handler-id") };
                 if let Some(id) = handler_id {
@@ -652,7 +710,30 @@ fn build(inner: Rc<Inner>) {
     set_column_sorter(&col_dsize, |a, b| a.download_size.cmp(&b.download_size));
     column_view.append_column(&col_dsize);
 
-    sort_model.set_sorter(column_view.sorter().as_ref());
+    let ranking = {
+        let weak = Rc::downgrade(&inner);
+        gtk::CustomSorter::new(move |a, b| {
+            let Some(inner) = weak.upgrade() else {
+                return gtk::Ordering::Equal;
+            };
+            let query = inner.current_search.borrow();
+            if query.is_empty() {
+                return gtk::Ordering::Equal;
+            }
+            let a = pkg_of(a);
+            let b = pkg_of(b);
+            let result =
+                ord(search_rank(&a.pkg().name, &query).cmp(&search_rank(&b.pkg().name, &query)));
+            result
+        })
+    };
+    let sorter = gtk::MultiSorter::new();
+    sorter.append(ranking.clone());
+    if let Some(columns) = column_view.sorter() {
+        sorter.append(columns);
+    }
+    sort_model.set_sorter(Some(&sorter));
+    *inner.search_sorter.borrow_mut() = Some(ranking);
 
     column_view.sort_by_column(Some(&col_name), gtk::SortType::Ascending);
 
@@ -672,7 +753,48 @@ fn build(inner: Rc<Inner>) {
     scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
     scroll.set_vexpand(true);
     scroll.set_child(Some(&column_view));
-    inner.widget.append(&scroll);
+    let filter_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    filter_bar.set_margin_start(8);
+    filter_bar.set_margin_end(8);
+    filter_bar.set_margin_top(6);
+    filter_bar.set_margin_bottom(6);
+    inner.filter_summary.set_hexpand(true);
+    inner.filter_summary.set_xalign(0.0);
+    inner.filter_summary.set_wrap(true);
+    inner.filter_summary.add_css_class("dim-label");
+    let reset = gtk::Button::with_label("Clear filters");
+    {
+        let weak = Rc::downgrade(&inner);
+        reset.connect_clicked(move |_| {
+            if let Some(inner) = weak.upgrade() {
+                for cb in inner.on_reset_filters.borrow().iter() {
+                    cb();
+                }
+            }
+        });
+    }
+    filter_bar.append(&inner.filter_summary);
+    filter_bar.append(&reset);
+    inner.widget.append(&filter_bar);
+    inner.result_stack.set_vexpand(true);
+    inner.result_stack.add_named(&scroll, Some("list"));
+    inner.message.set_wrap(true);
+    inner.message.set_justify(gtk::Justification::Center);
+    inner.message.set_margin_start(20);
+    inner.message.set_margin_end(20);
+    inner
+        .result_stack
+        .add_named(&inner.message, Some("message"));
+    inner.widget.append(&inner.result_stack);
+    {
+        let weak = Rc::downgrade(&inner);
+        sort_model.connect_items_changed(move |_, _, _, _| {
+            if let Some(inner) = weak.upgrade() {
+                update_results(&inner);
+            }
+        });
+    }
+    update_results(&inner);
 
     if let Some(sorter) = column_view.sorter() {
         let vadj = scroll.vadjustment();
@@ -1137,5 +1259,78 @@ mod tests {
         ]);
         let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
         assert_eq!(labels, ["Unmark 2"]);
+    }
+}
+
+/// Name relevance precedes the selected column sort while a query is active.
+fn search_rank(name: &str, query: &str) -> u8 {
+    let name = name.to_lowercase();
+    if name == query {
+        0
+    } else if name.starts_with(query) {
+        1
+    } else if name.contains(query) {
+        2
+    } else {
+        3
+    }
+}
+
+fn update_results(inner: &Inner) {
+    let count = inner
+        .selection
+        .borrow()
+        .as_ref()
+        .map_or(0, ListModelExt::n_items);
+    let filter = match &*inner.current_filter.borrow() {
+        ActiveFilter::Preset(mode) => format!("{mode:?}"),
+        ActiveFilter::Custom { name, .. } => name.clone(),
+    };
+    let query = inner.current_search.borrow();
+    let repository = inner.current_repo_filter.borrow();
+    let summary = format!(
+        "{count} results · {filter}{}{}{}",
+        if inner.search_name_only.get() {
+            " · Names only"
+        } else {
+            ""
+        },
+        if query.is_empty() {
+            String::new()
+        } else {
+            format!(" · Search: {query}")
+        },
+        repository.as_ref().map_or_else(String::new, |r| format!(
+            " · Repository: {}",
+            crate::backend::repo_names::display_repo(r)
+        ))
+    );
+    inner.filter_summary.set_text(&summary);
+    inner
+        .filter_summary
+        .update_property(&[gtk::accessible::Property::Description(&summary)]);
+    if let Some(message) = inner.load_message.borrow().as_ref() {
+        inner.message.set_text(message);
+        inner.result_stack.set_visible_child_name("message");
+    } else if count == 0 {
+        inner.message.set_text("No packages match your search and filters. Clear filters or refresh repositories to try again.");
+        inner.result_stack.set_visible_child_name("message");
+    } else {
+        inner.result_stack.set_visible_child_name("list");
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+    #[test]
+    fn exact_names_rank_before_prefix_substring_and_description_matches() {
+        let mut names = vec!["web-browser", "firefox-esr", "my-firefox-theme", "firefox"];
+        names.sort_by_key(|name| search_rank(name, "firefox"));
+        assert_eq!(
+            names,
+            ["firefox", "firefox-esr", "my-firefox-theme", "web-browser"]
+        );
+        assert_eq!(search_rank("Firefox", "firefox"), 0);
     }
 }

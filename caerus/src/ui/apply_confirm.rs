@@ -68,24 +68,30 @@ fn preview_section(
         } else {
             pkg_format_size(item.installed_size)
         };
-        let label = format!("{} {} — {}", item.pkgname, item.pkgver, size);
-        list.append(&text_list_row(&label, false));
+        let label = format!("{} — {}", item.description(), size);
+        list.append(&text_list_row(&label, true));
     }
     outer.append(&list);
 }
 
 fn totals_footer(outer: &gtk::Box, preview: &TransactionPreview) {
     let footer = gtk::Label::new(Some(&format!(
-        "Download {} \u{2022} Installed size change {} \u{2022} Freed {}",
+        "Download {} \u{2022} Estimated disk change {}",
         pkg_format_size(preview.total_download_size),
-        pkg_format_size(preview.total_installed_size),
-        pkg_format_size(preview.total_removed_size),
+        preview.disk_change_text(),
     )));
     footer.set_xalign(0.0);
     footer.set_wrap(true);
     footer.add_css_class("dim-label");
     footer.set_margin_top(8);
     outer.append(&footer);
+    if cfg!(feature = "apk") {
+        let note = gtk::Label::new(Some("Size estimates include available package metadata; actual download and disk use can differ."));
+        note.set_wrap(true);
+        note.set_xalign(0.0);
+        note.add_css_class("dim-label");
+        outer.append(&note);
+    }
 }
 
 fn error_banner(outer: &gtk::Box, err: &TransactionError) {
@@ -113,12 +119,7 @@ fn error_banner(outer: &gtk::Box, err: &TransactionError) {
         outer.append(&list);
     }
 
-    let note = gtk::Label::new(Some(if cfg!(feature = "apk") {
-        "The APK solver did not provide a complete preview, so these changes cannot be applied safely."
-    } else {
-        "The list below is still the app's own best-effort summary of what you marked; \
-         the real xbps tools may behave differently from what libxbps predicted here."
-    }));
+    let note = gtk::Label::new(Some("No changes were applied. Refresh the package database, resolve the reported problem, then review a new plan."));
     note.set_xalign(0.0);
     note.set_wrap(true);
     note.add_css_class("dim-label");
@@ -156,7 +157,10 @@ pub fn confirm(
     } else if preview.is_none() {
         error_banner(
             &outer,
-            &TransactionError::Other("Transaction preview is unavailable.".to_string()),
+            &TransactionError::Other(
+                "A complete transaction preview is unavailable. Reload packages and try again."
+                    .to_string(),
+            ),
         );
     }
 
@@ -199,12 +203,15 @@ pub fn confirm(
 
     let (btn_box, cancel_btn) = cancel_button_row(10);
 
-    let had_error = !matches!(preview, Some(Ok(_)));
-    let apk_preview_failed = cfg!(feature = "apk") && !matches!(preview, Some(Ok(_)));
-    let destructive = !removes.is_empty() || !purges.is_empty() || had_error;
-    let apply_label = if had_error { "Apply Anyway" } else { "Apply" };
+    let preview_failed = !matches!(preview, Some(Ok(_)));
+    let destructive = !removes.is_empty() || !purges.is_empty() || preview_failed;
+    let apply_label = if preview_failed {
+        "Preview required"
+    } else {
+        "Apply changes"
+    };
     let apply_btn = gtk::Button::with_label(apply_label);
-    apply_btn.set_sensitive(!apk_preview_failed);
+    apply_btn.set_sensitive(!preview_failed);
     if destructive {
         apply_btn.add_css_class("destructive-action");
     } else {
@@ -252,4 +259,58 @@ pub fn confirm(
     }
 
     present_focused(&dlg, if destructive { &cancel_btn } else { &apply_btn });
+}
+
+#[cfg(test)]
+pub fn smoke_test_incomplete_previews() {
+    fn find_button(widget: &gtk::Widget, text: &str) -> Option<gtk::Button> {
+        if let Some(button) = widget.downcast_ref::<gtk::Button>() {
+            if button.label().as_deref() == Some(text) {
+                return Some(button.clone());
+            }
+        }
+        let mut child = widget.first_child();
+        while let Some(current) = child {
+            if let Some(button) = find_button(&current, text) {
+                return Some(button);
+            }
+            child = current.next_sibling();
+        }
+        None
+    }
+    for preview in [
+        None,
+        Some(Err(TransactionError::Other(
+            "fixture dependency conflict".into(),
+        ))),
+    ] {
+        let result = Rc::new(std::cell::Cell::new(None));
+        let answer = result.clone();
+        confirm(
+            None,
+            &["foo".into()],
+            &[],
+            &[],
+            &[],
+            preview,
+            move |value| answer.set(Some(value)),
+        );
+        let dialog = gtk::Window::list_toplevels()
+            .into_iter()
+            .filter_map(|widget| widget.downcast::<gtk::Window>().ok())
+            .find(|window| window.title().as_deref() == Some("Confirm Changes"))
+            .expect("preview dialog should be visible");
+        let apply = find_button(dialog.upcast_ref(), "Preview required").unwrap();
+        assert!(
+            !apply.is_sensitive(),
+            "missing and failed previews must block apply"
+        );
+        let cancel = find_button(dialog.upcast_ref(), "Cancel").unwrap();
+        assert_eq!(
+            gtk::prelude::GtkWindowExt::focus(&dialog),
+            Some(cancel.clone().upcast())
+        );
+        cancel.emit_clicked();
+        assert_eq!(result.get(), Some(false));
+    }
 }

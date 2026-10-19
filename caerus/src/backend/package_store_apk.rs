@@ -704,6 +704,23 @@ fn extra(n: &str) -> Option<PackageExtraInfo> {
         .into_iter()
         .find(|repo| repo != "lib/apk/db/installed");
     x.download_size = record.file_size;
+    let installed = run(&[
+        "query",
+        "--installed",
+        "--fields",
+        "name,version",
+        "--format",
+        "json",
+        n,
+    ])
+    .ok()
+    .and_then(|json| records(&json).ok())
+    .is_some_and(|rows| rows.iter().any(|row| row.name == n));
+    if installed {
+        if let Ok(world) = std::fs::read_to_string("/etc/apk/world") {
+            x.apk_world_root = Some(world_names(&world).contains(n));
+        }
+    }
     if let Some(provides) = info(n, "--provides") {
         x.provides = provides;
     }
@@ -793,15 +810,42 @@ fn preview(ops: &[PreviewOp]) -> Result<TransactionPreview, TransactionError> {
             "json",
             &name,
         ]);
-        let record = query
-            .ok()
-            .and_then(|json| records(&json).ok()?.into_iter().next());
+        let record = query.ok().and_then(|json| {
+            records(&json)
+                .ok()?
+                .into_iter()
+                .find(|row| row.name == name && row.version == version)
+        });
+        let previous_record = run(&[
+            "query",
+            "--installed",
+            "--fields",
+            "name,version,installed-size",
+            "--format",
+            "json",
+            &name,
+        ])
+        .ok()
+        .and_then(|json| records(&json).ok()?.into_iter().find(|r| r.name == name));
+        let previous_version = previous_record.as_ref().map(|row| row.version.clone());
+        let installed_size = if action == TransAction::Remove {
+            previous_record.as_ref().map_or(0, |row| row.installed_size)
+        } else {
+            record.as_ref().map_or(0, |row| row.installed_size)
+        };
         let item = TransactionPreviewItem {
+            requested: (full_upgrade && action != TransAction::Install)
+                || names.contains(&name.as_str()),
+            previous_version,
             pkgname: name,
             pkgver: version,
             action,
-            installed_size: record.as_ref().map_or(0, |row| row.installed_size),
-            download_size: record.as_ref().map_or(0, |row| row.file_size),
+            installed_size,
+            download_size: if action == TransAction::Remove {
+                0
+            } else {
+                record.as_ref().map_or(0, |row| row.file_size)
+            },
         };
         match action {
             TransAction::Install => {
@@ -810,16 +854,31 @@ fn preview(ops: &[PreviewOp]) -> Result<TransactionPreview, TransactionError> {
                 p.total_download_size = p.total_download_size.saturating_add(item.download_size);
                 p.total_installed_size = p.total_installed_size.saturating_add(item.installed_size);
             }
-            TransAction::Update => {
+            TransAction::Update | TransAction::Reinstall => {
                 p.update_pkgs += 1;
                 p.download_pkgs += 1;
                 p.total_download_size = p.total_download_size.saturating_add(item.download_size);
+                if let (Some(new), Some(old)) = (&record, &previous_record) {
+                    p.total_installed_size = p
+                        .total_installed_size
+                        .saturating_add(new.installed_size.saturating_sub(old.installed_size));
+                    p.total_removed_size = p
+                        .total_removed_size
+                        .saturating_add(old.installed_size.saturating_sub(new.installed_size));
+                }
             }
             TransAction::Remove => {
                 p.remove_pkgs += 1;
                 p.total_removed_size = p.total_removed_size.saturating_add(item.installed_size);
             }
             _ => {}
+        }
+        if action == TransAction::Remove || record.is_some() {
+            p.disk_size_change += crate::backend::transaction_preview::installed_delta(
+                action,
+                previous_record.as_ref().map(|row| row.installed_size),
+                item.installed_size,
+            );
         }
         p.items.push(item);
     }
@@ -846,7 +905,8 @@ fn parse_simulation(
         let (name, version) = package.split_once(' ')?;
         let action = match verb {
             "Installing" => TransAction::Install,
-            "Upgrading" => TransAction::Update,
+            "Upgrading" | "Downgrading" => TransAction::Update,
+            "Reinstalling" => TransAction::Reinstall,
             "Purging" | "Removing" => TransAction::Remove,
             _ => return None,
         };
@@ -936,6 +996,33 @@ mod tests {
         assert_eq!(
             plan[2].2,
             crate::backend::transaction_preview::TransAction::Remove
+        );
+    }
+}
+
+/// World constraints may include a repository tag or version operator.
+fn world_names(world: &str) -> HashSet<String> {
+    world
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|line| {
+            line.split(['@', '<', '>', '=', '~', '!', ' ', '\t'])
+                .next()
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+#[cfg(test)]
+mod world_tests {
+    use super::*;
+    #[test]
+    fn handles_tagged_versioned_and_commented_world_constraints() {
+        assert_eq!(
+            world_names("# comment\nfoo@testing>=1.2\nbar~2\nbaz=3\n"),
+            HashSet::from(["foo".into(), "bar".into(), "baz".into()])
         );
     }
 }

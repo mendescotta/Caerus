@@ -1,3 +1,6 @@
+#[path = "../../shared/progress.rs"]
+mod progress;
+
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::os::unix::io::AsRawFd;
 use std::process::{Command, Stdio};
@@ -24,6 +27,7 @@ const LOCK_EX: i32 = 2;
 fn run_command(argv: &[&str]) -> Option<i32> {
     let mut child = match Command::new(argv[0])
         .args(&argv[1..])
+        .env("LC_ALL", "C")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null())
@@ -66,6 +70,9 @@ fn run_command(argv: &[&str]) -> Option<i32> {
 
     for line in rx {
         println!("LOG {line}");
+        if let Some(event) = progress::observe(&line) {
+            reply(&event.encode());
+        }
         let _ = io::stdout().flush();
     }
 
@@ -157,6 +164,7 @@ fn run_pkg_command(verb: &str, pkgs: &[String], err_msg: &str) {
 }
 
 fn respond_ok_or(success: bool, err_msg: &str) {
+    reply(&progress::Event::Finished(success).encode());
     if success {
         println!("OK");
     } else {
@@ -729,6 +737,18 @@ fn main() {
             reply("OK");
             break;
         }
+        let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
+        if has_control_char(line) {
+            reply("ERROR command contains control characters");
+            continue;
+        }
+        let event = progress::Event::Command {
+            verb: verb.into(),
+            names: split_pkgnames(rest),
+        }
+        .encode();
+        debug_assert!(progress::Event::parse(&event).is_some());
+        reply(&event);
         handle_line(line);
     }
 }

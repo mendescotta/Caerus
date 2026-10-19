@@ -4,6 +4,25 @@ All notable changes to Caerus are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); dates are release dates,
 not commit dates.
 
+## [Unreleased]
+
+### Added
+- Dedicated Updates, optional Discover and Maintenance views, with adaptive
+  package details and clearer keyboard/screen-reader navigation.
+- Pending changes summary and editable review queue; exact-name search ranking,
+  active-filter summaries and loading/empty/error states.
+- Versioned helper progress events, package outcomes and copyable logs.
+- Searchable transaction history with version changes, partial-failure details,
+  retained rotated records and compatibility with existing history.
+- APK world-root/dependency context and explanations for unavailable tools.
+
+### Changed
+- Transaction previews show net disk growth/shrinkage instead of total payload size.
+- Failed or missing previews block Apply; mixed operation types use separate
+  reviewed steps and remaining marks survive reloads.
+- Failed changes reload current state before another review instead of offering
+  a force retry. System upgrades use already-reviewed repository metadata.
+
 ## [0.7.2] - 2026-10-13
 
 ### Added

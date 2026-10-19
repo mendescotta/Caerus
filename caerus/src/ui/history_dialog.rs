@@ -1,70 +1,80 @@
 use crate::backend::history;
 use crate::ui::dialog_util::{close_button, modal_window, present_focused};
 use gtk::prelude::*;
-
-fn history_row(entry: &history::HistoryEntry) -> gtk::ListBoxRow {
-    let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    row_box.set_margin_start(4);
-    row_box.set_margin_end(4);
-    row_box.set_margin_top(6);
-    row_box.set_margin_bottom(6);
-
-    let icon = gtk::Image::from_icon_name(if entry.success {
-        "object-select-symbolic"
-    } else {
-        "dialog-warning-symbolic"
-    });
-    row_box.append(&icon);
-
-    let text_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
-    let cmd_label = gtk::Label::new(Some(&entry.commands));
-    cmd_label.set_xalign(0.0);
-    cmd_label.set_selectable(true);
-    cmd_label.set_wrap(true);
-    text_box.append(&cmd_label);
-
-    let time_label = gtk::Label::new(Some(&entry.timestamp));
-    time_label.set_xalign(0.0);
-    time_label.add_css_class("dim-label");
-    text_box.append(&time_label);
-
-    text_box.set_hexpand(true);
-    row_box.append(&text_box);
-
-    let row = gtk::ListBoxRow::new();
-    row.set_selectable(false);
-    row.set_activatable(false);
-    row.set_child(Some(&row_box));
-    row
-}
+use std::rc::Rc;
 
 pub fn show(parent: Option<&gtk::Window>) {
-    let (dlg, outer) = modal_window("Transaction History", parent, true, (520, 420), 8);
-
-    let entries = history::load();
-
+    let (dlg, outer) = modal_window("Transaction History", parent, true, (680, 540), 12);
+    let search = gtk::SearchEntry::new();
+    search.set_placeholder_text(Some("Search packages, versions, dates or logs…"));
+    search.update_property(&[gtk::accessible::Property::Label(
+        "Search transaction history",
+    )]);
+    outer.append(&search);
     let scroll = gtk::ScrolledWindow::new();
     scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
     scroll.set_vexpand(true);
-
     let list = gtk::ListBox::new();
     list.set_selection_mode(gtk::SelectionMode::None);
-    if entries.is_empty() {
-        let placeholder = gtk::Label::new(Some("No transactions recorded yet."));
-        placeholder.add_css_class("dim-label");
-        placeholder.set_margin_top(24);
-        list.set_placeholder(Some(&placeholder));
-    } else {
-        for entry in &entries {
-            list.append(&history_row(entry));
+    let empty = gtk::Label::new(Some(
+        "No matching transactions. New transactions include logs and version details.",
+    ));
+    empty.set_wrap(true);
+    empty.set_margin_top(24);
+    list.set_placeholder(Some(&empty));
+    let entries = Rc::new(history::load());
+    let rebuild = {
+        let list = list.clone();
+        move |query: &str| {
+            while let Some(child) = list.first_child() {
+                list.remove(&child);
+            }
+            for entry in entries.iter().filter(|e| e.matches(query)) {
+                let content = gtk::Box::new(gtk::Orientation::Vertical, 8);
+                content.set_margin_top(10);
+                content.set_margin_bottom(10);
+                content.set_margin_start(10);
+                content.set_margin_end(10);
+                let title = gtk::Label::new(Some(&format!(
+                    "{} · {}",
+                    if entry.success {
+                        "Completed"
+                    } else {
+                        "Failed or partially completed"
+                    },
+                    entry.timestamp
+                )));
+                title.set_xalign(0.0);
+                title.add_css_class(if entry.success { "success" } else { "error" });
+                content.append(&title);
+                let summary = gtk::Label::new(Some(&entry.summary()));
+                summary.set_xalign(0.0);
+                summary.set_wrap(true);
+                summary.set_selectable(true);
+                content.append(&summary);
+                let details = format!("{}\n\n{}", entry.changes, entry.log);
+                if !details.trim().is_empty() {
+                    let expander = gtk::Expander::new(Some("Package changes and log"));
+                    let label = gtk::Label::new(Some(&details));
+                    label.set_xalign(0.0);
+                    label.set_wrap(true);
+                    label.set_selectable(true);
+                    label.add_css_class("monospace");
+                    expander.set_child(Some(&label));
+                    content.append(&expander);
+                    let copy = gtk::Button::with_label("Copy details");
+                    copy.set_halign(gtk::Align::Start);
+                    copy.connect_clicked(move |b| b.clipboard().set_text(&details));
+                    content.append(&copy);
+                }
+                list.append(&content);
+            }
         }
-    }
+    };
+    rebuild("");
+    search.connect_search_changed(move |s| rebuild(&s.text()));
     scroll.set_child(Some(&list));
     outer.append(&scroll);
-
-    let close_btn = close_button(&outer, &dlg, 4);
-
-    dlg.set_default_widget(Some(&close_btn));
-
-    present_focused(&dlg, &close_btn);
+    close_button(&outer, &dlg, 4);
+    present_focused(&dlg, &search);
 }

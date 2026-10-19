@@ -1,84 +1,69 @@
+use crate::backend::progress::{self, Event};
 use crate::backend::transaction::{DisconnectReason, Transaction};
 use crate::ui::dialog_util::modal_window;
 use gtk::prelude::*;
 use std::cell::{Cell, RefCell};
+use std::collections::{BTreeMap, HashSet};
 use std::rc::Rc;
 
-thread_local! {
-    static AUTO_CLOSE_ON_SUCCESS: Cell<bool> = const { Cell::new(false) };
-}
-
+thread_local! { static AUTO_CLOSE_ON_SUCCESS: Cell<bool> = const { Cell::new(false) }; }
 pub fn set_auto_close_on_success(enabled: bool) {
     AUTO_CLOSE_ON_SUCCESS.set(enabled);
 }
 
-fn count_target_packages(commands: &[String]) -> usize {
-    commands
-        .iter()
-        .filter(|c| {
-            for verb in [
-                "INSTALL ", "UPDATE ", "REMOVE ", "PURGE ", "HOLD ", "UNHOLD ",
-            ] {
-                if c.starts_with(verb) {
-                    return true;
-                }
-            }
-            false
-        })
-        .map(|c| c.split_whitespace().skip(1).count())
-        .sum()
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ResultState {
+    Pending,
+    Working,
+    Completed,
+    Interrupted,
+    NotProcessed,
 }
-
-fn strip_log_decoration(line: &str) -> String {
-    let mut s = line;
-    if let Some(rest) = s.strip_prefix("LOG ") {
-        s = rest;
-    }
-    if let Some(rest) = s.strip_prefix("[*] ") {
-        s = rest;
-    } else if let Some(rest) = s.strip_prefix("[*]") {
-        s = rest;
-    }
-    s.trim().to_string()
-}
-
-fn extract_pkgver(line: &str) -> Option<&str> {
-    let idx = line.find(": ")?;
-    let candidate = &line[..idx];
-    if candidate.is_empty() || candidate.contains(char::is_whitespace) {
-        return None;
-    }
-    Some(candidate)
-}
-
-fn extract_percentage(line: &str) -> Option<u8> {
-    let bytes = line.as_bytes();
-    for (i, &b) in bytes.iter().enumerate().rev() {
-        if b != b'%' {
-            continue;
-        }
-        let mut start = i;
-        while start > 0 && bytes[start - 1].is_ascii_digit() {
-            start -= 1;
-        }
-        if start == i {
-            continue;
-        }
-        if let Ok(pct) = line[start..i].parse::<u32>() {
-            return Some(pct.min(100) as u8);
+impl ResultState {
+    fn finish(self, success: bool) -> Self {
+        match self {
+            Self::Working | Self::Pending if success => Self::Completed,
+            Self::Working => Self::Interrupted,
+            Self::Pending => Self::NotProcessed,
+            other => other,
         }
     }
-    None
+    fn label(self) -> &'static str {
+        match self {
+            Self::Pending => "Pending",
+            Self::Working => "Working",
+            Self::Completed => "Completed",
+            Self::Interrupted => "Failed or interrupted — inspect log",
+            Self::NotProcessed => "Not processed",
+        }
+    }
+}
+struct PackageRow {
+    label: gtk::Label,
+    state: ResultState,
 }
 
-pub fn run(
-    parent: Option<&gtk::Window>,
-    session: &Transaction,
-    commands: &[String],
-    title: &str,
-    done_cb: impl Fn(bool) + 'static,
-) {
-    run_inner(parent, session, commands, title, done_cb, false, None);
+fn requested_names(commands: &[String]) -> Vec<String> {
+    let mut names = std::collections::BTreeSet::new();
+    for command in commands {
+        let (verb, rest) = command.split_once(' ').unwrap_or((command, ""));
+        if [
+            "INSTALL",
+            "UPDATE",
+            "REMOVE",
+            "PURGE",
+            "HOLD",
+            "UNHOLD",
+            "REINSTALL",
+            "DOWNLOAD",
+            "RECONFIGURE",
+        ]
+        .contains(&verb)
+        {
+            names.extend(rest.split_whitespace().map(str::to_owned));
+        }
+    }
+    names.into_iter().collect()
 }
 
 fn run_inner(
@@ -86,290 +71,281 @@ fn run_inner(
     session: &Transaction,
     commands: &[String],
     title: &str,
+    changes: Option<String>,
     done_cb: impl Fn(bool) + 'static,
     done_after_close: bool,
-    record_commands: Option<Vec<String>>,
 ) {
-    let (dlg, outer) = modal_window(title, parent, true, (520, 200), 8);
-
-    let total_pkgs = count_target_packages(commands);
-
-    let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    let spinner = gtk::Spinner::new();
-    spinner.start();
-    let status_label = gtk::Label::new(Some("Applying changes\u{2026}"));
-    status_label.set_xalign(0.0);
-    status_label.set_hexpand(true);
-    header.append(&spinner);
-    header.append(&status_label);
-    outer.append(&header);
-
-    let action_label = gtk::Label::new(Some("\u{2026}"));
-    action_label.set_xalign(0.0);
-    action_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    action_label.add_css_class("dim-label");
-    outer.append(&action_label);
-
-    let progress_bar = gtk::ProgressBar::new();
-    progress_bar.add_css_class("apply-progress");
-    let bar_text_label = gtk::Label::new(None);
-    bar_text_label.add_css_class("apply-progress-text");
-    bar_text_label.set_halign(gtk::Align::Center);
-    bar_text_label.set_valign(gtk::Align::Center);
-    let progress_overlay = gtk::Overlay::new();
-    progress_overlay.set_child(Some(&progress_bar));
-    progress_overlay.add_overlay(&bar_text_label);
-    outer.append(&progress_overlay);
-
-    let expander = gtk::Expander::new(Some("Details"));
+    let (dlg, outer) = modal_window(title, parent, true, (620, 420), 12);
+    let status = gtk::Label::new(Some("Waiting for authorization…"));
+    status.set_xalign(0.0);
+    status.set_wrap(true);
+    status.add_css_class("heading");
+    outer.append(&status);
+    let phase = gtk::Label::new(Some("Preparing transaction"));
+    phase.set_xalign(0.0);
+    phase.set_wrap(true);
+    outer.append(&phase);
+    let progress = gtk::ProgressBar::new();
+    progress.set_show_text(true);
+    progress.set_text(Some(
+        "Package dependencies are included as they are processed",
+    ));
+    outer.append(&progress);
+    let rows_box = gtk::ListBox::new();
+    rows_box.set_selection_mode(gtk::SelectionMode::None);
+    let rows: Rc<RefCell<BTreeMap<String, PackageRow>>> = Rc::new(RefCell::new(BTreeMap::new()));
+    for name in requested_names(commands) {
+        let label = gtk::Label::new(Some(&format!("{name} · Pending")));
+        label.set_xalign(0.0);
+        label.set_margin_top(4);
+        label.set_margin_bottom(4);
+        rows_box.append(&label);
+        rows.borrow_mut().insert(
+            name,
+            PackageRow {
+                label,
+                state: ResultState::Pending,
+            },
+        );
+    }
     let scroll = gtk::ScrolledWindow::new();
-    scroll.set_size_request(-1, 220);
+    scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    scroll.set_min_content_height(120);
     scroll.set_vexpand(true);
-    let text_view = gtk::TextView::new();
-    text_view.set_editable(false);
-    text_view.set_cursor_visible(false);
-    // Read-only log console: never let it take keyboard focus. If it does
-    // (GTK's default focusable=true, and it's the only focusable widget
-    // here while close_btn starts disabled), every append_log() call below
-    // moves the buffer's "insert" mark, which GTK forwards to the active
-    // input-method context as a cursor-location update. ibus-gtk4's
-    // immodule crashes on that: gdk_x11_surface_get_xid() gets called with
-    // a NULL GdkSurface* (confirmed via core dump: rdi=0 at the fault).
-    // Not a caerus logic bug, but caerus controls whether this widget is
-    // ever a focus target in the first place.
-    text_view.set_focusable(false);
-    text_view.set_monospace(true);
-    text_view.set_wrap_mode(gtk::WrapMode::WordChar);
-    text_view.set_margin_start(4);
-    text_view.set_margin_end(4);
-    scroll.set_child(Some(&text_view));
-    expander.set_child(Some(&scroll));
+    scroll.set_child(Some(&rows_box));
+    outer.append(&scroll);
+    let expander = gtk::Expander::new(Some("Transaction log"));
+    let log_scroll = gtk::ScrolledWindow::new();
+    log_scroll.set_min_content_height(180);
+    let text = gtk::TextView::new();
+    text.set_editable(false);
+    text.set_cursor_visible(false);
+    // Never focus the read-only console: ibus can dereference an unrooted native surface.
+    text.set_focusable(false);
+    text.set_monospace(true);
+    text.set_wrap_mode(gtk::WrapMode::WordChar);
+    log_scroll.set_child(Some(&text));
+    expander.set_child(Some(&log_scroll));
     outer.append(&expander);
-
-    let close_btn = gtk::Button::with_label("Close");
-    close_btn.set_halign(gtk::Align::End);
-    close_btn.set_sensitive(false);
-    outer.append(&close_btn);
-
-    let pulsing = Rc::new(Cell::new(true));
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    actions.set_halign(gtk::Align::End);
+    let copy = gtk::Button::with_label("Copy log");
+    let close = gtk::Button::with_label("Close");
+    close.set_sensitive(false);
+    actions.append(&copy);
+    actions.append(&close);
+    outer.append(&actions);
+    let log_text = Rc::new(RefCell::new(String::new()));
     {
-        let pulsing = pulsing.clone();
-        let progress_bar = progress_bar.clone();
+        let log = log_text.clone();
+        copy.connect_clicked(move |b| b.clipboard().set_text(&log.borrow()));
+    }
+    let busy = Rc::new(Cell::new(true));
+    {
+        let busy = busy.clone();
+        let progress = progress.clone();
         glib::source::timeout_add_local(std::time::Duration::from_millis(100), move || {
-            if !pulsing.get() {
+            if !busy.get() {
                 return glib::ControlFlow::Break;
             }
-            progress_bar.pulse();
+            progress.pulse();
             glib::ControlFlow::Continue
         });
     }
-
-    let seen_count = Rc::new(Cell::new(0usize));
-    let last_pkgver: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
-    let last_pct: Rc<Cell<Option<u8>>> = Rc::new(Cell::new(None));
-    let last_logged_line: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
-
-    let set_bar_text = {
-        let bar_text_label = bar_text_label.clone();
-        let seen_count = seen_count.clone();
-        let last_pct = last_pct.clone();
-        move || {
-            let n = seen_count.get();
-            let text = match (total_pkgs > 1 && n > 0, last_pct.get()) {
-                (true, Some(p)) => format!("Package {n} of {total_pkgs} — {p}%"),
-                (true, None) => format!("Package {n} of {total_pkgs}"),
-                (false, Some(p)) => format!("{p}%"),
-                (false, None) => String::new(),
-            };
-            bar_text_label.set_text(&text);
-        }
-    };
-
-    let buf = text_view.buffer();
-    let tag_error = gtk::TextTag::builder().foreground("#ed333b").build();
-    let tag_success = gtk::TextTag::builder().foreground("#2ec27e").build();
-    let tag_banner = gtk::TextTag::builder().weight(700).build();
-    let tag_dim = gtk::TextTag::builder().foreground("#88898f").build();
-    for tag in [&tag_error, &tag_success, &tag_banner, &tag_dim] {
-        buf.tag_table().add(tag);
-    }
-
-    let append_log: Rc<dyn Fn(&str)> = {
-        let text_view = text_view;
-        let action_label = action_label;
-        let pulsing = pulsing.clone();
-        let progress_bar = progress_bar.clone();
-        let seen_count = seen_count.clone();
-        let last_logged_line = last_logged_line.clone();
-        Rc::new(move |line: &str| {
-            if let Some(pct) = extract_percentage(line) {
-                pulsing.set(false);
-                progress_bar.set_fraction(f64::from(pct) / 100.0);
-                last_pct.set(Some(pct));
-                set_bar_text();
-                return;
-            }
-            if *last_logged_line.borrow() == line {
-                return;
-            }
-            *last_logged_line.borrow_mut() = line.to_string();
-            let clean = strip_log_decoration(line);
-            let (display, tag) = if line == "OK" {
-                ("\u{2713} Command completed".to_string(), Some(&tag_success))
-            } else if line == "READY" {
-                ("Privileged session ready.".to_string(), Some(&tag_dim))
-            } else if line.starts_with("ERROR") {
-                (clean.clone(), Some(&tag_error))
-            } else if line.contains("[*]") {
-                (clean.clone(), Some(&tag_banner))
-            } else if clean.ends_with("successfully.") {
-                (clean.clone(), Some(&tag_success))
-            } else if clean.starts_with('(') {
-                (clean.clone(), Some(&tag_dim))
-            } else {
-                (clean.clone(), None)
-            };
-            let buf = text_view.buffer();
-            let mut end = buf.end_iter();
-            match tag {
-                Some(tag) => buf.insert_with_tags(&mut end, &display, &[tag]),
-                None => buf.insert(&mut end, &display),
-            }
-            buf.insert(&mut end, "\n");
-            // Moving the "insert" mark makes GTK forward a cursor-location
-            // update to the input-method context (ibus-gtk4's immodule here),
-            // which computes the widget's on-screen position via
-            // gtk_widget_get_root()/get_native(). Right after the dialog is
-            // presented, the first log lines can arrive before this view is
-            // actually rooted (confirmed: root()/native() are both None on
-            // that first call) — ibus's immodule doesn't guard against that
-            // and segfaults in gdk_x11_surface_get_xid() on a NULL surface.
-            // Nothing is on screen to scroll to yet anyway, so skip both
-            // calls until the view has a root.
-            if text_view.root().is_some() {
-                let mark = buf.get_insert();
-                let end = buf.end_iter();
-                buf.move_mark(&mark, &end);
-                text_view.scroll_mark_onscreen(&mark);
-            }
-
-            if line != "OK" && line != "READY" && !clean.is_empty() {
-                if total_pkgs > 1 {
-                    if let Some(pkgver) = extract_pkgver(&clean) {
-                        if *last_pkgver.borrow() != pkgver {
-                            let n = (seen_count.get() + 1).min(total_pkgs);
-                            seen_count.set(n);
-                            *last_pkgver.borrow_mut() = pkgver.to_string();
-                            last_pct.set(None);
-                            set_bar_text();
+    let active = Rc::new(RefCell::new(HashSet::<String>::new()));
+    let apply_event: Rc<dyn Fn(Event)> = {
+        let rows = rows.clone();
+        let active = active.clone();
+        let phase = phase.clone();
+        let status = status.clone();
+        Rc::new(move |event| {
+            debug_assert!(Event::parse(&event.encode()).is_some());
+            match event {
+                Event::Command { verb, names } => {
+                    active.borrow_mut().clear();
+                    for name in names {
+                        if rows.borrow().contains_key(&name) {
+                            active.borrow_mut().insert(name.clone());
+                        }
+                    }
+                    let label = match verb.as_str() {
+                        "SYNC" => "Refreshing repositories",
+                        "INSTALL" | "UPDATE" | "UPGRADE" => "Resolving package changes",
+                        "REMOVE" | "PURGE" => "Removing packages",
+                        _ => "Running package operation",
+                    };
+                    phase.set_text(label);
+                    status.set_text("Applying changes…");
+                }
+                Event::Phase(stage) => {
+                    phase.set_text(&stage);
+                    phase.update_property(&[gtk::accessible::Property::Description(&stage)]);
+                }
+                Event::Package {
+                    name,
+                    version,
+                    stage,
+                } => {
+                    let mut rows = rows.borrow_mut();
+                    let row = rows.entry(name.clone()).or_insert_with(|| {
+                        let label = gtk::Label::new(None);
+                        label.set_xalign(0.0);
+                        label.set_wrap(true);
+                        label.set_margin_top(4);
+                        label.set_margin_bottom(4);
+                        rows_box.append(&label);
+                        PackageRow {
+                            label,
+                            state: ResultState::Pending,
+                        }
+                    });
+                    row.state = if stage == "Completed" {
+                        ResultState::Completed
+                    } else {
+                        ResultState::Working
+                    };
+                    row.label.set_text(&format!("{name} {version} · {stage}"));
+                    row.label
+                        .update_property(&[gtk::accessible::Property::Label(&format!(
+                            "{name}, {stage}"
+                        ))]);
+                    active.borrow_mut().insert(name);
+                    phase.set_text(&stage);
+                }
+                Event::Finished(success) => {
+                    for name in active.borrow().iter() {
+                        if let Some(row) = rows.borrow_mut().get_mut(name) {
+                            row.state = row.state.finish(success);
+                            row.label
+                                .set_text(&format!("{name} · {}", row.state.label()));
                         }
                     }
                 }
-                action_label.set_text(&clean);
             }
         })
     };
-
     let log_id = {
-        let append_log = append_log.clone();
-        session.connect_log(move |line| append_log(line))
+        let log = log_text.clone();
+        let text = text;
+        let apply_event = apply_event.clone();
+        session.connect_log(move |line| {
+            if let Some(event) = Event::parse(line) {
+                apply_event(event);
+                return;
+            }
+            // Old helpers remain usable; only observed package stages are inferred.
+            if let Some(raw) = line.strip_prefix("LOG ") {
+                if let Some(event) = progress::observe(raw) {
+                    apply_event(event);
+                }
+            }
+            if line == "OK" {
+                apply_event(Event::Finished(true));
+            }
+            let raw = line.strip_prefix("LOG ").unwrap_or(line);
+            let mut log = log.borrow_mut();
+            if log.len() + raw.len() < crate::backend::history::MAX_TRANSACTION_LOG {
+                log.push_str(raw);
+                log.push('\n');
+                let buffer = text.buffer();
+                let mut end = buffer.end_iter();
+                buffer.insert(&mut end, &format!("{raw}\n"));
+            }
+        })
     };
     let auth_failed = Rc::new(Cell::new(false));
     let disconnected_id = {
-        let append_log = append_log.clone();
-        let auth_failed = auth_failed.clone();
-        session.connect_disconnected(move |reason| match reason {
-            DisconnectReason::Expected => append_log("(privileged session ended)"),
-            DisconnectReason::Unexpected => append_log("(privileged session ended unexpectedly)"),
-            DisconnectReason::AuthFailed => {
-                auth_failed.set(true);
-                append_log(
-                    "(could not authenticate as root — no polkit authentication agent \
-                     responded; a bare window manager setup may need one added to its \
-                     startup, e.g. polkit-gnome, lxqt-policykit, polkit-mate)",
-                );
+        let auth = auth_failed.clone();
+        session.connect_disconnected(move |reason| {
+            if reason == DisconnectReason::AuthFailed {
+                auth.set(true);
             }
         })
     };
     let result_on_close = Rc::new(Cell::new(None));
     let done_cb = Rc::new(done_cb);
-    let on_finished = {
-        let spinner = spinner;
-        let progress_bar = progress_bar;
-        let bar_text_label = bar_text_label;
-        let status_label = status_label;
-        let close_btn = close_btn.clone();
-        let session_for_cleanup = session.clone();
-        let result_on_close = result_on_close.clone();
-        let done_cb = done_cb.clone();
-        move |success: bool| {
-            pulsing.set(false);
-            spinner.stop();
-            progress_bar.set_fraction(1.0);
-            bar_text_label.set_text(&if total_pkgs > 1 {
-                format!("Package {} of {}", seen_count.get(), total_pkgs)
-            } else {
-                String::new()
-            });
-            status_label.set_text(if success {
-                "Finished successfully."
-            } else if auth_failed.get() {
-                "Could not authenticate as root — see details below."
-            } else {
-                "Finished with errors."
-            });
-            close_btn.set_sensitive(true);
-            if let Some(commands) = &record_commands {
-                crate::backend::history::record(commands, success);
-            }
-            if done_after_close {
-                result_on_close.set(Some(success));
-            } else {
-                done_cb(success);
-            }
-
-            session_for_cleanup.disconnect_log(log_id);
-            session_for_cleanup.disconnect_disconnected(disconnected_id);
-
-            if success && AUTO_CLOSE_ON_SUCCESS.get() {
-                close_btn.emit_clicked();
-            }
-        }
-    };
-
     {
-        let dlg_c = dlg.clone();
+        let dlg = dlg.clone();
         let result_on_close = result_on_close.clone();
         let done_cb = done_cb.clone();
-        close_btn.connect_clicked(move |_| {
-            dlg_c.destroy();
+        close.connect_clicked(move |_| {
+            dlg.destroy();
             if let Some(success) = result_on_close.take() {
                 done_cb(success);
             }
         });
     }
     {
-        let close_btn = close_btn;
+        let busy = busy.clone();
+        let result_on_close = result_on_close.clone();
+        let done_cb = done_cb.clone();
         dlg.connect_close_request(move |_| {
-            if close_btn.is_sensitive() {
+            if busy.get() {
+                glib::Propagation::Stop
+            } else {
                 if let Some(success) = result_on_close.take() {
                     let done_cb = done_cb.clone();
                     glib::idle_add_local_once(move || done_cb(success));
                 }
                 glib::Propagation::Proceed
-            } else {
-                glib::Propagation::Stop
             }
         });
     }
-
     dlg.present();
-    session.run_batch(commands.to_vec(), on_finished);
+    let session_cleanup = session.clone();
+    let commands = commands.to_vec();
+    let recorded_commands = commands.clone();
+    session.run_batch(commands, move |success| {
+        busy.set(false);
+        let mut details = changes.clone().unwrap_or_default();
+        for (name, row) in rows.borrow_mut().iter_mut() {
+            row.state = row.state.finish(success);
+            row.label
+                .set_text(&format!("{name} · {}", row.state.label()));
+            details.push_str(&format!("\n{name} · {}", row.state.label()));
+        }
+        progress.set_fraction(if success { 1.0 } else { 0.0 });
+        progress.set_text(Some(if success {
+            "Completed"
+        } else {
+            "Stopped — review results and log"
+        }));
+        let message = if success {
+            "Finished successfully."
+        } else if auth_failed.get() {
+            "Authorization failed. Check that a polkit authentication agent is running."
+        } else {
+            "Failed or partially completed. Reload package state before trying again."
+        };
+        status.set_text(message);
+        status.update_property(&[gtk::accessible::Property::Description(message)]);
+        close.set_sensitive(true);
+        close.grab_focus();
+        if !success {
+            expander.set_expanded(true);
+        }
+        if changes.is_some() {
+            crate::backend::history::record_detailed(
+                &recorded_commands,
+                success,
+                &details,
+                &log_text.borrow(),
+            );
+        }
+        session_cleanup.disconnect_log(log_id);
+        session_cleanup.disconnect_disconnected(disconnected_id);
+        if done_after_close {
+            result_on_close.set(Some(success));
+        } else {
+            done_cb(success);
+        }
+        if success && AUTO_CLOSE_ON_SUCCESS.get() {
+            close.emit_clicked();
+        }
+    });
 }
 
-/// Records the command result when it finishes, then calls `done_cb` after
-/// the progress window closes so another modal can be opened safely.
-pub fn run_recorded_until_closed(
+pub fn run_recorded(
     parent: Option<&gtk::Window>,
     session: &Transaction,
     commands: &[String],
@@ -381,108 +357,147 @@ pub fn run_recorded_until_closed(
         session,
         commands,
         title,
+        Some(String::new()),
         done_cb,
-        true,
-        Some(commands.to_vec()),
+        false,
     );
 }
 
-pub fn run_recorded(
+/// Records the command result and its previewed changes when it finishes,
+/// then calls `done_cb` after the progress window closes so another modal
+/// can be opened safely.
+pub fn run_recorded_until_closed(
     parent: Option<&gtk::Window>,
     session: &Transaction,
     commands: &[String],
     title: &str,
+    changes: String,
     done_cb: impl Fn(bool) + 'static,
 ) {
-    let commands_for_history = commands.to_vec();
-    run(parent, session, commands, title, move |success| {
-        crate::backend::history::record(&commands_for_history, success);
-        done_cb(success);
-    });
+    run_inner(
+        parent,
+        session,
+        commands,
+        title,
+        Some(changes),
+        done_cb,
+        true,
+    );
+}
+
+/// Exercises the real transaction pipe and history writer with an unprivileged
+/// fixture. Called by the one display test so GTK stays on one test thread.
+#[cfg(test)]
+pub fn smoke_test_transaction_history() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("caerus-ui-transaction-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let launcher = root.join("pkexec");
+    std::fs::write(&launcher, "#!/bin/sh\nexec \"$@\"\n").unwrap();
+    std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let helper = root.join("helper");
+    std::fs::write(
+        &helper,
+        r#"#!/bin/sh
+printf 'READY\n'
+while IFS= read -r command; do
+    case "$command" in
+        QUIT) exit 0 ;;
+        'INSTALL foo bar')
+            printf 'EVENT 1\tcommand\tINSTALL\tfoo bar\n'
+            printf 'LOG foo-2.0_1: installed successfully.\n'
+            printf 'EVENT 1\tpackage\tfoo\t2.0_1\tCompleted\n'
+            printf 'EVENT 1\tpackage\tdependency\t1.0_1\tConfiguring\n'
+            printf 'LOG simulated dependency configuration failure\n'
+            printf 'EVENT 1\tfinished\terror\n'
+            printf 'ERROR fixture failed\n' ;;
+    esac
+done
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = std::env::var_os("PATH");
+    let data = std::env::var_os("XDG_DATA_HOME");
+    let override_path = std::env::var_os("CAERUS_HELPER_PATH");
+    std::env::set_var("PATH", &root);
+    std::env::set_var("CAERUS_HELPER_PATH", &helper);
+    std::env::set_var("XDG_DATA_HOME", root.join("data"));
+    let transaction = Transaction::new();
+    let finished = Rc::new(Cell::new(None));
+    let result = finished.clone();
+    run_inner(
+        None,
+        &transaction,
+        &["INSTALL foo bar".into()],
+        "Fixture transaction",
+        Some("foo · 1.0_1 → 2.0_1".into()),
+        move |success| result.set(Some(success)),
+        false,
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let context = glib::MainContext::default();
+    while finished.get().is_none() && std::time::Instant::now() < deadline {
+        while context.pending() {
+            context.iteration(false);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let entries = crate::backend::history::load();
+    transaction.shutdown();
+    for widget in gtk::Window::list_toplevels() {
+        if let Ok(window) = widget.downcast::<gtk::Window>() {
+            if window.title().as_deref() == Some("Fixture transaction") {
+                window.destroy();
+            }
+        }
+    }
+    for (key, value) in [
+        ("PATH", path),
+        ("XDG_DATA_HOME", data),
+        ("CAERUS_HELPER_PATH", override_path),
+    ] {
+        if let Some(value) = value {
+            std::env::set_var(key, value);
+        } else {
+            std::env::remove_var(key);
+        }
+    }
+    std::fs::remove_dir_all(root).unwrap();
+    assert_eq!(finished.get(), Some(false));
+    assert_eq!(entries.len(), 1);
+    assert!(entries[0].changes.contains("foo · Completed"));
+    assert!(entries[0].changes.contains("bar · Not processed"));
+    assert!(entries[0]
+        .changes
+        .contains("dependency · Failed or interrupted"));
+    assert!(entries[0].changes.contains("1.0_1 → 2.0_1"));
+    assert!(entries[0]
+        .log
+        .contains("simulated dependency configuration failure"));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn pkgver_extracted_from_status_lines() {
+    fn partial_failure_preserves_completed_and_unprocessed_states() {
+        assert_eq!(ResultState::Completed.finish(false), ResultState::Completed);
+        assert_eq!(ResultState::Working.finish(false), ResultState::Interrupted);
         assert_eq!(
-            extract_pkgver("foo-1.0_1: unpacking ..."),
-            Some("foo-1.0_1")
+            ResultState::Pending.finish(false),
+            ResultState::NotProcessed
         );
-        assert_eq!(
-            extract_pkgver("foo-1.0_1: configuring ..."),
-            Some("foo-1.0_1")
-        );
-        assert_eq!(
-            extract_pkgver("foo-1.0_1: installed successfully."),
-            Some("foo-1.0_1")
-        );
-        assert_eq!(extract_pkgver("bar-2.3_1: removing ..."), Some("bar-2.3_1"));
     }
-
     #[test]
-    fn pkgver_not_extracted_from_banner_lines() {
-        assert_eq!(extract_pkgver("Downloading packages"), None);
-        assert_eq!(extract_pkgver("Verifying package integrity"), None);
-        assert_eq!(extract_pkgver(""), None);
-        assert_eq!(extract_pkgver("some words: not a pkgver"), None);
-    }
-
-    #[test]
-    fn same_package_does_not_recount() {
-        let lines = [
-            "foo-1.0_1: unpacking ...",
-            "foo-1.0_1: configuring ...",
-            "foo-1.0_1: installed successfully.",
-        ];
-        let pkgvers: Vec<_> = lines.iter().map(|l| extract_pkgver(l)).collect();
-        assert!(pkgvers.iter().all(|p| *p == Some("foo-1.0_1")));
-    }
-
-    #[test]
-    fn percentage_extracted_from_progress_lines() {
+    fn command_targets_exclude_repository_urls_and_deduplicate() {
         assert_eq!(
-            extract_percentage("foo-1.0_1: [*****     ] 42% ETA: 00:03"),
-            Some(42)
+            requested_names(&[
+                "INSTALL foo bar".into(),
+                "REMOVE foo".into(),
+                "ADDREPO https://example.org".into()
+            ]),
+            vec!["bar", "foo"]
         );
-        assert_eq!(
-            extract_percentage("foo-1.0_1: [**********] 100%"),
-            Some(100)
-        );
-        assert_eq!(extract_percentage("no percentage here"), None);
-        assert_eq!(extract_percentage("just a % with no digits"), None);
-    }
-
-    #[test]
-    fn percentage_clamped_to_100() {
-        assert_eq!(extract_percentage("foo: 150%"), Some(100));
-    }
-
-    #[test]
-    fn count_target_packages_sums_only_package_taking_verbs() {
-        let commands = vec![
-            "SYNC".to_string(),
-            "INSTALL foo bar".to_string(),
-            "UPDATE quux".to_string(),
-            "REMOVE baz".to_string(),
-            "UPGRADE".to_string(),
-            "HOLD qux".to_string(),
-        ];
-        assert_eq!(count_target_packages(&commands), 5);
-    }
-
-    #[test]
-    fn strip_log_decoration_removes_prefixes() {
-        assert_eq!(
-            strip_log_decoration("LOG [*] Downloading packages"),
-            "Downloading packages"
-        );
-        assert_eq!(
-            strip_log_decoration("LOG foo-1.0_1: unpacking ..."),
-            "foo-1.0_1: unpacking ..."
-        );
-        assert_eq!(strip_log_decoration("OK"), "OK");
     }
 }
