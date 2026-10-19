@@ -90,7 +90,12 @@ fn totals_footer(outer: &gtk::Box, preview: &TransactionPreview) {
 
 fn error_banner(outer: &gtk::Box, err: &TransactionError) {
     let heading = gtk::Label::new(Some(&format!(
-        "libxbps dry-run reports a problem: {}",
+        "{} reports a problem: {}",
+        if cfg!(feature = "apk") {
+            "APK simulation"
+        } else {
+            "libxbps dry-run"
+        },
         err.summary()
     )));
     heading.set_xalign(0.0);
@@ -108,10 +113,12 @@ fn error_banner(outer: &gtk::Box, err: &TransactionError) {
         outer.append(&list);
     }
 
-    let note = gtk::Label::new(Some(
+    let note = gtk::Label::new(Some(if cfg!(feature = "apk") {
+        "The APK solver did not provide a complete preview, so these changes cannot be applied safely."
+    } else {
         "The list below is still the app's own best-effort summary of what you marked; \
-         the real xbps tools may behave differently from what libxbps predicted here.",
-    ));
+         the real xbps tools may behave differently from what libxbps predicted here."
+    }));
     note.set_xalign(0.0);
     note.set_wrap(true);
     note.add_css_class("dim-label");
@@ -175,7 +182,11 @@ pub fn confirm(
         section(&sections, "Remove", removes);
         section(
             &sections,
-            "Purge (also removes orphaned dependencies)",
+            if cfg!(feature = "apk") {
+                "Recursive purge is unavailable with APK"
+            } else {
+                "Purge (also removes orphaned dependencies)"
+            },
             purges,
         );
     }
@@ -189,9 +200,11 @@ pub fn confirm(
     let (btn_box, cancel_btn) = cancel_button_row(10);
 
     let had_error = !matches!(preview, Some(Ok(_)));
+    let apk_preview_failed = cfg!(feature = "apk") && !matches!(preview, Some(Ok(_)));
     let destructive = !removes.is_empty() || !purges.is_empty() || had_error;
     let apply_label = if had_error { "Apply Anyway" } else { "Apply" };
     let apply_btn = gtk::Button::with_label(apply_label);
+    apply_btn.set_sensitive(!apk_preview_failed);
     if destructive {
         apply_btn.add_css_class("destructive-action");
     } else {

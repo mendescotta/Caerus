@@ -29,9 +29,11 @@ fn message_row(text: &str, css_class: &str) -> gtk::ListBoxRow {
 pub fn show(parent: Option<&gtk::Window>) {
     let (dlg, outer) = modal_window("Find Owning Package", parent, true, (480, 320), 8);
 
-    let hint = gtk::Label::new(Some(
-        "Enter a file path (or a regex — same matching xbps-query itself uses):",
-    ));
+    let hint = gtk::Label::new(Some(if cfg!(feature = "apk") {
+        "Enter a file path to find the package that owns it:"
+    } else {
+        "Enter a file path (or a regex — same matching xbps-query itself uses):"
+    }));
     hint.set_xalign(0.0);
     hint.set_wrap(true);
     hint.add_css_class("dim-label");
@@ -83,8 +85,16 @@ pub fn show(parent: Option<&gtk::Window>) {
             search_btn.set_sensitive(false);
             results_list.append(&message_row("Searching\u{2026}", "dim-label"));
 
-            let mut cmd = Command::new("xbps-query");
-            cmd.arg("-o").arg(&query);
+            let mut cmd = if cfg!(feature = "apk") {
+                let mut cmd = Command::new("apk");
+                cmd.args(["info", "--who-owns"]);
+                cmd
+            } else {
+                let mut cmd = Command::new("xbps-query");
+                cmd.arg("-o");
+                cmd
+            };
+            cmd.arg(&query);
 
             let results_list = results_list.clone();
             let search_btn = search_btn.clone();
@@ -109,7 +119,14 @@ pub fn show(parent: Option<&gtk::Window>) {
                     }
                     Err(e) => {
                         results_list.append(&message_row(
-                            &format!("failed to run xbps-query: {e}"),
+                            &format!(
+                                "failed to run {}: {e}",
+                                if cfg!(feature = "apk") {
+                                    "apk info --who-owns"
+                                } else {
+                                    "xbps-query"
+                                }
+                            ),
                             "error",
                         ));
                     }

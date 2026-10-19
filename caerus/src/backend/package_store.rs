@@ -1127,6 +1127,10 @@ unsafe fn run_preview_ops(
                 name.as_str(),
                 xbps_sys::xbps_transaction_install_pkg(xh, cstr(name).as_ptr(), false),
             ),
+            PreviewOp::Update(name) => (
+                name.as_str(),
+                xbps_sys::xbps_transaction_install_pkg(xh, cstr(name).as_ptr(), false),
+            ),
             PreviewOp::Remove(name) => (
                 name.as_str(),
                 xbps_sys::xbps_transaction_remove_pkg(xh, cstr(name).as_ptr(), false),

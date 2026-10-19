@@ -479,8 +479,13 @@ impl FilterSidebar {
                 SidebarAction::PurgeKernels,
             ),
         ];
-        for (icon, label, _) in maint_actions {
-            maint_lb.append(&make_action_row(icon, label));
+        for (icon, label, action) in maint_actions {
+            let row = make_action_row(icon, label);
+            if cfg!(feature = "apk") && !matches!(action, SidebarAction::FullUpgrade) {
+                row.set_sensitive(false);
+                row.set_tooltip_text(Some("This maintenance action is specific to XBPS"));
+            }
+            maint_lb.append(&row);
         }
 
         let maint_section = build_section(Section::Maintenance.title(), &maint_lb);
@@ -515,9 +520,13 @@ impl FilterSidebar {
                 SidebarAction::History,
             ),
         ];
-        for (icon, label, tooltip, _) in tools_actions {
+        for (icon, label, tooltip, action) in tools_actions {
             let row = make_action_row(icon, label);
             row.set_tooltip_text(Some(tooltip));
+            if cfg!(feature = "apk") && matches!(action, SidebarAction::Alternatives) {
+                row.set_sensitive(false);
+                row.set_tooltip_text(Some("System alternatives are not provided by APK"));
+            }
             tools_lb.append(&row);
         }
 

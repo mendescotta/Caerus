@@ -2,13 +2,17 @@
 pub enum PreviewOp {
     UpdateAll,
     Install(String),
+    Update(String),
     Remove(String),
     Purge(String),
+    #[cfg(feature = "apk")]
+    FullUpgrade,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum TransAction {
+    #[cfg(feature = "xbps")]
     Unknown = 0,
     Install = 1,
     Reinstall = 2,
@@ -20,6 +24,7 @@ pub enum TransAction {
 }
 
 impl TransAction {
+    #[cfg(feature = "xbps")]
     pub const fn from_raw(v: u8) -> Self {
         match v {
             1 => Self::Install,
@@ -53,28 +58,40 @@ pub struct TransactionPreview {
     pub install_pkgs: u32,
     pub update_pkgs: u32,
     pub remove_pkgs: u32,
+    #[cfg(feature = "xbps")]
     pub hold_pkgs: u32,
 }
 
 #[derive(Debug, Clone)]
 pub enum TransactionError {
+    #[cfg(feature = "xbps")]
     MissingDeps(Vec<String>),
+    #[cfg(feature = "xbps")]
     MissingShlibs(Vec<String>),
+    #[cfg(feature = "xbps")]
     Conflicts(Vec<String>),
-    NotEnoughSpace { need: u64, free: u64 },
+    #[cfg(feature = "xbps")]
+    NotEnoughSpace {
+        need: u64,
+        free: u64,
+    },
     Other(String),
 }
 
 impl TransactionError {
     pub fn summary(&self) -> String {
         match self {
+            #[cfg(feature = "xbps")]
             Self::MissingDeps(_) => {
                 "Transaction aborted due to unresolved dependencies.".to_string()
             }
+            #[cfg(feature = "xbps")]
             Self::MissingShlibs(_) => {
                 "Transaction aborted due to unresolved shared libraries.".to_string()
             }
+            #[cfg(feature = "xbps")]
             Self::Conflicts(_) => "Transaction aborted due to conflicting packages.".to_string(),
+            #[cfg(feature = "xbps")]
             Self::NotEnoughSpace { need, free } => {
                 use crate::backend::package::pkg_format_size;
                 format!(
@@ -89,13 +106,16 @@ impl TransactionError {
 
     pub fn details(&self) -> &[String] {
         match self {
+            #[cfg(feature = "xbps")]
             Self::MissingDeps(v) | Self::MissingShlibs(v) | Self::Conflicts(v) => v,
-            Self::NotEnoughSpace { .. } | Self::Other(_) => &[],
+            #[cfg(feature = "xbps")]
+            Self::NotEnoughSpace { .. } => &[],
+            Self::Other(_) => &[],
         }
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "xbps"))]
 mod tests {
     use super::*;
 
