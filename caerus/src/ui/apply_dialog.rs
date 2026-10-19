@@ -16,7 +16,9 @@ fn count_target_packages(commands: &[String]) -> usize {
     commands
         .iter()
         .filter(|c| {
-            for verb in ["INSTALL ", "REMOVE ", "PURGE ", "HOLD ", "UNHOLD "] {
+            for verb in [
+                "INSTALL ", "UPDATE ", "REMOVE ", "PURGE ", "HOLD ", "UNHOLD ",
+            ] {
                 if c.starts_with(verb) {
                     return true;
                 }
@@ -463,11 +465,12 @@ mod tests {
         let commands = vec![
             "SYNC".to_string(),
             "INSTALL foo bar".to_string(),
+            "UPDATE quux".to_string(),
             "REMOVE baz".to_string(),
             "UPGRADE".to_string(),
             "HOLD qux".to_string(),
         ];
-        assert_eq!(count_target_packages(&commands), 4);
+        assert_eq!(count_target_packages(&commands), 5);
     }
 
     #[test]

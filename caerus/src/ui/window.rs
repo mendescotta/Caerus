@@ -850,7 +850,11 @@ fn show_about_dialog(parent: &gtk::ApplicationWindow) {
         .modal(true)
         .application_name("Caerus")
         .version(env!("CARGO_PKG_VERSION"))
-        .comments("A Synaptic-inspired package manager for Void Linux, built directly on libxbps.")
+        .comments(if cfg!(feature = "apk") {
+            "A Synaptic-inspired package manager for Chimera Linux, using APK."
+        } else {
+            "A Synaptic-inspired package manager for Void Linux, built directly on libxbps."
+        })
         .website("https://github.com/mendescotta/Caerus")
         .application_icon(crate::APP_ID)
         .license_type(gtk::License::Gpl30)
@@ -861,17 +865,55 @@ fn show_about_dialog(parent: &gtk::ApplicationWindow) {
 
 #[cfg(not(feature = "adwaita"))]
 fn show_about_dialog(parent: &gtk::ApplicationWindow) {
-    let about = gtk::AboutDialog::new();
-    about.set_transient_for(Some(parent));
-    about.set_modal(true);
-    about.set_program_name(Some("Caerus"));
-    about.set_version(Some(env!("CARGO_PKG_VERSION")));
-    about.set_comments(Some(
-        "A Synaptic-inspired package manager for Void Linux, built directly on libxbps.",
+    let (about, content) = crate::ui::dialog_util::modal_window(
+        "About Caerus",
+        Some(parent.upcast_ref::<gtk::Window>()),
+        false,
+        (520, -1),
+        10,
+    );
+    content.set_halign(gtk::Align::Center);
+
+    let logo = gtk::Image::from_icon_name(crate::APP_ID);
+    logo.set_pixel_size(96);
+    logo.set_margin_bottom(2);
+    content.append(&logo);
+
+    let name = gtk::Label::new(Some("Caerus"));
+    name.add_css_class("title-1");
+    content.append(&name);
+
+    let version = gtk::Label::new(Some(&format!("Version {}", env!("CARGO_PKG_VERSION"))));
+    version.add_css_class("dim-label");
+    content.append(&version);
+
+    let description = gtk::Label::new(Some(if cfg!(feature = "apk") {
+        "A Synaptic-inspired package manager for Chimera Linux, using APK."
+    } else {
+        "A Synaptic-inspired package manager for Void Linux, built directly on libxbps."
+    }));
+    description.set_wrap(true);
+    description.set_justify(gtk::Justification::Center);
+    description.set_max_width_chars(58);
+    description.set_margin_top(4);
+    content.append(&description);
+
+    let website = gtk::LinkButton::with_label(
+        "https://github.com/mendescotta/Caerus",
+        "Caerus project website",
+    );
+    content.append(&website);
+
+    let license = gtk::Label::new(Some(
+        "Licensed under the GNU General Public License, version 3 or later.",
     ));
-    about.set_website(Some("https://github.com/mendescotta/Caerus"));
-    about.set_logo_icon_name(Some(crate::APP_ID));
-    about.set_license_type(gtk::License::Gpl30);
+    license.add_css_class("dim-label");
+    license.set_wrap(true);
+    license.set_justify(gtk::Justification::Center);
+    license.set_max_width_chars(58);
+    content.append(&license);
+
+    crate::ui::dialog_util::close_button(&content, &about, 4);
     about.present();
     gtk::prelude::GtkWindowExt::set_focus(&about, None::<&gtk::Widget>);
 }
@@ -1426,6 +1468,7 @@ fn trigger_update(state: &Rc<WindowState>, sync_first: bool, silent: bool) {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ApplyKind {
     Install,
+    Update,
     Remove,
     Purge,
 }
@@ -1441,6 +1484,7 @@ impl ApplyStep {
     fn new(kind: ApplyKind, names: Vec<String>, install_count: usize) -> Self {
         let verb = match kind {
             ApplyKind::Install => "INSTALL",
+            ApplyKind::Update => "UPDATE",
             ApplyKind::Remove => "REMOVE",
             ApplyKind::Purge => "PURGE",
         };
@@ -1458,6 +1502,7 @@ impl ApplyStep {
             .map(|name| match self.kind {
                 // The helper uses xbps-install for both new and installed packages.
                 ApplyKind::Install => PreviewOp::Install(name.clone()),
+                ApplyKind::Update => PreviewOp::Update(name.clone()),
                 ApplyKind::Remove => PreviewOp::Remove(name.clone()),
                 ApplyKind::Purge => PreviewOp::Purge(name.clone()),
             })
@@ -1473,13 +1518,23 @@ fn apply_steps(
 ) -> VecDeque<ApplyStep> {
     let mut steps = VecDeque::new();
     let install_count = installs.len();
-    let install_names: Vec<String> = installs.into_iter().chain(upgrades).collect();
-    if !install_names.is_empty() {
-        steps.push_back(ApplyStep::new(
-            ApplyKind::Install,
-            install_names,
-            install_count,
-        ));
+    if cfg!(feature = "apk") {
+        if !installs.is_empty() {
+            let install_count = installs.len();
+            steps.push_back(ApplyStep::new(ApplyKind::Install, installs, install_count));
+        }
+        if !upgrades.is_empty() {
+            steps.push_back(ApplyStep::new(ApplyKind::Update, upgrades, 0));
+        }
+    } else {
+        let install_names: Vec<String> = installs.into_iter().chain(upgrades).collect();
+        if !install_names.is_empty() {
+            steps.push_back(ApplyStep::new(
+                ApplyKind::Install,
+                install_names,
+                install_count,
+            ));
+        }
     }
     if !removes.is_empty() {
         steps.push_back(ApplyStep::new(ApplyKind::Remove, removes, 0));
@@ -1575,6 +1630,7 @@ fn run_next_apply_step(state: &Rc<WindowState>, flow: &Rc<RefCell<ApplyFlow>>) {
                     &[],
                     &[],
                 ),
+                ApplyKind::Update => (&[], &step.names, &[], &[]),
                 ApplyKind::Remove => (&[], &[], &step.names, &[]),
                 ApplyKind::Purge => (&[], &[], &[], &step.names),
             };
@@ -1746,9 +1802,13 @@ fn preview_full_upgrade(state: &Rc<WindowState>) {
         .status_label
         .set_text("Checking full upgrade transaction…");
     let state_for_preview = state.clone();
+    #[cfg(feature = "apk")]
+    let preview_ops = vec![PreviewOp::FullUpgrade];
+    #[cfg(not(feature = "apk"))]
+    let preview_ops = vec![PreviewOp::UpdateAll];
     state
         .store
-        .preview_transaction_async(vec![PreviewOp::UpdateAll], move |preview| {
+        .preview_transaction_async(preview_ops, move |preview| {
             let state_for_confirm = state_for_preview.clone();
             if matches!(&preview, Some(Ok(p)) if p.items.is_empty()) {
                 set_action_busy(&state_for_preview, false);
@@ -2061,10 +2121,25 @@ mod tests {
             vec!["purge-me".into()],
         );
         let install = steps.pop_front().unwrap();
-        assert_eq!(install.command, "INSTALL new old");
-        assert_eq!(install.install_count, 1);
-        assert!(matches!(install.preview_ops().as_slice(),
-            [PreviewOp::Install(a), PreviewOp::Install(b)] if a == "new" && b == "old"));
+        if cfg!(feature = "apk") {
+            assert_eq!(install.command, "INSTALL new");
+            assert_eq!(install.install_count, 1);
+            assert!(
+                matches!(install.preview_ops().as_slice(), [PreviewOp::Install(name)] if name == "new")
+            );
+
+            let update = steps.pop_front().unwrap();
+            assert_eq!(update.command, "UPDATE old");
+            assert!(matches!(
+                update.preview_ops().as_slice(),
+                [PreviewOp::Update(name)] if name == "old"
+            ));
+        } else {
+            assert_eq!(install.command, "INSTALL new old");
+            assert_eq!(install.install_count, 1);
+            assert!(matches!(install.preview_ops().as_slice(),
+                [PreviewOp::Install(a), PreviewOp::Install(b)] if a == "new" && b == "old"));
+        }
 
         let remove = steps.pop_front().unwrap();
         assert_eq!(remove.command, "REMOVE remove-me");
