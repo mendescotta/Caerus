@@ -348,9 +348,7 @@ fn resolved_apk_repositories() -> Option<std::collections::BTreeSet<String>> {
 }
 
 fn is_apk_backend() -> bool {
-    std::fs::read_to_string("/etc/os-release")
-        .ok()
-        .is_some_and(|release| release.lines().any(|line| line == "ID=chimera"))
+    cfg!(feature = "apk")
 }
 
 fn apk_repository_files() -> Vec<(std::path::PathBuf, bool)> {
@@ -532,6 +530,11 @@ pub fn show(parent: Option<&gtk::Window>, session: &Transaction, on_changed: imp
     if is_apk_backend() {
         entry.set_sensitive(false);
         add_btn.set_sensitive(false);
+        let note = gtk::Label::new(Some("APK repositories are shown for inspection. Editing sources is unavailable with this backend."));
+        note.set_xalign(0.0);
+        note.set_wrap(true);
+        outer.append(&note);
+        add_btn.set_tooltip_text(Some("Repository editing is unavailable with APK"));
         entry.set_tooltip_text(Some(
             "Repository editing is not supported by the APK backend",
         ));

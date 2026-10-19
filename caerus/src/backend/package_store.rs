@@ -985,6 +985,7 @@ fn get_extra_info(
             license,
             repository,
             install_date,
+            apk_world_root: None,
             automatic_install,
             has_automatic_install,
             download_size,
@@ -1243,9 +1244,41 @@ unsafe fn run_preview_ops(
                 cstr("filename-size").as_ptr(),
                 &mut download_size,
             );
+            let installed = xbps_sys::xbps_pkgdb_get_pkg(xh, cstr(&pkgname).as_ptr());
+            let previous_version = if installed.is_null() {
+                None
+            } else {
+                dict_str(installed, "pkgver").map(|v| extract_version(&v, &pkgname).to_owned())
+            };
+            let previous_size = if installed.is_null() {
+                None
+            } else {
+                let mut size = 0;
+                xbps_sys::xbps_dictionary_get_uint64(
+                    installed,
+                    cstr("installed_size").as_ptr(),
+                    &mut size,
+                )
+                .then_some(size)
+            };
+            preview.disk_size_change += crate::backend::transaction_preview::installed_delta(
+                TransAction::from_raw(ttype),
+                previous_size,
+                installed_size,
+            );
+            let requested = ops.iter().any(|op| match op {
+                PreviewOp::UpdateAll => TransAction::from_raw(ttype) != TransAction::Install,
+                PreviewOp::Install(n)
+                | PreviewOp::Update(n)
+                | PreviewOp::Remove(n)
+                | PreviewOp::Purge(n) => n == &pkgname,
+            });
+            let version = extract_version(&pkgver, &pkgname).to_owned();
             preview.items.push(TransactionPreviewItem {
+                previous_version,
+                requested,
                 pkgname,
-                pkgver,
+                pkgver: version,
                 action: TransAction::from_raw(ttype),
                 installed_size,
                 download_size,

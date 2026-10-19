@@ -13,3 +13,5 @@ pub mod remove_confirm;
 pub mod repo_manager;
 pub mod vkpurge_dialog;
 pub mod window;
+
+pub mod workflows;

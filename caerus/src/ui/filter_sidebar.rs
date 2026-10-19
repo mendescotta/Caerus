@@ -181,6 +181,7 @@ fn make_row(icon: &str, label: &str) -> gtk::ListBoxRow {
     row_box.append(&l);
 
     let row = gtk::ListBoxRow::new();
+    row.update_property(&[gtk::accessible::Property::Label(label)]);
     row.set_child(Some(&row_box));
     row.set_tooltip_text(Some(label));
     row
@@ -204,6 +205,7 @@ fn make_custom_filter_row(name: &str, kind: FilterKind) -> gtk::ListBoxRow {
     row_box.append(&l);
 
     let row = gtk::ListBoxRow::new();
+    row.update_property(&[gtk::accessible::Property::Label(name)]);
     row.set_child(Some(&row_box));
     row.set_tooltip_text(Some(name));
     row
@@ -407,6 +409,17 @@ impl FilterSidebar {
         preset_lb.append(&make_row("edit-clear-symbolic", "Orphaned"));
         preset_lb.append(&make_row("repo-lock-symbolic", "Repo-Locked"));
         preset_lb.append(&make_row("dialog-question-symbolic", "Unmaintained"));
+        if cfg!(feature = "apk") {
+            for index in [4, 6, 7, 8] {
+                if let Some(row) = preset_lb.row_at_index(index) {
+                    row.set_sensitive(false);
+                    row.set_tooltip_text(Some("This package state is unavailable with APK"));
+                    row.update_property(&[gtk::accessible::Property::Description(
+                        "This package state is unavailable with APK",
+                    )]);
+                }
+            }
+        }
 
         preset_lb.set_header_func(move |row, _before| {
             if row.index() == NUM_PRESET_ROWS {

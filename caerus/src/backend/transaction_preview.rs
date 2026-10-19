@@ -44,9 +44,31 @@ impl TransAction {
 pub struct TransactionPreviewItem {
     pub pkgname: String,
     pub pkgver: String,
+    pub previous_version: Option<String>,
+    pub requested: bool,
     pub action: TransAction,
     pub installed_size: u64,
     pub download_size: u64,
+}
+
+impl TransactionPreviewItem {
+    pub fn description(&self) -> String {
+        let versions = match (&self.previous_version, self.action) {
+            (Some(old), TransAction::Remove) => format!("{old} → removed"),
+            (Some(old), _) => format!("{old} → {}", self.pkgver),
+            (None, _) => self.pkgver.clone(),
+        };
+        format!(
+            "{} · {} · {}",
+            self.pkgname,
+            versions,
+            if self.requested {
+                "Requested"
+            } else {
+                "Dependency / solver change"
+            }
+        )
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -55,12 +77,48 @@ pub struct TransactionPreview {
     pub total_download_size: u64,
     pub total_installed_size: u64,
     pub total_removed_size: u64,
+    pub disk_size_change: i128,
     pub download_pkgs: u32,
     pub install_pkgs: u32,
     pub update_pkgs: u32,
     pub remove_pkgs: u32,
     #[cfg(feature = "xbps")]
     pub hold_pkgs: u32,
+}
+
+impl TransactionPreview {
+    pub fn disk_change_text(&self) -> String {
+        let size = u64::try_from(self.disk_size_change.unsigned_abs()).unwrap_or(u64::MAX);
+        format!(
+            "{}{}",
+            if self.disk_size_change < 0 {
+                "−"
+            } else if self.disk_size_change > 0 {
+                "+"
+            } else {
+                ""
+            },
+            crate::backend::package::pkg_format_size(size)
+        )
+    }
+    pub fn changes(&self) -> String {
+        self.items
+            .iter()
+            .map(|item| format!("{:?} · {}", item.action, item.description()))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+/// Disk changes compare complete installed payload sizes, not archive sizes.
+pub fn installed_delta(action: TransAction, previous: Option<u64>, target: u64) -> i128 {
+    match action {
+        TransAction::Install | TransAction::Reinstall | TransAction::Update => {
+            i128::from(target) - i128::from(previous.unwrap_or(0))
+        }
+        TransAction::Remove => -i128::from(previous.unwrap_or(target)),
+        _ => 0,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -119,6 +177,42 @@ impl TransactionError {
 #[cfg(all(test, feature = "xbps"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disk_delta_counts_growth_shrinkage_and_removal_instead_of_total_payload() {
+        assert_eq!(installed_delta(TransAction::Update, Some(100), 120), 20);
+        assert_eq!(installed_delta(TransAction::Update, Some(100), 80), -20);
+        assert_eq!(installed_delta(TransAction::Install, None, 40), 40);
+        assert_eq!(installed_delta(TransAction::Remove, Some(100), 100), -100);
+        assert_eq!(installed_delta(TransAction::Download, Some(100), 120), 0);
+        let preview = TransactionPreview {
+            disk_size_change: -1024,
+            ..TransactionPreview::default()
+        };
+        assert_eq!(preview.disk_change_text(), "−1.0 KiB");
+    }
+
+    #[test]
+    fn change_descriptions_preserve_old_versions_and_solver_reasons() {
+        let item = TransactionPreviewItem {
+            pkgname: "foo".into(),
+            pkgver: "2.0_1".into(),
+            previous_version: Some("1.0_1".into()),
+            requested: false,
+            action: TransAction::Update,
+            installed_size: 0,
+            download_size: 0,
+        };
+        assert!(item.description().contains("1.0_1 → 2.0_1"));
+        assert!(item.description().contains("Dependency / solver change"));
+        let removed = TransactionPreviewItem {
+            action: TransAction::Remove,
+            requested: true,
+            ..item
+        };
+        assert!(removed.description().contains("1.0_1 → removed"));
+        assert!(removed.description().contains("Requested"));
+    }
 
     #[test]
     fn error_summaries_name_the_failure_class() {

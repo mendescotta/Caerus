@@ -98,6 +98,7 @@ pub struct PackageExtraInfo {
     pub license: Option<String>,
     pub repository: Option<String>,
     pub install_date: Option<String>,
+    pub apk_world_root: Option<bool>,
     pub automatic_install: bool,
     pub has_automatic_install: bool,
     pub download_size: u64,
