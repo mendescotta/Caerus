@@ -190,15 +190,6 @@ impl PackageStore {
             .filter_map(|i| package_obj_at(&self.inner.list, i).map(|o| o.pkg().clone()))
             .collect()
     }
-    pub fn count_installed(&self) -> u32 {
-        self.all()
-            .iter()
-            .filter(|p| p.state != PkgState::NotInstalled)
-            .count() as u32
-    }
-    pub fn count_upgradable(&self) -> u32 {
-        self.upgradable_names().len() as u32
-    }
     pub fn count_marked(&self) -> u32 {
         self.all()
             .iter()

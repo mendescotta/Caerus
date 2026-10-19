@@ -1,4 +1,6 @@
 //! Task pages layered over the existing package store and privileged actions.
+use super::catalog::CATALOG;
+use super::discover::Discover;
 use crate::backend::package::{Package, PkgState};
 use crate::ui::filter_sidebar::SidebarAction;
 use gio::prelude::*;
@@ -20,7 +22,7 @@ pub struct Workflows {
     updates: gtk::ListBox,
     update_status: gtk::Label,
     freshness: gtk::Label,
-    discovery: gtk::ListBox,
+    discovery: Discover,
     update_state: gtk::Stack,
     update_message: gtk::Label,
     open_package: PackageCallback,
@@ -40,8 +42,8 @@ fn page() -> gtk::Box {
     let body = gtk::Box::new(gtk::Orientation::Vertical, 12);
     body.set_margin_top(20);
     body.set_margin_bottom(20);
-    body.set_margin_start(20);
-    body.set_margin_end(20);
+    body.set_margin_start(32);
+    body.set_margin_end(32);
     body
 }
 fn scroll(child: &impl IsA<gtk::Widget>) -> gtk::ScrolledWindow {
@@ -67,8 +69,10 @@ impl Workflows {
         let navigation = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         navigation.set_margin_start(8);
         navigation.set_margin_end(8);
-        navigation.set_margin_top(6);
-        navigation.set_margin_bottom(6);
+        navigation.add_css_class("workflow-navigation");
+        navigation.set_halign(gtk::Align::Center);
+        navigation.set_margin_top(4);
+        navigation.set_margin_bottom(4);
         let mut first = None;
         let updates_button = gtk::ToggleButton::with_label("Updates");
         let discover_button = gtk::ToggleButton::with_label("Discover");
@@ -83,6 +87,7 @@ impl Workflows {
                 "discover" => discover_button.clone(),
                 _ => gtk::ToggleButton::with_label(label),
             };
+            button.add_css_class("flat");
             if let Some(first) = &first {
                 button.set_group(Some(first));
             } else {
@@ -116,8 +121,9 @@ impl Workflows {
                 }
             });
         });
-        let history = gtk::Button::with_label("History");
-        navigation.append(&history);
+        let history = gtk::Button::from_icon_name("document-open-recent-symbolic");
+        history.set_tooltip_text(Some("Transaction history"));
+        history.update_property(&[gtk::accessible::Property::Label("Transaction history")]);
         let update_page = page();
         update_page.append(&title("Available updates"));
         let update_status = gtk::Label::new(Some("Loading packages…"));
@@ -152,24 +158,9 @@ impl Workflows {
         update_state.add_named(&update_message, Some("message"));
         update_page.append(&update_state);
         stack.add_named(&update_page, Some("updates"));
-        let discover_page = page();
-        discover_page.append(&title("Discover applications"));
-        let explanation = gtk::Label::new(Some("A small bundled selection from your enabled repositories. Availability follows this system’s backend and architecture. Open a package to review and mark changes."));
-        explanation.set_xalign(0.0);
-        explanation.set_wrap(true);
-        explanation.add_css_class("dim-label");
-        discover_page.append(&explanation);
-        let discovery = gtk::ListBox::new();
-        discovery.set_selection_mode(gtk::SelectionMode::None);
-        discovery.add_css_class("boxed-list");
-        let empty = gtk::Label::new(Some(
-            "No catalog applications are available. Refresh repositories or browse all packages.",
-        ));
-        empty.set_wrap(true);
-        empty.set_margin_top(24);
-        discovery.set_placeholder(Some(&empty));
-        discover_page.append(&scroll(&discovery));
-        stack.add_named(&discover_page, Some("discover"));
+        let open_package: PackageCallback = Rc::new(RefCell::new(None));
+        let discovery = Discover::new(open_package.clone());
+        stack.add_named(discovery.widget(), Some("discover"));
         let maintenance_page = page();
         maintenance_page.append(&title("Maintenance and tools"));
         let explanation = gtk::Label::new(Some(if cfg!(feature = "apk") {
@@ -270,7 +261,7 @@ impl Workflows {
             discovery,
             update_state,
             update_message,
-            open_package: Rc::new(RefCell::new(None)),
+            open_package,
             last_sync: RefCell::new(None),
             sync_error: Cell::new(false),
             loading: Cell::new(false),
@@ -371,66 +362,7 @@ impl Workflows {
             });
             self.updates.append(&row);
         }
-        clear(&self.discovery);
-        let mut previous_category = "";
-        for app in CATALOG {
-            let Some(pkg) = packages
-                .iter()
-                .find(|p| app.packages.contains(&p.name.as_str()) && p.version_available.is_some())
-            else {
-                continue;
-            };
-            if previous_category != app.category {
-                let heading = title(app.category);
-                heading.set_margin_top(12);
-                self.discovery.append(&heading);
-                previous_category = app.category;
-            }
-            let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-            row.set_margin_top(8);
-            row.set_margin_bottom(8);
-            row.set_margin_start(8);
-            row.set_margin_end(8);
-            let icon = application_icon(&pkg.name);
-            icon.set_pixel_size(40);
-            row.append(&icon);
-            let info = gtk::Box::new(gtk::Orientation::Vertical, 3);
-            info.set_hexpand(true);
-            let name = gtk::Label::new(Some(app.name));
-            name.set_xalign(0.0);
-            name.add_css_class("heading");
-            info.append(&name);
-            let description = gtk::Label::new(Some(&format!(
-                "{} · {}{}",
-                pkg.short_desc,
-                pkg.name,
-                if pkg.state == PkgState::NotInstalled {
-                    ""
-                } else {
-                    " · Installed"
-                }
-            )));
-            description.set_wrap(true);
-            description.set_xalign(0.0);
-            description.add_css_class("dim-label");
-            info.append(&description);
-            row.append(&info);
-            let open = gtk::Button::with_label("View package");
-            open.set_valign(gtk::Align::Center);
-            open.update_property(&[gtk::accessible::Property::Label(&format!(
-                "View {} package",
-                app.name
-            ))]);
-            let callback = self.open_package.clone();
-            let name = pkg.name.clone();
-            open.connect_clicked(move |_| {
-                if let Some(cb) = callback.borrow().as_ref() {
-                    cb(&name);
-                }
-            });
-            row.append(&open);
-            self.discovery.append(&row);
-        }
+        self.discovery.set_packages(packages);
     }
 }
 
@@ -455,75 +387,6 @@ fn focus_first(widget: &gtk::Widget) -> bool {
     }
     false
 }
-
-struct CatalogApp {
-    category: &'static str,
-    name: &'static str,
-    packages: &'static [&'static str],
-    desktop: &'static str,
-}
-const CATALOG: &[CatalogApp] = &[
-    CatalogApp {
-        category: "Internet",
-        name: "Firefox",
-        packages: &["firefox"],
-        desktop: "firefox.desktop",
-    },
-    CatalogApp {
-        category: "Internet",
-        name: "Chromium",
-        packages: &["chromium"],
-        desktop: "chromium.desktop",
-    },
-    CatalogApp {
-        category: "Internet",
-        name: "Thunderbird",
-        packages: &["thunderbird"],
-        desktop: "thunderbird.desktop",
-    },
-    CatalogApp {
-        category: "Office",
-        name: "LibreOffice",
-        packages: &["libreoffice", "libreoffice-writer"],
-        desktop: "libreoffice-writer.desktop",
-    },
-    CatalogApp {
-        category: "Graphics",
-        name: "GIMP",
-        packages: &["gimp"],
-        desktop: "gimp.desktop",
-    },
-    CatalogApp {
-        category: "Graphics",
-        name: "Inkscape",
-        packages: &["inkscape"],
-        desktop: "org.inkscape.Inkscape.desktop",
-    },
-    CatalogApp {
-        category: "Media",
-        name: "VLC",
-        packages: &["vlc"],
-        desktop: "vlc.desktop",
-    },
-    CatalogApp {
-        category: "Media",
-        name: "Audacity",
-        packages: &["audacity"],
-        desktop: "audacity.desktop",
-    },
-    CatalogApp {
-        category: "Development",
-        name: "Geany",
-        packages: &["geany"],
-        desktop: "geany.desktop",
-    },
-    CatalogApp {
-        category: "Development",
-        name: "GNOME Builder",
-        packages: &["gnome-builder"],
-        desktop: "org.gnome.Builder.desktop",
-    },
-];
 
 pub fn application_icon(package: &str) -> gtk::Image {
     if let Some(icon) = CATALOG
@@ -578,11 +441,8 @@ mod tests {
         assert_eq!(pages.updates_button.label().as_deref(), Some("Updates (1)"));
         assert!(pages.update_status.text().contains("1 held back"));
         assert!(pages.upgrade.is_sensitive());
-        assert!(pages.discovery.row_at_index(3).is_some());
-        assert!(
-            pages.discovery.row_at_index(4).is_none(),
-            "unavailable apps must not enter discovery"
-        );
+        assert_eq!(pages.discovery.available_count(), 2);
+        pages.discovery.smoke_test_sections_and_search();
         pages.updates_button.set_active(true);
         assert_eq!(pages.stack.visible_child_name().as_deref(), Some("updates"));
         let opened = Rc::new(RefCell::new(String::new()));
@@ -625,6 +485,8 @@ mod tests {
         list.set_search("FIREFOX");
         assert_eq!(list.visible_counts().0, 1);
         assert!(list.select_package_by_name("firefox"));
+        list.assert_activation_preserves_marks();
+        list.assert_cached_rows_survive_refresh();
         let before_duplicate = notifications.get();
         list.set_search(" firefox ");
         assert_eq!(
@@ -638,6 +500,7 @@ mod tests {
         assert_eq!(list.visible_counts().0, 0);
         list.set_search("");
         assert_eq!(list.visible_counts().0, 3);
+        crate::ui::window::smoke_test_compact_layout();
         crate::ui::apply_confirm::smoke_test_incomplete_previews();
         crate::ui::apply_dialog::smoke_test_transaction_history();
     }

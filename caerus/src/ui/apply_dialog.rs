@@ -110,13 +110,19 @@ fn run_inner(
     }
     let scroll = gtk::ScrolledWindow::new();
     scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
-    scroll.set_min_content_height(120);
-    scroll.set_vexpand(true);
+    scroll.set_widget_name("transaction-packages");
+    scroll.set_max_content_height(144);
+    scroll.set_propagate_natural_height(true);
+    scroll.set_visible(!rows.borrow().is_empty());
     scroll.set_child(Some(&rows_box));
     outer.append(&scroll);
     let expander = gtk::Expander::new(Some("Transaction log"));
+    expander.set_expanded(true);
+    expander.set_vexpand(true);
+    expander.set_valign(gtk::Align::Fill);
     let log_scroll = gtk::ScrolledWindow::new();
     log_scroll.set_min_content_height(180);
+    log_scroll.set_vexpand(true);
     let text = gtk::TextView::new();
     text.set_editable(false);
     text.set_cursor_visible(false);
@@ -194,6 +200,7 @@ fn run_inner(
                         label.set_margin_top(4);
                         label.set_margin_bottom(4);
                         rows_box.append(&label);
+                        scroll.set_visible(true);
                         PackageRow {
                             label,
                             state: ResultState::Pending,
@@ -389,6 +396,27 @@ pub fn run_recorded_until_closed(
 /// fixture. Called by the one display test so GTK stays on one test thread.
 #[cfg(test)]
 pub fn smoke_test_transaction_history() {
+    // The package results must fit their rows; spare dialog height belongs to
+    // the visible log, including after a failed transaction.
+    fn check_layout(widget: &gtk::Widget) {
+        if widget.widget_name() == "transaction-packages" {
+            assert!(
+                widget.height() <= 144,
+                "package results must not reserve blank space"
+            );
+        }
+        if let Some(expander) = widget.downcast_ref::<gtk::Expander>() {
+            assert!(
+                expander.is_expanded(),
+                "transaction output should be visible"
+            );
+        }
+        let mut child = widget.first_child();
+        while let Some(current) = child {
+            check_layout(&current);
+            child = current.next_sibling();
+        }
+    }
     use std::os::unix::fs::PermissionsExt;
     let root = std::env::temp_dir().join(format!("caerus-ui-transaction-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
@@ -448,6 +476,7 @@ done
     for widget in gtk::Window::list_toplevels() {
         if let Ok(window) = widget.downcast::<gtk::Window>() {
             if window.title().as_deref() == Some("Fixture transaction") {
+                check_layout(window.upcast_ref());
                 window.destroy();
             }
         }

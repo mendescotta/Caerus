@@ -1,5 +1,6 @@
 mod backend;
 mod renderer;
+mod startup;
 mod ui;
 
 use gio::prelude::*;
@@ -75,6 +76,7 @@ fn sync_color_scheme_from_portal() {
 }
 
 fn main() -> glib::ExitCode {
+    startup::trace("process started");
     renderer::configure_at_startup();
     #[cfg(feature = "adwaita")]
     {
@@ -102,6 +104,7 @@ fn main() -> glib::ExitCode {
         }
         let window = ui::window::build_window(app);
         window.present();
+        startup::trace("window presented");
     });
 
     app.run()

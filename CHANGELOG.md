@@ -7,6 +7,10 @@ not commit dates.
 ## [Unreleased]
 
 ### Added
+- Searchable Discover catalog expanded to 174 applications in 13 sections
+  inspired by Debian, with availability resolved against the active backend.
+- Optional startup milestone diagnostics through `CAERUS_TRACE_STARTUP=1` and
+  a display test for loading real cached repositories without a manual refresh.
 - Dedicated Updates, optional Discover and Maintenance views, with adaptive
   package details and clearer keyboard/screen-reader navigation.
 - Pending changes summary and editable review queue; exact-name search ranking,
@@ -17,6 +21,24 @@ not commit dates.
 - APK world-root/dependency context and explanations for unavailable tools.
 
 ### Changed
+- Restore the desktop filter, repository, maintenance, and tools sidebar; expose
+  package list actions, hide titlebar branding, show Discover apps in wrapping
+  columns, and let transaction logs fill spare dialog space.
+- Adopt Compact Focus (D): one-line package rows, visible descriptions and version
+  columns, header navigation, and a smaller selection-driven right inspector.
+- Dependency and relationship sections collapse in the inspector. Narrow windows
+  retain their table column choices when returning to the desktop layout.
+- Startup loads cached package data before optional repository synchronization;
+  existing package rows remain visible during reloads and reload failures.
+- XBPS publishes replacement package models atomically. Status counts use one
+  inventory pass, and hidden Discover rows are created only when the tab opens.
+- Focus layout with centered task navigation, page-level search and repository
+  refresh, state/repository dropdowns, and a single pending-changes review bar.
+- Package rows pair names with descriptions; optional sortable columns retain
+  access to installed versions, descriptions, and size information.
+- Narrow windows move navigation to the bottom and show details on a separate
+  page. Package activation selects rather than marking an operation; removal
+  actions are available from the package actions menu.
 - Transaction previews show net disk growth/shrinkage instead of total payload size.
 - Failed or missing previews block Apply; mixed operation types use separate
   reviewed steps and remaining marks survive reloads.

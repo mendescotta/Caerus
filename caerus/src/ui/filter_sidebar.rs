@@ -52,15 +52,6 @@ impl Section {
         }
     }
 
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Filters => "Filters",
-            Self::Repositories => "Repositories",
-            Self::Maintenance => "Maintenance",
-            Self::Tools => "Tools",
-        }
-    }
-
     fn index(self) -> usize {
         match self {
             Self::Filters => 0,
@@ -97,6 +88,42 @@ struct Inner {
     sections: [SectionWidgets; 4],
     expanded_snapshot: RefCell<[bool; 4]>,
     minimal: std::cell::Cell<bool>,
+}
+
+/// Keep long custom filter names and repository URLs from widening the window.
+pub fn set_filter_button_label(button: &gtk::MenuButton, text: &str) {
+    let label = button
+        .child()
+        .and_downcast::<gtk::Label>()
+        .unwrap_or_else(|| {
+            let label = gtk::Label::new(None);
+            label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            label.set_max_width_chars(20);
+            button.set_child(Some(&label));
+            button.set_always_show_arrow(true);
+            label
+        });
+    label.set_text(text);
+    button.update_property(&[gtk::accessible::Property::Label(text)]);
+    button.set_tooltip_text(Some(text));
+}
+
+pub fn filter_label(filter: &ActiveFilter) -> String {
+    match filter {
+        ActiveFilter::Custom { name, .. } => name.clone(),
+        ActiveFilter::Preset(mode) => match mode {
+            FilterMode::All => "All packages",
+            FilterMode::Installed => "Installed",
+            FilterMode::NotInstalled => "Not installed",
+            FilterMode::Upgradable => "Upgradable",
+            FilterMode::OnHold => "On hold",
+            FilterMode::Marked => "Pending changes",
+            FilterMode::Orphaned => "Orphaned",
+            FilterMode::RepoLocked => "Repository locked",
+            FilterMode::Unmaintained => "Unmaintained",
+        }
+        .to_string(),
+    }
 }
 
 fn repo_display_text(inner: &Inner, url: &str) -> String {
@@ -178,6 +205,8 @@ fn make_row(icon: &str, label: &str) -> gtk::ListBoxRow {
     let l = gtk::Label::new(Some(label));
     l.set_xalign(0.0);
     l.set_hexpand(true);
+    l.set_max_width_chars(24);
+    l.set_ellipsize(gtk::pango::EllipsizeMode::End);
     row_box.append(&l);
 
     let row = gtk::ListBoxRow::new();
@@ -201,6 +230,8 @@ fn make_custom_filter_row(name: &str, kind: FilterKind) -> gtk::ListBoxRow {
     let l = gtk::Label::new(Some(name));
     l.set_xalign(0.0);
     l.set_hexpand(true);
+    l.set_max_width_chars(24);
+    l.set_ellipsize(gtk::pango::EllipsizeMode::End);
     l.set_ellipsize(gtk::pango::EllipsizeMode::End);
     row_box.append(&l);
 
@@ -221,6 +252,8 @@ fn make_text_row(label: &str) -> gtk::ListBoxRow {
     let l = gtk::Label::new(Some(label));
     l.set_xalign(0.0);
     l.set_hexpand(true);
+    l.set_max_width_chars(24);
+    l.set_ellipsize(gtk::pango::EllipsizeMode::End);
     l.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
     row_box.append(&l);
 
@@ -241,6 +274,8 @@ fn build_repo_row(inner: &Rc<Inner>, url: String, stale: bool) -> gtk::ListBoxRo
     let l = gtk::Label::new(Some(&repo_display_text(inner, &url)));
     l.set_xalign(0.0);
     l.set_hexpand(true);
+    l.set_max_width_chars(24);
+    l.set_ellipsize(gtk::pango::EllipsizeMode::End);
     l.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
     if stale {
         l.add_css_class("dim-label");
@@ -383,12 +418,13 @@ fn refresh_custom_rows(inner: &Rc<Inner>) {
 }
 
 pub(crate) const RAIL_WIDTH: i32 = 56;
-const FULL_WIDTH: i32 = 190;
+const FULL_WIDTH: i32 = 240;
 
 impl FilterSidebar {
     pub fn new() -> Self {
         let widget = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        widget.set_width_request(190);
+        widget.set_width_request(FULL_WIDTH);
+        widget.set_hexpand(false);
 
         let scroll = gtk::ScrolledWindow::new();
         scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
@@ -669,6 +705,62 @@ impl FilterSidebar {
 
     pub fn widget(&self) -> &gtk::Box {
         &self.inner.widget
+    }
+
+    /// Keep the same filter widgets and selection when moving between desktop
+    /// sidebar and bounded narrow-window popovers.
+    pub fn place_filters(&self, narrow: bool, filters: &gtk::MenuButton, repos: &gtk::MenuButton) {
+        let container = self
+            .section_widget(Section::Maintenance)
+            .parent()
+            .and_downcast::<gtk::Box>()
+            .expect("sidebar sections share a box");
+        for (section, button) in [(Section::Filters, filters), (Section::Repositories, repos)] {
+            let content = self.section_widget(section);
+            let scroll = button
+                .popover()
+                .and_then(|p| p.child())
+                .and_downcast::<gtk::ScrolledWindow>()
+                .expect("filter popovers contain a scroll window");
+            if narrow && content.parent().as_ref() == Some(container.upcast_ref()) {
+                container.remove(content);
+                scroll.set_child(Some(content));
+            } else if !narrow && scroll.child().is_some() {
+                scroll.set_child(None::<&gtk::Widget>);
+                if section == Section::Filters {
+                    container.prepend(content);
+                } else {
+                    container
+                        .insert_child_after(content, Some(self.section_widget(Section::Filters)));
+                }
+            }
+        }
+    }
+
+    /// Reuse the full filter models and custom editor in a bounded dropdown.
+    pub fn filter_button(&self, section: Section, label: &str) -> gtk::MenuButton {
+        self.set_minimal(false);
+        let content = self.section_widget(section);
+        if let Some(parent) = content.parent().and_downcast::<gtk::Box>() {
+            parent.remove(content);
+        }
+        let scroll = gtk::ScrolledWindow::new();
+        scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+        scroll.set_min_content_width(260);
+        scroll.set_max_content_height(440);
+        scroll.set_propagate_natural_height(true);
+        scroll.set_child(Some(content));
+        let popover = gtk::Popover::new();
+        popover.set_child(Some(&scroll));
+        let button = gtk::MenuButton::new();
+        set_filter_button_label(&button, label);
+        button.set_popover(Some(&popover));
+        button
+    }
+
+    #[cfg(test)]
+    pub fn preset_list_for_test(&self) -> &gtk::ListBox {
+        &self.inner.preset_lb
     }
 
     pub fn connect_filter_changed(&self, f: impl Fn(ActiveFilter) + 'static) {
