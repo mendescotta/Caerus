@@ -54,7 +54,7 @@ impl FilterMode {
 impl Package {
     /// Returns whether the available package version is newer than the installed version.
     ///
-    /// Versions are compared using XBPS ordering; missing versions and equal or older
+    /// Versions are compared using the package backend's ordering; missing versions and equal or older
     /// available versions return `false`.
     pub fn has_newer_available_version(&self) -> bool {
         matches!(
@@ -220,6 +220,7 @@ mod tests {
         assert!(!pkg(PkgState::Upgradable, Some("1.0_1"), Some("1.1_1")).is_held_back());
     }
 
+    #[cfg(feature = "xbps")]
     #[test]
     fn held_back_uses_xbps_version_ordering() {
         assert!(pkg(PkgState::OnHold, Some("1.9_1"), Some("1.10_1")).is_held_back());
@@ -227,6 +228,7 @@ mod tests {
         assert!(pkg(PkgState::OnHold, Some("1.0_2"), Some("1.0_10")).is_held_back());
     }
 
+    #[cfg(feature = "xbps")]
     #[test]
     fn newer_available_version_uses_xbps_version_ordering() {
         assert!(

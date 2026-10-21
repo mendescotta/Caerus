@@ -1,5 +1,6 @@
 #[derive(Debug, Clone)]
 pub enum PreviewOp {
+    #[cfg(feature = "xbps")]
     UpdateAll,
     Install(String),
     Update(String),
