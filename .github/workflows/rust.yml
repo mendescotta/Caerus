@@ -13,8 +13,16 @@ jobs:
   build:
 
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/void-linux/void-linux:latest-full-x86_64
 
     steps:
+    - name: Install build dependencies
+      run: |
+        xbps-install -Sy
+        xbps-install -uy xbps
+        xbps-install -Suy
+        xbps-install -y base-devel libxbps-devel gtk4-devel libadwaita-devel pkg-config rust cargo git clang zstd
     - uses: actions/checkout@v4
     - name: Build
       run: cargo build --verbose
