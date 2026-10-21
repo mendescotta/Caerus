@@ -11,6 +11,7 @@ use std::time::Duration;
 
 type LoadCb = Box<dyn Fn(&str)>;
 type LoadFinishedCb = Box<dyn Fn(u32)>;
+type NextLoadCb = RefCell<Option<Box<dyn FnOnce(Result<(), String>)>>>;
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 struct ApkRecord {
@@ -58,6 +59,7 @@ struct Inner {
     started: RefCell<Vec<Box<dyn Fn()>>>,
     finished: RefCell<Vec<LoadFinishedCb>>,
     errors: RefCell<Vec<LoadCb>>,
+    next_load_cb: NextLoadCb,
 }
 impl Drop for Inner {
     fn drop(&mut self) {
@@ -86,6 +88,7 @@ impl PackageStore {
             started: RefCell::new(Vec::new()),
             finished: RefCell::new(Vec::new()),
             errors: RefCell::new(Vec::new()),
+            next_load_cb: RefCell::new(None),
         });
         let weak = Rc::downgrade(&inner);
         glib::source::timeout_add_local(Duration::from_millis(30), move || {
@@ -119,11 +122,19 @@ impl PackageStore {
                         for cb in i.finished.borrow().iter() {
                             cb(n);
                         }
+                        let next = i.next_load_cb.borrow_mut().take();
+                        if let Some(cb) = next {
+                            cb(Ok(()));
+                        }
                     }
                     Ok(ResultMsg::Packages(Err(e))) => {
                         i.loading.set(false);
                         for cb in i.errors.borrow().iter() {
                             cb(&e);
+                        }
+                        let next = i.next_load_cb.borrow_mut().take();
+                        if let Some(cb) = next {
+                            cb(Err(e));
                         }
                     }
                     Err(_) => break,
@@ -145,6 +156,10 @@ impl PackageStore {
     pub fn connect_load_error(&self, f: impl Fn(&str) + 'static) {
         self.inner.errors.borrow_mut().push(Box::new(f));
     }
+    /// Whether a package database reload is in progress.
+    pub fn is_loading(&self) -> bool {
+        self.inner.loading.get()
+    }
     pub fn load_async(&self) {
         if self.inner.loading.replace(true) {
             return;
@@ -152,7 +167,23 @@ impl PackageStore {
         for cb in self.inner.started.borrow().iter() {
             cb();
         }
-        let _ = self.inner.tx.send(Cmd::Reload);
+        if self.inner.tx.send(Cmd::Reload).is_err() {
+            self.inner.loading.set(false);
+            let next = self.inner.next_load_cb.borrow_mut().take();
+            if let Some(cb) = next {
+                cb(Err("package database worker stopped".to_string()));
+            }
+        }
+    }
+    /// Reloads packages and calls `cb` after the list has been replaced or an
+    /// error has been reported. An already-running reload fails this request.
+    pub fn load_async_with_result(&self, cb: impl FnOnce(Result<(), String>) + 'static) {
+        if self.inner.loading.get() {
+            cb(Err("package database is already loading".to_string()));
+            return;
+        }
+        *self.inner.next_load_cb.borrow_mut() = Some(Box::new(cb));
+        self.load_async();
     }
     fn all(&self) -> Vec<Package> {
         (0..self.inner.list.n_items())
@@ -344,6 +375,110 @@ impl PackageStore {
             }
         });
     }
+}
+
+/// Orders two APK versions the way apk-tools does: numeric components, an
+/// optional letter, `_suffix[N]` (`alpha`/`beta`/`pre`/`rc` sort before the
+/// release, `cvs`/`svn`/`git`/`hg`/`p` after) and `-rN`. A version apk-tools
+/// would reject falls back to plain string order.
+pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let (Some(ta), Some(tb)) = (version_tokens(a), version_tokens(b)) else {
+        return a.cmp(b);
+    };
+    let mut ia = ta.iter();
+    let mut ib = tb.iter();
+    loop {
+        let (x, y) = (ia.next(), ib.next());
+        match (x, y) {
+            (None, None) => return Ordering::Equal,
+            (Some(&(kx, vx)), Some(&(ky, vy))) if kx == ky => match vx.cmp(&vy) {
+                Ordering::Equal => continue,
+                o => return o,
+            },
+            _ => {
+                // A pre-release suffix sorts before whatever the other side has;
+                // otherwise the side that ran out, or moved to a later kind of
+                // token, is the older one.
+                let kx = x.map_or(VersionToken::End, |t| t.0);
+                let ky = y.map_or(VersionToken::End, |t| t.0);
+                if kx == VersionToken::Suffix && x.is_some_and(|t| t.1 < 0) {
+                    return Ordering::Less;
+                }
+                if ky == VersionToken::Suffix && y.is_some_and(|t| t.1 < 0) {
+                    return Ordering::Greater;
+                }
+                return ky.cmp(&kx);
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum VersionToken {
+    Digit,
+    Letter,
+    Suffix,
+    SuffixNo,
+    Revision,
+    End,
+}
+
+fn version_tokens(v: &str) -> Option<Vec<(VersionToken, i64)>> {
+    fn number(s: &[u8], i: &mut usize) -> Option<i64> {
+        let start = *i;
+        while *i < s.len() && s[*i].is_ascii_digit() {
+            *i += 1;
+        }
+        std::str::from_utf8(&s[start..*i]).ok()?.parse().ok()
+    }
+    let s = v.as_bytes();
+    let mut i = 0;
+    let mut out = vec![(VersionToken::Digit, number(s, &mut i)?)];
+    while i < s.len() {
+        match s[i] {
+            b'.' if matches!(out.last(), Some((VersionToken::Digit, _))) => {
+                i += 1;
+                out.push((VersionToken::Digit, number(s, &mut i)?));
+            }
+            c @ b'a'..=b'z' if matches!(out.last(), Some((VersionToken::Digit, _))) => {
+                i += 1;
+                out.push((VersionToken::Letter, i64::from(c)));
+            }
+            b'_' => {
+                i += 1;
+                let start = i;
+                while i < s.len() && s[i].is_ascii_lowercase() {
+                    i += 1;
+                }
+                let rank = match &s[start..i] {
+                    b"alpha" => -4,
+                    b"beta" => -3,
+                    b"pre" => -2,
+                    b"rc" => -1,
+                    b"cvs" => 1,
+                    b"svn" => 2,
+                    b"git" => 3,
+                    b"hg" => 4,
+                    b"p" => 5,
+                    _ => return None,
+                };
+                out.push((VersionToken::Suffix, rank));
+                if i < s.len() && s[i].is_ascii_digit() {
+                    out.push((VersionToken::SuffixNo, number(s, &mut i)?));
+                }
+            }
+            b'-' if s.get(i + 1) == Some(&b'r') => {
+                i += 2;
+                out.push((VersionToken::Revision, number(s, &mut i)?));
+                if i != s.len() {
+                    return None;
+                }
+            }
+            _ => return None,
+        }
+    }
+    Some(out)
 }
 
 pub fn package_obj_at(l: &gio::ListStore, i: u32) -> Option<PackageObject> {
@@ -733,6 +868,28 @@ fn parse_simulation(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn apk_version_order() {
+        use std::cmp::Ordering::{Equal, Greater, Less};
+        for (a, b, want) in [
+            ("1.0", "1.0", Equal),
+            ("1.0-r1", "1.0-r0", Greater),
+            ("1.10", "1.9", Greater),
+            ("1.0", "1.0.1", Less),
+            ("1.0a", "1.0", Greater),
+            ("1.0a", "1.0.1", Less),
+            ("1.0_rc1", "1.0", Less),
+            ("1.0_alpha2", "1.0_beta1", Less),
+            ("1.0_p1", "1.0", Greater),
+            ("1.0_p1", "1.0-r5", Greater),
+            ("26.03-r0", "26.02-r3", Greater),
+            ("2.0", "1.99_git20260101", Greater),
+        ] {
+            assert_eq!(compare_versions(a, b), want, "{a} vs {b}");
+            assert_eq!(compare_versions(b, a), want.reverse(), "{b} vs {a}");
+        }
+    }
+
     use super::*;
     #[test]
     fn parses_apk_query_json_fields() {

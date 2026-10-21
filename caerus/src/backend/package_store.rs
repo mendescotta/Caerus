@@ -1123,11 +1123,7 @@ unsafe fn run_preview_ops(
                 "full system upgrade",
                 xbps_sys::xbps_transaction_update_packages(xh),
             ),
-            PreviewOp::Install(name) => (
-                name.as_str(),
-                xbps_sys::xbps_transaction_install_pkg(xh, cstr(name).as_ptr(), false),
-            ),
-            PreviewOp::Update(name) => (
+            PreviewOp::Install(name) | PreviewOp::Update(name) => (
                 name.as_str(),
                 xbps_sys::xbps_transaction_install_pkg(xh, cstr(name).as_ptr(), false),
             ),

@@ -10,6 +10,7 @@ bug writeups: `docs/fixed-bugs.md`.
 ## Check before claiming done
 - `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test`
 - Optional `adwaita` feature: also build with `--features adwaita`.
+- `xbps` (default) and `apk` backends are mutually exclusive; check apk with `cargo test -p caerus --no-default-features --features apk`. Never `--all-features`.
 - `scripts/audit.sh` (ripgrep audit of risky patterns; there is no autofix).
 
 ## Rules
