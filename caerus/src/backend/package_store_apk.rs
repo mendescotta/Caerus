@@ -371,7 +371,8 @@ impl PackageStore {
 /// Orders two APK versions the way apk-tools does: numeric components, an
 /// optional letter, `_suffix[N]` (`alpha`/`beta`/`pre`/`rc` sort before the
 /// release, `cvs`/`svn`/`git`/`hg`/`p` after) and `-rN`. A version apk-tools
-/// would reject falls back to plain string order.
+/// would reject falls back to plain string order. Non-initial numeric components
+/// use lexical order when either starts with zero, matching apk-tools.
 pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     let (Some(ta), Some(tb)) = (version_tokens(a), version_tokens(b)) else {
@@ -383,10 +384,19 @@ pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
         let (x, y) = (ia.next(), ib.next());
         match (x, y) {
             (None, None) => return Ordering::Equal,
-            (Some(&(kx, vx)), Some(&(ky, vy))) if kx == ky => match vx.cmp(&vy) {
-                Ordering::Equal => continue,
-                o => return o,
-            },
+            (Some(&(kx, vx, raw_x)), Some(&(ky, vy, raw_y))) if kx == ky => {
+                let order = if kx == VersionToken::Digit
+                    && (raw_x.starts_with('0') || raw_y.starts_with('0'))
+                {
+                    raw_x.cmp(raw_y)
+                } else {
+                    vx.cmp(&vy)
+                };
+                match order {
+                    Ordering::Equal => continue,
+                    order => return order,
+                }
+            }
             _ => {
                 // A pre-release suffix sorts before whatever the other side has;
                 // otherwise the side that ran out, or moved to a later kind of
@@ -407,6 +417,7 @@ pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum VersionToken {
+    InitialDigit,
     Digit,
     Letter,
     Suffix,
@@ -415,26 +426,38 @@ enum VersionToken {
     End,
 }
 
-fn version_tokens(v: &str) -> Option<Vec<(VersionToken, i64)>> {
-    fn number(s: &[u8], i: &mut usize) -> Option<i64> {
+fn version_tokens(v: &str) -> Option<Vec<(VersionToken, i64, &str)>> {
+    fn number<'a>(s: &'a [u8], i: &mut usize) -> Option<(i64, &'a str)> {
         let start = *i;
         while *i < s.len() && s[*i].is_ascii_digit() {
             *i += 1;
         }
-        std::str::from_utf8(&s[start..*i]).ok()?.parse().ok()
+        let raw = std::str::from_utf8(&s[start..*i]).ok()?;
+        Some((raw.parse().ok()?, raw))
     }
     let s = v.as_bytes();
     let mut i = 0;
-    let mut out = vec![(VersionToken::Digit, number(s, &mut i)?)];
+    let (initial, raw) = number(s, &mut i)?;
+    let mut out = vec![(VersionToken::InitialDigit, initial, raw)];
     while i < s.len() {
         match s[i] {
-            b'.' if matches!(out.last(), Some((VersionToken::Digit, _))) => {
+            b'.' if matches!(
+                out.last(),
+                Some((VersionToken::InitialDigit | VersionToken::Digit, _, _))
+            ) =>
+            {
                 i += 1;
-                out.push((VersionToken::Digit, number(s, &mut i)?));
+                let (value, raw) = number(s, &mut i)?;
+                out.push((VersionToken::Digit, value, raw));
             }
-            c @ b'a'..=b'z' if matches!(out.last(), Some((VersionToken::Digit, _))) => {
+            c @ b'a'..=b'z'
+                if matches!(
+                    out.last(),
+                    Some((VersionToken::InitialDigit | VersionToken::Digit, _, _))
+                ) =>
+            {
                 i += 1;
-                out.push((VersionToken::Letter, i64::from(c)));
+                out.push((VersionToken::Letter, i64::from(c), ""));
             }
             b'_' => {
                 i += 1;
@@ -454,14 +477,16 @@ fn version_tokens(v: &str) -> Option<Vec<(VersionToken, i64)>> {
                     b"p" => 5,
                     _ => return None,
                 };
-                out.push((VersionToken::Suffix, rank));
+                out.push((VersionToken::Suffix, rank, ""));
                 if i < s.len() && s[i].is_ascii_digit() {
-                    out.push((VersionToken::SuffixNo, number(s, &mut i)?));
+                    let (value, raw) = number(s, &mut i)?;
+                    out.push((VersionToken::SuffixNo, value, raw));
                 }
             }
             b'-' if s.get(i + 1) == Some(&b'r') => {
                 i += 2;
-                out.push((VersionToken::Revision, number(s, &mut i)?));
+                let (value, raw) = number(s, &mut i)?;
+                out.push((VersionToken::Revision, value, raw));
                 if i != s.len() {
                     return None;
                 }
@@ -942,6 +967,31 @@ mod tests {
     }
 
     use super::*;
+    #[test]
+    fn leading_zero_components_follow_apk_order_in_package_details() {
+        use std::cmp::Ordering::{Equal, Greater, Less};
+        for (a, b, want) in [
+            ("1.01-r0", "1.1-r0", Less),
+            ("1.1-r0", "1.02-r0", Greater),
+            ("1.001", "1.01", Less),
+            ("1.0", "1.00", Less),
+            ("01.1", "1.1", Equal),
+            ("1.0-r01", "1.0-r1", Equal),
+            ("1.0_rc01", "1.0_rc1", Equal),
+        ] {
+            assert_eq!(compare_versions(a, b), want, "{a} vs {b}");
+            assert_eq!(compare_versions(b, a), want.reverse(), "{b} vs {a}");
+        }
+        let package = Package {
+            name: "app".into(),
+            state: PkgState::Upgradable,
+            version_installed: Some("1.01-r0".into()),
+            version_available: Some("1.1-r0".into()),
+            ..Package::default()
+        };
+        assert!(package.has_newer_available_version());
+    }
+
     #[test]
     fn parses_apk_query_json_fields() {
         let r = records(
