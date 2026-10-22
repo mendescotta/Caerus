@@ -1498,6 +1498,11 @@ fn set_action_busy(state: &Rc<WindowState>, busy: bool) {
     state.pkg_list.widget().set_sensitive(!busy);
     state.detail_pane.widget().set_sensitive(!busy);
     state.sidebar.widget().set_sensitive(!busy);
+    // Every page, the narrow actions menu and the review bar can start or
+    // change marks; keep them locked while a reviewed sequence is running.
+    state.workflows.stack.set_sensitive(!busy);
+    state.filter_row.set_sensitive(!busy);
+    state.pending_bar.set_sensitive(!busy);
 }
 
 fn do_reload(state: &Rc<WindowState>) {
@@ -2205,6 +2210,9 @@ fn update_mark_upgrades_button(state: &Rc<WindowState>, upgradable: u32) {
 
 fn dispatch_action(state: &Rc<WindowState>, action: crate::ui::filter_sidebar::SidebarAction) {
     use crate::ui::filter_sidebar::SidebarAction;
+    if state.action_busy.get() {
+        return;
+    }
     match action {
         SidebarAction::FullUpgrade => on_full_upgrade_clicked(state),
         SidebarAction::RemoveOrphans => on_remove_orphans_clicked(state),
@@ -2873,6 +2881,28 @@ pub fn smoke_test_compact_layout() {
     assert!(state.narrow.get());
     assert!(state.filter_row.is_visible());
     assert!(!state.sidebar.widget().is_visible());
+    // A running apply sequence locks every entry point, including the
+    // narrow actions menu and the review bar.
+    set_action_busy(&state, true);
+    for (name, widget) in [
+        ("pages", state.workflows.stack.upcast_ref::<gtk::Widget>()),
+        ("narrow filters", state.filter_row.upcast_ref()),
+        ("review bar", state.pending_bar.upcast_ref()),
+        ("sidebar", state.sidebar.widget().upcast_ref()),
+    ] {
+        assert!(!widget.is_sensitive(), "{name} must be locked while busy");
+    }
+    let windows = gtk::Window::list_toplevels().len();
+    dispatch_action(&state, crate::ui::filter_sidebar::SidebarAction::FindOwner);
+    settle();
+    assert_eq!(
+        gtk::Window::list_toplevels().len(),
+        windows,
+        "actions must not open while busy"
+    );
+    set_action_busy(&state, false);
+    assert!(state.workflows.stack.is_sensitive());
+    assert!(state.pending_bar.is_sensitive());
     assert!(
         state.window.width() <= 660,
         "content should fit narrow width: window {}, header {}, filters {}, navigation {}, table {}",

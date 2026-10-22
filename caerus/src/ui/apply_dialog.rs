@@ -47,6 +47,8 @@ fn requested_names(commands: &[String]) -> Vec<String> {
     let mut names = std::collections::BTreeSet::new();
     for command in commands {
         let (verb, rest) = command.split_once(' ').unwrap_or((command, ""));
+        // Forced variants target the same packages as their plain verbs.
+        let verb = verb.strip_suffix("_FORCE").unwrap_or(verb);
         if [
             "INSTALL",
             "UPDATE",
@@ -527,6 +529,33 @@ mod tests {
                 "ADDREPO https://example.org".into()
             ]),
             vec!["bar", "foo"]
+        );
+    }
+    #[test]
+    fn forced_commands_still_list_their_packages() {
+        assert_eq!(
+            requested_names(&[
+                "REMOVE_FORCE foo bar".into(),
+                "PURGE_FORCE baz".into(),
+                "INSTALL_FORCE qux".into(),
+            ]),
+            vec!["bar", "baz", "foo", "qux"]
+        );
+    }
+    #[test]
+    fn whole_system_commands_have_no_package_rows() {
+        assert!(
+            requested_names(&["SYNC".into(), "UPGRADE".into(), "CLEANCACHE".into()]).is_empty()
+        );
+        assert!(requested_names(&["INSTALL".into()]).is_empty());
+    }
+    #[test]
+    fn success_completes_every_unfinished_row() {
+        assert_eq!(ResultState::Pending.finish(true), ResultState::Completed);
+        assert_eq!(ResultState::Working.finish(true), ResultState::Completed);
+        assert_eq!(
+            ResultState::NotProcessed.finish(true),
+            ResultState::NotProcessed
         );
     }
 }
