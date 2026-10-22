@@ -641,28 +641,7 @@ fn info(n: &str, flag: &str) -> Option<Vec<String>> {
         return None;
     }
     if flag == "--depends" {
-        let output = run(&[
-            "query",
-            "--installed",
-            "--fields",
-            "depends",
-            "--format",
-            "json",
-            n,
-        ])
-        .or_else(|_| run(&["query", "--fields", "depends", "--format", "json", n]))
-        .ok()?;
-        let value: serde_json::Value = serde_json::from_str(&output).ok()?;
-        return Some(
-            value
-                .as_array()?
-                .iter()
-                .filter_map(|record| record.get("depends")?.as_array())
-                .flatten()
-                .filter_map(serde_json::Value::as_str)
-                .map(str::to_owned)
-                .collect(),
-        );
+        return dependencies(n, run);
     }
     let out = run(&["info", flag, n]).ok()?;
     Some(
@@ -673,6 +652,89 @@ fn info(n: &str, flag: &str) -> Option<Vec<String>> {
             .collect(),
     )
 }
+fn dependencies(
+    name: &str,
+    mut query: impl FnMut(&[&str]) -> Result<String, String>,
+) -> Option<Vec<String>> {
+    let installed = query(&[
+        "query",
+        "--installed",
+        "--fields",
+        "depends",
+        "--format",
+        "json",
+        name,
+    ])
+    .ok()
+    .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok());
+    // A successful query with no matches is an empty array, not a command error.
+    // A matched package with no depends field genuinely has no dependencies.
+    let value =
+        match installed.filter(|value| value.as_array().is_some_and(|rows| !rows.is_empty())) {
+            Some(value) => value,
+            None => serde_json::from_str(
+                &query(&["query", "--fields", "depends", "--format", "json", name]).ok()?,
+            )
+            .ok()?,
+        };
+    Some(
+        value
+            .as_array()?
+            .iter()
+            .filter_map(|record| record.get("depends")?.as_array())
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+#[cfg(test)]
+mod dependency_tests {
+    use super::*;
+
+    #[test]
+    fn uninstalled_package_uses_repository_dependencies_after_empty_query() {
+        let mut calls = 0;
+        let result = dependencies("app", |args| {
+            calls += 1;
+            if args.contains(&"--installed") {
+                Ok("[]".into())
+            } else {
+                Ok(r#"[{"depends":["so:libc.so","libfoo>=2"]}]"#.into())
+            }
+        });
+        assert_eq!(result, Some(vec!["so:libc.so".into(), "libfoo>=2".into()]));
+        assert_eq!(calls, 2);
+    }
+
+    #[test]
+    fn installed_dependency_free_package_does_not_use_repository_metadata() {
+        assert_eq!(
+            dependencies("app", |args| {
+                assert!(args.contains(&"--installed"));
+                Ok("[{}]".into())
+            }),
+            Some(vec![])
+        );
+    }
+
+    #[test]
+    fn failed_installed_query_falls_back_and_failed_repository_query_is_unavailable() {
+        assert_eq!(
+            dependencies("app", |args| {
+                if args.contains(&"--installed") {
+                    Err("unavailable".into())
+                } else {
+                    Ok(r#"[{"depends":["libfoo"]}]"#.into())
+                }
+            }),
+            Some(vec!["libfoo".into()])
+        );
+        assert_eq!(dependencies("app", |_| Err("unavailable".into())), None);
+    }
+}
+
 fn extra(n: &str) -> Option<PackageExtraInfo> {
     if !safe(n) {
         return None;
