@@ -2,7 +2,6 @@
 use super::catalog::CATALOG;
 use super::discover::Discover;
 use crate::backend::package::{Package, PkgState};
-use crate::ui::filter_sidebar::SidebarAction;
 use gio::prelude::*;
 use gtk::prelude::*;
 use std::cell::{Cell, RefCell};
@@ -18,11 +17,10 @@ pub struct Workflows {
     pub refresh: gtk::Button,
     pub upgrade: gtk::Button,
     pub history: gtk::Button,
-    pub maintenance: Vec<(gtk::Button, SidebarAction)>,
     updates: gtk::ListBox,
     update_status: gtk::Label,
     freshness: gtk::Label,
-    discovery: Discover,
+    pub discovery: Discover,
     update_state: gtk::Stack,
     update_message: gtk::Label,
     open_package: PackageCallback,
@@ -80,7 +78,6 @@ impl Workflows {
             ("packages", "Packages"),
             ("updates", "Updates"),
             ("discover", "Discover"),
-            ("maintenance", "Maintenance"),
         ] {
             let button = match name {
                 "updates" => updates_button.clone(),
@@ -161,91 +158,6 @@ impl Workflows {
         let open_package: PackageCallback = Rc::new(RefCell::new(None));
         let discovery = Discover::new(open_package.clone());
         stack.add_named(discovery.widget(), Some("discover"));
-        let maintenance_page = page();
-        maintenance_page.append(&title("Maintenance and tools"));
-        let explanation = gtk::Label::new(Some(if cfg!(feature = "apk") {
-            "APK manages world constraints. Packages can remain installed when required by another constraint. Void-specific tools are unavailable with this backend."
-        } else {
-            "Inspect and maintain your system. Package changes run through the privileged helper after review."
-        }));
-        explanation.set_xalign(0.0);
-        explanation.set_wrap(true);
-        maintenance_page.append(&explanation);
-        let tools = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        let mut maintenance = Vec::new();
-        for (label, description, action, apk) in [
-            (
-                "Remove unused dependencies…",
-                "Review packages that no longer have dependents.",
-                SidebarAction::RemoveOrphans,
-                false,
-            ),
-            (
-                "Clean package cache…",
-                "Remove obsolete package archives.",
-                SidebarAction::CleanCache,
-                false,
-            ),
-            (
-                "Verify installed packages…",
-                "Check package database consistency.",
-                SidebarAction::VerifyDb,
-                false,
-            ),
-            (
-                "Reconfigure packages…",
-                "Run post-install configuration again.",
-                SidebarAction::Reconfigure,
-                false,
-            ),
-            (
-                "Remove old kernels…",
-                "Review old kernel versions before removing them.",
-                SidebarAction::PurgeKernels,
-                false,
-            ),
-            (
-                "Find owning package…",
-                "Identify which installed package owns a file.",
-                SidebarAction::FindOwner,
-                true,
-            ),
-            (
-                "Manage alternatives…",
-                "Choose the provider for a system command.",
-                SidebarAction::Alternatives,
-                false,
-            ),
-            (
-                "Manage repositories…",
-                "Inspect package sources and their configuration.",
-                SidebarAction::ManageRepos,
-                true,
-            ),
-        ] {
-            let row = gtk::Box::new(gtk::Orientation::Vertical, 4);
-            let button = gtk::Button::with_label(label);
-            button.set_halign(gtk::Align::Start);
-            let available = !cfg!(feature = "apk") || apk;
-            button.set_sensitive(available);
-            let description = if available {
-                description
-            } else {
-                "Unavailable with APK; this is a Void/XBPS operation."
-            };
-            button.set_tooltip_text(Some(description));
-            button.update_property(&[gtk::accessible::Property::Description(description)]);
-            let detail = gtk::Label::new(Some(description));
-            detail.set_xalign(0.0);
-            detail.set_wrap(true);
-            detail.add_css_class("dim-label");
-            row.append(&button);
-            row.append(&detail);
-            tools.append(&row);
-            maintenance.push((button, action));
-        }
-        maintenance_page.append(&scroll(&tools));
-        stack.add_named(&maintenance_page, Some("maintenance"));
         Self {
             stack,
             navigation,
@@ -254,7 +166,6 @@ impl Workflows {
             refresh,
             upgrade,
             history,
-            maintenance,
             updates,
             update_status,
             freshness,
@@ -485,7 +396,7 @@ mod tests {
         list.set_search("FIREFOX");
         assert_eq!(list.visible_counts().0, 1);
         assert!(list.select_package_by_name("firefox"));
-        list.assert_activation_preserves_marks();
+        list.assert_activation_toggles_marks();
         list.assert_cached_rows_survive_refresh();
         let before_duplicate = notifications.get();
         list.set_search(" firefox ");

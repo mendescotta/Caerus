@@ -17,6 +17,7 @@ const NUM_PRESET_ROWS: i32 = 9;
 pub enum SidebarAction {
     FullUpgrade,
     RemoveOrphans,
+    ForceRemove,
     CleanCache,
     VerifyDb,
     Reconfigure,
@@ -59,6 +60,86 @@ impl Section {
             Self::Maintenance => 2,
             Self::Tools => 3,
         }
+    }
+}
+
+const MAINT_ACTIONS: &[(&str, &str, SidebarAction)] = &[
+    (
+        "software-update-available-symbolic",
+        "Full System Upgrade\u{2026}",
+        SidebarAction::FullUpgrade,
+    ),
+    (
+        "user-trash-symbolic",
+        "Remove Orphans\u{2026}",
+        SidebarAction::RemoveOrphans,
+    ),
+    (
+        "edit-delete-symbolic",
+        "Force Remove Selected\u{2026}",
+        SidebarAction::ForceRemove,
+    ),
+    (
+        "edit-clear-all-symbolic",
+        "Clean Package Cache",
+        SidebarAction::CleanCache,
+    ),
+    (
+        "security-high-symbolic",
+        "Verify Package Database",
+        SidebarAction::VerifyDb,
+    ),
+    (
+        "applications-utilities-symbolic",
+        "Reconfigure Packages\u{2026}",
+        SidebarAction::Reconfigure,
+    ),
+    (
+        "application-x-firmware-symbolic",
+        "Purge Old Kernels\u{2026}",
+        SidebarAction::PurgeKernels,
+    ),
+];
+
+const TOOLS_ACTIONS: &[(&str, &str, &str, SidebarAction)] = &[
+    (
+        "edit-find-symbolic",
+        "Find Owning Package\u{2026}",
+        "Look up which installed package owns a given file path",
+        SidebarAction::FindOwner,
+    ),
+    (
+        "object-flip-horizontal-symbolic",
+        "Alternatives\u{2026}",
+        "Manage system alternative groups — switch which provider is active for a given command or service",
+        SidebarAction::Alternatives,
+    ),
+    (
+        "network-server-symbolic",
+        "Manage Repositories\u{2026}",
+        "Add, remove, or reorder package sources used for syncing and installing",
+        SidebarAction::ManageRepos,
+    ),
+    (
+        "document-open-recent-symbolic",
+        "Transaction History\u{2026}",
+        "Browse past install, remove, and upgrade transactions",
+        SidebarAction::History,
+    ),
+];
+
+/// Why an action is unavailable on this backend, if it is.
+fn unavailable_reason(action: SidebarAction) -> Option<&'static str> {
+    if !cfg!(feature = "apk") {
+        return None;
+    }
+    match action {
+        SidebarAction::FullUpgrade
+        | SidebarAction::FindOwner
+        | SidebarAction::ManageRepos
+        | SidebarAction::History => None,
+        SidebarAction::Alternatives => Some("System alternatives are not provided by APK"),
+        _ => Some("This maintenance action is specific to XBPS"),
     }
 }
 
@@ -418,7 +499,7 @@ fn refresh_custom_rows(inner: &Rc<Inner>) {
 }
 
 pub(crate) const RAIL_WIDTH: i32 = 56;
-const FULL_WIDTH: i32 = 240;
+pub(crate) const FULL_WIDTH: i32 = 240;
 
 impl FilterSidebar {
     pub fn new() -> Self {
@@ -496,43 +577,11 @@ impl FilterSidebar {
         let maint_lb = gtk::ListBox::new();
         maint_lb.set_selection_mode(gtk::SelectionMode::None);
         maint_lb.add_css_class("navigation-sidebar");
-        let maint_actions: &[(&str, &str, SidebarAction)] = &[
-            (
-                "software-update-available-symbolic",
-                "Full System Upgrade\u{2026}",
-                SidebarAction::FullUpgrade,
-            ),
-            (
-                "user-trash-symbolic",
-                "Remove Orphans\u{2026}",
-                SidebarAction::RemoveOrphans,
-            ),
-            (
-                "edit-clear-all-symbolic",
-                "Clean Package Cache",
-                SidebarAction::CleanCache,
-            ),
-            (
-                "security-high-symbolic",
-                "Verify Package Database",
-                SidebarAction::VerifyDb,
-            ),
-            (
-                "applications-utilities-symbolic",
-                "Reconfigure Packages\u{2026}",
-                SidebarAction::Reconfigure,
-            ),
-            (
-                "application-x-firmware-symbolic",
-                "Purge Old Kernels\u{2026}",
-                SidebarAction::PurgeKernels,
-            ),
-        ];
-        for (icon, label, action) in maint_actions {
+        for &(icon, label, action) in MAINT_ACTIONS {
             let row = make_action_row(icon, label);
-            if cfg!(feature = "apk") && !matches!(action, SidebarAction::FullUpgrade) {
+            if let Some(reason) = unavailable_reason(action) {
                 row.set_sensitive(false);
-                row.set_tooltip_text(Some("This maintenance action is specific to XBPS"));
+                row.set_tooltip_text(Some(reason));
             }
             maint_lb.append(&row);
         }
@@ -543,38 +592,12 @@ impl FilterSidebar {
         let tools_lb = gtk::ListBox::new();
         tools_lb.set_selection_mode(gtk::SelectionMode::None);
         tools_lb.add_css_class("navigation-sidebar");
-        let tools_actions: &[(&str, &str, &str, SidebarAction)] = &[
-            (
-                "edit-find-symbolic",
-                "Find Owning Package\u{2026}",
-                "Look up which installed package owns a given file path",
-                SidebarAction::FindOwner,
-            ),
-            (
-                "object-flip-horizontal-symbolic",
-                "Alternatives\u{2026}",
-                "Manage system alternative groups — switch which provider is active for a given command or service",
-                SidebarAction::Alternatives,
-            ),
-            (
-                "network-server-symbolic",
-                "Manage Repositories\u{2026}",
-                "Add, remove, or reorder package sources used for syncing and installing",
-                SidebarAction::ManageRepos,
-            ),
-            (
-                "document-open-recent-symbolic",
-                "Transaction History\u{2026}",
-                "Browse past install, remove, and upgrade transactions",
-                SidebarAction::History,
-            ),
-        ];
-        for (icon, label, tooltip, action) in tools_actions {
+        for &(icon, label, tooltip, action) in TOOLS_ACTIONS {
             let row = make_action_row(icon, label);
             row.set_tooltip_text(Some(tooltip));
-            if cfg!(feature = "apk") && matches!(action, SidebarAction::Alternatives) {
+            if let Some(reason) = unavailable_reason(action) {
                 row.set_sensitive(false);
-                row.set_tooltip_text(Some("System alternatives are not provided by APK"));
+                row.set_tooltip_text(Some(reason));
             }
             tools_lb.append(&row);
         }
@@ -606,7 +629,7 @@ impl FilterSidebar {
         });
 
         {
-            let actions: Vec<SidebarAction> = maint_actions.iter().map(|&(_, _, a)| a).collect();
+            let actions: Vec<SidebarAction> = MAINT_ACTIONS.iter().map(|&(_, _, a)| a).collect();
             let inner_weak = Rc::downgrade(&inner);
             maint_lb.connect_row_activated(move |_, row| {
                 let Some(inner) = inner_weak.upgrade() else {
@@ -620,7 +643,7 @@ impl FilterSidebar {
             });
         }
         {
-            let actions: Vec<SidebarAction> = tools_actions.iter().map(|&(_, _, _, a)| a).collect();
+            let actions: Vec<SidebarAction> = TOOLS_ACTIONS.iter().map(|&(_, _, _, a)| a).collect();
             let inner_weak = Rc::downgrade(&inner);
             tools_lb.connect_row_activated(move |_, row| {
                 let Some(inner) = inner_weak.upgrade() else {
@@ -705,6 +728,57 @@ impl FilterSidebar {
 
     pub fn widget(&self) -> &gtk::Box {
         &self.inner.widget
+    }
+
+    /// Maintenance and Tools as a menu, for narrow windows without the sidebar.
+    pub fn actions_menu_button(&self) -> gtk::MenuButton {
+        let list = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        let popover = gtk::Popover::new();
+        let entries = MAINT_ACTIONS
+            .iter()
+            .map(|&(icon, label, action)| (icon, label, action))
+            .chain(
+                TOOLS_ACTIONS
+                    .iter()
+                    .map(|&(icon, label, _, action)| (icon, label, action)),
+            );
+        for (index, (icon, label, action)) in entries.enumerate() {
+            if index == MAINT_ACTIONS.len() {
+                list.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+            }
+            let content = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            content.append(&gtk::Image::from_icon_name(icon));
+            let text = gtk::Label::new(Some(label));
+            text.set_xalign(0.0);
+            content.append(&text);
+            let button = gtk::Button::new();
+            button.set_child(Some(&content));
+            button.set_has_frame(false);
+            if let Some(reason) = unavailable_reason(action) {
+                button.set_sensitive(false);
+                button.set_tooltip_text(Some(reason));
+            }
+            let weak = Rc::downgrade(&self.inner);
+            let popover_weak = popover.downgrade();
+            button.connect_clicked(move |_| {
+                if let Some(popover) = popover_weak.upgrade() {
+                    popover.popdown();
+                }
+                if let Some(inner) = weak.upgrade() {
+                    for cb in inner.on_action.borrow().iter() {
+                        cb(action);
+                    }
+                }
+            });
+            list.append(&button);
+        }
+        popover.set_child(Some(&list));
+        let button = gtk::MenuButton::new();
+        button.set_icon_name("applications-utilities-symbolic");
+        button.set_tooltip_text(Some("Maintenance and tools"));
+        button.update_property(&[gtk::accessible::Property::Label("Maintenance and tools")]);
+        button.set_popover(Some(&popover));
+        button
     }
 
     /// Keep the same filter widgets and selection when moving between desktop

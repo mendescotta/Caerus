@@ -97,31 +97,82 @@ fn capped_rows(sorted: &[(String, String)], cap: usize) -> (&[(String, String)],
     (&sorted[..visible], sorted.len() - visible)
 }
 
+/// Wording for the reverse-dependency warning.
+struct ImpactText {
+    title: &'static str,
+    verb: &'static str,
+    note: Option<&'static str>,
+    button: &'static str,
+}
+
+const REMOVE_IMPACT: ImpactText = ImpactText {
+    title: "Other Packages Depend On This",
+    verb: "Removing",
+    note: None,
+    button: "Remove Anyway",
+};
+
+const FORCE_IMPACT: ImpactText = ImpactText {
+    title: "Force Remove?",
+    verb: "Force-removing",
+    note: Some(
+        "Force removal (xbps-remove -F) skips the dependency check and runs \
+         immediately; it is not queued for review. Dependent packages stay \
+         installed and may stop working until their dependency is reinstalled.",
+    ),
+    button: "Force Remove",
+};
+
 fn show_impact_dialog(
     parent: Option<&gtk::Window>,
     roots: &[String],
     affected: Vec<(String, String)>,
     cb: impl Fn(bool) + 'static,
 ) {
+    show_impact_dialog_with(parent, roots, affected, &REMOVE_IMPACT, cb);
+}
+
+fn show_impact_dialog_with(
+    parent: Option<&gtk::Window>,
+    roots: &[String],
+    affected: Vec<(String, String)>,
+    text: &ImpactText,
+    cb: impl Fn(bool) + 'static,
+) {
     let n = affected.len();
     let cb: Rc<dyn Fn(bool)> = Rc::new(cb);
 
-    let (dlg, outer) = modal_window("Other Packages Depend On This", parent, true, (420, -1), 10);
+    let (dlg, outer) = modal_window(text.title, parent, true, (420, -1), 10);
 
     let subject = match roots {
         [one] => one.clone(),
         many => format!("{} selected packages", many.len()),
     };
-    let heading = gtk::Label::new(Some(&format!(
-        "Removing {} may break {} other installed package{} that depend{} on it:",
-        subject,
-        n,
-        if n == 1 { "" } else { "s" },
-        if n == 1 { "s" } else { "" },
-    )));
+    let heading = gtk::Label::new(Some(&if n == 0 {
+        format!(
+            "{} {subject}: no other installed package depends on it.",
+            text.verb
+        )
+    } else {
+        format!(
+            "{} {} may break {} other installed package{} that depend{} on it:",
+            text.verb,
+            subject,
+            n,
+            if n == 1 { "" } else { "s" },
+            if n == 1 { "s" } else { "" },
+        )
+    }));
     heading.set_xalign(0.0);
     heading.set_wrap(true);
     outer.append(&heading);
+    if let Some(note) = text.note {
+        let note = gtk::Label::new(Some(note));
+        note.set_xalign(0.0);
+        note.set_wrap(true);
+        note.add_css_class("dim-label");
+        outer.append(&note);
+    }
 
     let scroll = gtk::ScrolledWindow::new();
     scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
@@ -146,10 +197,11 @@ fn show_impact_dialog(
         list.append(&text_list_row(&format!("\u{2026}and {hidden} more"), false));
     }
     scroll.set_child(Some(&list));
+    scroll.set_visible(n > 0);
     outer.append(&scroll);
 
     let (btn_box, cancel_btn) = cancel_button_row(4);
-    let remove_btn = gtk::Button::with_label("Remove Anyway");
+    let remove_btn = gtk::Button::with_label(text.button);
     remove_btn.add_css_class("destructive-action");
     btn_box.append(&remove_btn);
     outer.append(&btn_box);
@@ -199,6 +251,147 @@ fn show_impact_dialog(
     }
 
     present_focused(&dlg, &cancel_btn);
+}
+
+/// Confirm a forced removal, always: it bypasses review and the solver.
+pub fn confirm_force_remove(
+    parent: Option<&gtk::Window>,
+    store: &PackageStore,
+    names: Vec<String>,
+    cb: impl Fn(bool) + 'static,
+) {
+    if names.is_empty() {
+        return;
+    }
+    let roots: HashSet<String> = names.iter().cloned().collect();
+    let snapshot = store.state_and_mark_snapshot();
+    let parent = parent.cloned();
+    store.get_rdeps_transitive_many_async(names, move |rdeps| {
+        let affected = bulk_affected(&roots, &snapshot, rdeps.unwrap_or_default());
+        let mut roots: Vec<String> = roots.into_iter().collect();
+        roots.sort();
+        show_impact_dialog_with(parent.as_ref(), &roots, affected, &FORCE_IMPACT, cb);
+    });
+}
+
+/// How to remove an installed package.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemovalChoice {
+    /// `xbps-remove`: queued for review.
+    Remove,
+    /// `xbps-remove -R`: queued for review, also drops unused dependencies.
+    Purge,
+    /// `xbps-remove -F`: runs now, ignoring reverse dependencies.
+    Force,
+}
+
+/// Ask whether to remove, purge or force-remove. `None` means cancelled.
+pub fn choose_removal(
+    parent: Option<&gtk::Window>,
+    pkgname: &str,
+    cb: impl Fn(Option<RemovalChoice>) + 'static,
+) {
+    let cb: Rc<dyn Fn(Option<RemovalChoice>)> = Rc::new(cb);
+    let (dlg, outer) = modal_window(&format!("Remove {pkgname}?"), parent, true, (440, -1), 10);
+    let heading = gtk::Label::new(Some(&format!("How should {pkgname} be removed?")));
+    heading.set_xalign(0.0);
+    heading.set_wrap(true);
+    heading.add_css_class("heading");
+    outer.append(&heading);
+
+    let decided = Rc::new(std::cell::Cell::new(false));
+    let choices = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    let mut first = None;
+    for (choice, title, detail, class) in [
+        (
+            RemovalChoice::Remove,
+            "Remove",
+            "Uninstall the package. Dependencies it pulled in stay installed.",
+            None,
+        ),
+        (
+            RemovalChoice::Purge,
+            "Purge",
+            "Uninstall it and any dependencies nothing else needs (xbps-remove -R).",
+            None,
+        ),
+        (
+            RemovalChoice::Force,
+            "Force remove",
+            "Uninstall now even if other packages depend on it (xbps-remove -F). \
+             Not queued for review.",
+            Some("destructive-action"),
+        ),
+    ] {
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        let title_label = gtk::Label::new(Some(title));
+        title_label.set_xalign(0.0);
+        title_label.add_css_class("heading");
+        content.append(&title_label);
+        let detail_label = gtk::Label::new(Some(detail));
+        detail_label.set_xalign(0.0);
+        detail_label.set_wrap(true);
+        detail_label.add_css_class("dim-label");
+        content.append(&detail_label);
+        let button = gtk::Button::new();
+        button.set_child(Some(&content));
+        button.add_css_class("removal-choice");
+        if let Some(class) = class {
+            button.add_css_class(class);
+        }
+        button.update_property(&[
+            gtk::accessible::Property::Label(title),
+            gtk::accessible::Property::Description(detail),
+        ]);
+        let cb = cb.clone();
+        let dlg_c = dlg.clone();
+        let parent = parent.cloned();
+        let decided = decided.clone();
+        button.connect_clicked(move |_| {
+            if decided.replace(true) {
+                return;
+            }
+            // Same focus hazard as the impact dialog: the focused widget may be
+            // a checkbox in a row that the resulting mark change recycles.
+            if let Some(p) = &parent {
+                gtk::prelude::GtkWindowExt::set_focus(p, None::<&gtk::Widget>);
+            }
+            dlg_c.destroy();
+            let cb = cb.clone();
+            glib::source::idle_add_local_once(move || cb(Some(choice)));
+        });
+        if first.is_none() {
+            first = Some(button.clone());
+        }
+        choices.append(&button);
+    }
+    outer.append(&choices);
+
+    let (btn_box, cancel_btn) = cancel_button_row(4);
+    outer.append(&btn_box);
+    {
+        let cb = cb.clone();
+        let dlg = dlg.clone();
+        let decided = decided.clone();
+        cancel_btn.connect_clicked(move |_| {
+            if !decided.replace(true) {
+                cb(None);
+            }
+            dlg.destroy();
+        });
+    }
+    {
+        let cb = cb.clone();
+        dlg.connect_close_request(move |_| {
+            if !decided.replace(true) {
+                cb(None);
+            }
+            glib::Propagation::Proceed
+        });
+    }
+    if let Some(first) = first {
+        present_focused(&dlg, &first);
+    }
 }
 
 #[cfg(test)]

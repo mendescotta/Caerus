@@ -84,23 +84,66 @@ progressbar.apply-progress trough progress {
 .pending-bar { padding: 10px 14px; border-top: 1px solid @borders; background: alpha(@accent_bg_color, 0.12); }
 .boxed-list { border: 1px solid @borders; border-radius: 10px; }
 
-/* Compact Focus: one-line table rows and context details, using system colors. */
-.packages-page { margin-top: 8px; margin-bottom: 8px; }
+/* Packages page: classic sidebar + table + detail pane, softened. */
 .workflow-navigation { border-spacing: 4px; }
-.workflow-navigation button { padding: 5px 12px; border-radius: 6px; }
+.workflow-navigation button {
+  padding: 4px 11px; border-radius: 99px; font-weight: 600; }
 .workflow-navigation button:checked {
-  background: alpha(@theme_fg_color, 0.09); color: @theme_fg_color;
-  font-weight: bold; box-shadow: inset 0 -2px @theme_selected_bg_color; }
-.package-catalog { border: 1px solid @borders; border-radius: 8px; }
-.package-catalog > listview > row { min-height: 28px; padding: 0; }
-.package-catalog > listview > row > cell { min-height: 24px; padding: 2px 6px; }
+  background: alpha(@theme_fg_color, 0.11); color: @theme_fg_color; }
+.narrow-filters { padding: 8px; border-bottom: 1px solid @borders; }
+.package-catalog > header > button { padding: 6px 8px; font-weight: 600; }
+.package-catalog > listview > row { min-height: 32px; padding: 0; }
+.package-catalog > listview > row > cell { min-height: 28px; padding: 2px 8px; }
 .package-catalog checkbutton { min-width: 20px; min-height: 20px; padding: 0; }
-.pending-bar { padding: 6px 16px; }
-.pending-bar button { padding: 5px 12px; }
-.package-inspector {
-  border: 1px solid @borders; border-radius: 8px;
-  padding: 8px; background: alpha(@theme_fg_color, 0.025); }
-.package-inspector .card { border: none; background: none; padding: 8px; }
-.package-inspector .pkg-icon { padding: 6px; border-radius: 8px; }
-.package-inspector .detail-name { font-size: 1.25em; }
-.inspector-section { border-top: 1px solid @borders; padding: 8px 4px; }
+.package-inspector { padding: 10px 12px; }
+.package-inspector .card { border-radius: 12px; padding: 12px 14px 14px; }
+.pending-bar { padding: 8px 16px; }
+.pending-bar button { padding: 5px 14px; border-radius: 99px; }
+paned > separator { background: @borders; }
+.card .pkg-icon { border-radius: 12px; }
+
+/* Discover: store-style layout (categories, recommended grid, app page). */
+.discover-clamp { padding: 24px 24px 32px; }
+.discover-heading { font-weight: 800; font-size: 1.15em; }
+.discover-search { min-height: 38px; border-radius: 99px; padding: 0 12px; }
+.category-tile {
+  min-height: 52px; border-radius: 12px; padding: 6px 16px;
+  font-weight: 800; font-size: 1.12em;
+  background: alpha(@theme_fg_color, 0.06); }
+.category-tile:hover { background: alpha(@theme_fg_color, 0.10); }
+.app-card {
+  border-radius: 12px; padding: 16px 18px;
+  background: alpha(@theme_fg_color, 0.06); }
+.app-card:hover { background: alpha(@theme_fg_color, 0.10); }
+.app-card label { font-weight: normal; }
+.app-card label.heading { font-weight: 800; }
+.result-row { padding: 12px 16px; }
+.discover-results > row:hover { background: alpha(@theme_fg_color, 0.05); }
+.app-icon-tile { border-radius: 22%; color: white;
+  box-shadow: inset 0 -2px alpha(black, 0.15); }
+.app-hero .title-1 { font-weight: 800; }
+.pill-button { border-radius: 99px; padding: 8px 28px; font-weight: 700; }
+.info-tile {
+  border-radius: 12px; padding: 14px 10px;
+  background: alpha(@theme_fg_color, 0.06); }
+.info-tile-icon { color: @accent_color; }
+.chip-accent { color: @accent_color; }
+
+.category-icon.accent-blue   { color: #3584e4; }
+.category-icon.accent-teal   { color: #2190a4; }
+.category-icon.accent-green  { color: #3a944a; }
+.category-icon.accent-yellow { color: #c88800; }
+.category-icon.accent-orange { color: #ed5b00; }
+.category-icon.accent-red    { color: #e62d42; }
+.category-icon.accent-pink   { color: #d56199; }
+.category-icon.accent-purple { color: #9141ac; }
+.category-icon.accent-slate  { color: #6f8396; }
+.app-icon-tile.accent-blue   { background: linear-gradient(to bottom, #62a0ea, #1c71d8); }
+.app-icon-tile.accent-teal   { background: linear-gradient(to bottom, #4fb6c8, #1a7f91); }
+.app-icon-tile.accent-green  { background: linear-gradient(to bottom, #57e389, #26a269); }
+.app-icon-tile.accent-yellow { background: linear-gradient(to bottom, #f8e45c, #e5a50a); }
+.app-icon-tile.accent-orange { background: linear-gradient(to bottom, #ffa348, #e66100); }
+.app-icon-tile.accent-red    { background: linear-gradient(to bottom, #f66151, #c01c28); }
+.app-icon-tile.accent-pink   { background: linear-gradient(to bottom, #f08fc0, #c64f8e); }
+.app-icon-tile.accent-purple { background: linear-gradient(to bottom, #c061cb, #813d9c); }
+.app-icon-tile.accent-slate  { background: linear-gradient(to bottom, #9aa9b8, #5e6c7a); }

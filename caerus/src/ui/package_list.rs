@@ -1,7 +1,7 @@
 use crate::backend::custom_filters::{filter_hides, ActiveFilter};
 use crate::backend::package::{
-    pkg_format_size, pkg_state_tooltip, FilterMode, Package, PackageObject, PkgMark, PkgState,
-    ORPHANED_MAINTAINER,
+    pkg_format_size, pkg_state_icon, pkg_state_tooltip, FilterMode, Package, PackageObject,
+    PkgMark, PkgState, ORPHANED_MAINTAINER,
 };
 use crate::backend::package_store::PackageStore;
 use crate::ui::deps_confirm;
@@ -14,6 +14,8 @@ use std::rc::Rc;
 
 type PackageSelectedCbs = RefCell<Vec<Box<dyn Fn(Option<Package>)>>>;
 type MarksChangedCbs = RefCell<Vec<Box<dyn Fn()>>>;
+
+type ForceRemoveCbs = RefCell<Vec<Box<dyn Fn(Vec<String>)>>>;
 
 struct Inner {
     widget: gtk::Box,
@@ -30,6 +32,7 @@ struct Inner {
     on_package_selected: PackageSelectedCbs,
     on_marks_changed: MarksChangedCbs,
     on_reset_filters: RefCell<Vec<Box<dyn Fn()>>>,
+    on_force_remove: ForceRemoveCbs,
     search_sorter: RefCell<Option<gtk::CustomSorter>>,
     result_stack: gtk::Stack,
     message: gtk::Label,
@@ -151,6 +154,7 @@ impl PackageList {
             on_package_selected: RefCell::new(Vec::new()),
             on_marks_changed: RefCell::new(Vec::new()),
             on_reset_filters: RefCell::new(Vec::new()),
+            on_force_remove: RefCell::new(Vec::new()),
             search_sorter: RefCell::new(None),
             result_stack: gtk::Stack::new(),
             message: gtk::Label::new(None),
@@ -240,20 +244,40 @@ impl PackageList {
         self.set_loading(false);
     }
 
+    /// Expects an unmarked upgradable package at row 0.
     #[cfg(test)]
-    pub fn assert_activation_preserves_marks(&self) {
+    pub fn assert_activation_toggles_marks(&self) {
         let before = self.inner.store.count_marked();
-        self.inner
-            .column_view
-            .borrow()
-            .as_ref()
-            .unwrap()
-            .emit_by_name::<()>("activate", &[&0u32]);
+        let view = self.inner.column_view.borrow().clone().unwrap();
+        view.emit_by_name::<()>("activate", &[&0u32]);
+        assert_eq!(
+            self.inner.store.count_marked(),
+            before + 1,
+            "double-click marks an upgradable package, as in 0.7"
+        );
+        view.emit_by_name::<()>("activate", &[&0u32]);
         assert_eq!(
             self.inner.store.count_marked(),
             before,
-            "opening a package must not mark an install or removal"
+            "a second double-click unmarks it"
         );
+    }
+
+    /// Force removal runs immediately, so the window owns it.
+    pub fn connect_force_remove(&self, callback: impl Fn(Vec<String>) + 'static) {
+        self.inner
+            .on_force_remove
+            .borrow_mut()
+            .push(Box::new(callback));
+    }
+
+    pub fn selected(&self) -> Vec<Package> {
+        self.inner
+            .selection
+            .borrow()
+            .as_ref()
+            .map(selected_packages)
+            .unwrap_or_default()
     }
 
     pub fn set_narrow(&self, narrow: bool) {
@@ -547,7 +571,7 @@ fn build(inner: Rc<Inner>) {
     let column_view = gtk::ColumnView::new(Some(selection.clone()));
     *inner.column_view.borrow_mut() = Some(column_view.clone());
     column_view.set_show_row_separators(true);
-    column_view.set_show_column_separators(false);
+    column_view.set_show_column_separators(true);
     column_view.add_css_class("package-catalog");
     column_view.set_vexpand(true);
 
@@ -619,9 +643,39 @@ fn build(inner: Rc<Inner>) {
         column_view.append_column(&col_check);
     }
 
+    let col_icon = make_col(
+        "",
+        28,
+        false,
+        false,
+        |item| item.set_child(Some(&gtk::Image::new())),
+        |item| {
+            let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
+                return;
+            };
+            let Some(img) = crate::ui::dialog_util::expect_item_child::<gtk::Image>(item) else {
+                return;
+            };
+            let p = obj.pkg();
+            match pkg_state_icon(p.state, p.mark) {
+                Some(icon) => {
+                    img.set_icon_name(Some(icon));
+                    img.set_tooltip_text(Some(pkg_state_tooltip(p.state, p.mark)));
+                }
+                None => img.clear(),
+            }
+        },
+    );
+    set_column_sorter(&col_icon, |a, b| {
+        pkg_sort_rank(a)
+            .cmp(&pkg_sort_rank(b))
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    column_view.append_column(&col_icon);
+
     let col_name = make_col(
         "Package",
-        150,
+        200,
         true,
         false,
         {
@@ -678,7 +732,7 @@ fn build(inner: Rc<Inner>) {
 
     let col_desc = make_col(
         "Description",
-        240,
+        320,
         true,
         true,
         |item| {
@@ -707,7 +761,7 @@ fn build(inner: Rc<Inner>) {
     });
     column_view.append_column(&col_desc);
 
-    let col_inst = make_col("Installed", 104, true, false, label_cell, |item| {
+    let col_inst = make_col("Installed", 110, true, false, label_cell, |item| {
         let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
             return;
         };
@@ -731,7 +785,7 @@ fn build(inner: Rc<Inner>) {
     });
     column_view.append_column(&col_inst);
 
-    let col_avail = make_col("Available", 104, true, false, label_cell, |item| {
+    let col_avail = make_col("Available", 110, true, false, label_cell, |item| {
         let Some(obj) = item.item().map(|o| pkg_of(&o)) else {
             return;
         };
@@ -851,8 +905,13 @@ fn build(inner: Rc<Inner>) {
     column_view.sort_by_column(Some(&col_name), gtk::SortType::Ascending);
 
     {
-        column_view.connect_activate(move |_, position| {
-            selection.select_item(position, true);
+        let inner = inner.clone();
+        column_view.connect_activate(move |view, position| {
+            let Some(obj) = selection.item(position).map(|o| pkg_of(&o)) else {
+                return;
+            };
+            let root = view.root().and_downcast::<gtk::Window>();
+            toggle_mark(root, &inner.store, &inner, &obj);
         });
     }
 
@@ -869,8 +928,9 @@ fn build(inner: Rc<Inner>) {
         (&col_desc, true),
         (&col_inst, true),
         (&col_avail, true),
-        (&col_isize, false),
-        (&col_dsize, false),
+        (&col_status, false),
+        (&col_isize, true),
+        (&col_dsize, true),
     ] {
         column.set_visible(visible);
         let toggle = gtk::CheckButton::with_label(column.title().as_deref().unwrap_or("Column"));
@@ -884,9 +944,9 @@ fn build(inner: Rc<Inner>) {
     columns_popover.set_child(Some(&options));
     columns_button.set_popover(Some(&columns_popover));
     let filter_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    filter_bar.set_margin_start(0);
-    filter_bar.set_margin_end(0);
-    filter_bar.set_margin_top(0);
+    filter_bar.set_margin_start(10);
+    filter_bar.set_margin_end(6);
+    filter_bar.set_margin_top(4);
     filter_bar.set_margin_bottom(4);
     inner.filter_summary.set_hexpand(true);
     inner.filter_summary.set_xalign(0.0);
@@ -938,6 +998,72 @@ fn build(inner: Rc<Inner>) {
             });
         });
     }
+}
+
+/// Double-click / Enter: the 0.7 Synaptic-style toggle.
+fn toggle_mark(
+    root: Option<gtk::Window>,
+    store: &PackageStore,
+    inner: &Rc<Inner>,
+    obj: &PackageObject,
+) {
+    let (name, state, mark, essential) = {
+        let p = obj.pkg();
+        (p.name.clone(), p.state, p.mark, p.essential)
+    };
+
+    if mark != PkgMark::None {
+        set_mark_and_notify(store, inner, &name, PkgMark::None);
+        return;
+    }
+
+    match state {
+        PkgState::NotInstalled => request_install_with_confirm(root, store, inner, &name, |_| {}),
+        PkgState::Upgradable => set_mark_and_notify(store, inner, &name, PkgMark::Upgrade),
+        _ if !essential => request_removal_choice(root, store, inner, &name, |_| {}),
+        _ => {}
+    }
+}
+
+/// Remove, purge (both queued) or force-remove (immediate, via the window).
+/// `on_result` reports whether a mark was set.
+fn request_removal_choice(
+    root: Option<gtk::Window>,
+    store: &PackageStore,
+    inner: &Rc<Inner>,
+    pkgname: &str,
+    on_result: impl Fn(bool) + 'static,
+) {
+    if cfg!(feature = "apk") {
+        request_remove_with_confirm(root, store, inner, pkgname, PkgMark::Remove, on_result);
+        return;
+    }
+    let on_result: Rc<dyn Fn(bool)> = Rc::new(on_result);
+    let store = store.clone();
+    let inner = inner.clone();
+    let name = pkgname.to_string();
+    let parent = root.clone();
+    remove_confirm::choose_removal(root.as_ref(), pkgname, move |choice| match choice {
+        Some(remove_confirm::RemovalChoice::Remove) => {
+            request_remove_with_confirm(parent.clone(), &store, &inner, &name, PkgMark::Remove, {
+                let on_result = on_result.clone();
+                move |ok| on_result(ok)
+            });
+        }
+        Some(remove_confirm::RemovalChoice::Purge) => {
+            request_remove_with_confirm(parent.clone(), &store, &inner, &name, PkgMark::Purge, {
+                let on_result = on_result.clone();
+                move |ok| on_result(ok)
+            });
+        }
+        Some(remove_confirm::RemovalChoice::Force) => {
+            on_result(false);
+            for cb in inner.on_force_remove.borrow().iter() {
+                cb(vec![name.clone()]);
+            }
+        }
+        None => on_result(false),
+    });
 }
 
 fn set_mark_and_notify(store: &PackageStore, inner: &Rc<Inner>, pkgname: &str, mark: PkgMark) {
@@ -1228,7 +1354,7 @@ fn on_checkbox_toggled(
     if state == PkgState::NotInstalled {
         request_install_with_confirm(root, store, inner, &name, on_result);
     } else {
-        request_remove_with_confirm(root, store, inner, &name, PkgMark::Remove, on_result);
+        request_removal_choice(root, store, inner, &name, on_result);
     }
 }
 

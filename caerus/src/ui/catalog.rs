@@ -27,6 +27,47 @@ pub const CATEGORIES: &[&str] = &[
     "Utilities",
 ];
 
+/// Front-page recommendations, by catalog name, shown in this order when available.
+pub const FEATURED: &[&str] = &[
+    "Firefox",
+    "Thunderbird",
+    "LibreOffice",
+    "GIMP",
+    "Inkscape",
+    "Krita",
+    "VLC",
+    "OBS Studio",
+    "Kdenlive",
+    "Audacity",
+    "Blender",
+    "KeepassXC",
+    "Xournal++",
+    "Stellarium",
+    "Syncthing",
+    "SuperTuxKart",
+    "Transmission",
+    "Geany",
+];
+
+/// Symbolic icon and accent style class for a section tile.
+pub fn category_style(category: &str) -> (&'static str, &'static str) {
+    match category {
+        "Web" => ("web-browser-symbolic", "accent-blue"),
+        "Mail & communication" => ("mail-send-symbolic", "accent-teal"),
+        "Office & documents" => ("x-office-document-symbolic", "accent-orange"),
+        "Editors" => ("text-editor-symbolic", "accent-slate"),
+        "Graphics" => ("image-x-generic-symbolic", "accent-pink"),
+        "Sound" => ("audio-x-generic-symbolic", "accent-green"),
+        "Video" => ("video-x-generic-symbolic", "accent-red"),
+        "Games" => ("applications-games-symbolic", "accent-purple"),
+        "Education" => ("accessories-dictionary-symbolic", "accent-yellow"),
+        "Science & mathematics" => ("applications-science-symbolic", "accent-teal"),
+        "Development" => ("applications-engineering-symbolic", "accent-blue"),
+        "Network" => ("network-workgroup-symbolic", "accent-green"),
+        _ => ("applications-utilities-symbolic", "accent-slate"),
+    }
+}
+
 macro_rules! app {
     ($category:literal, $name:literal, $desktop:literal, $($package:literal),+) => {
         CatalogApp { category: $category, name: $name, desktop: $desktop, packages: &[$($package),+] }
@@ -544,6 +585,12 @@ mod tests {
         }
         for section in CATEGORIES {
             assert!(CATALOG.iter().any(|app| &app.category == section));
+        }
+        for name in FEATURED {
+            assert!(
+                CATALOG.iter().any(|app| app.name == *name),
+                "unknown featured application: {name}"
+            );
         }
     }
 }
