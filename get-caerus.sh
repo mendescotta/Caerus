@@ -86,9 +86,17 @@ if [ -n "$to_install" ]; then
 fi
 
 if [ -z "$REF" ]; then
-    REF="$(git ls-remote --tags --refs --sort=-v:refname "$REPO_URL" 'v*' \
-        | head -n 1 | sed 's|.*refs/tags/||')"
-    REF="${REF:-main}"
+    # Capture Git's status before parsing: POSIX sh reports only the final
+    # pipeline command's status, which would hide a failed remote lookup.
+    if ! release_tags="$(git ls-remote --tags --refs --sort=-v:refname "$REPO_URL" 'v*')"; then
+        echo "Could not look up Caerus releases. Check your network connection and retry." >&2
+        exit 1
+    fi
+    REF="$(printf '%s\n' "$release_tags" | sed -n '1s|.*refs/tags/||p')"
+    if [ -z "$REF" ]; then
+        echo "No Caerus release tags were found. Set CAERUS_REF=main explicitly to build development code." >&2
+        exit 1
+    fi
 fi
 echo "Building Caerus $REF for $DISTRO."
 
