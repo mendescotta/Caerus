@@ -20,18 +20,20 @@ struct WindowState {
     sidebar: FilterSidebar,
     pkg_list: PackageList,
     detail_pane: DetailPane,
-    packages_page: gtk::Box,
     header: gtk::HeaderBar,
     root_box: gtk::Box,
     filters_button: gtk::MenuButton,
     repositories_button: gtk::MenuButton,
-    search_row: gtk::Box,
+    filter_row: gtk::Box,
     right_paned: gtk::Paned,
+    desktop_tools: gtk::Box,
+    btn_toggle_sidebar: gtk::ToggleButton,
     detail_page: gtk::Box,
     workflows: crate::ui::workflows::Workflows,
     pending_bar: gtk::Box,
     pending_label: gtk::Label,
     narrow: std::cell::Cell<bool>,
+    wide_header_min: std::cell::Cell<i32>,
 
     spinner: gtk::Spinner,
     btn_update: gtk::Button,
@@ -261,29 +263,48 @@ fn build_window_state(
 
     let header = gtk::HeaderBar::new();
 
+    let btn_toggle_sidebar = gtk::ToggleButton::new();
+    btn_toggle_sidebar.set_icon_name("sidebar-show-symbolic");
+    btn_toggle_sidebar.set_active(true);
+    btn_toggle_sidebar.set_tooltip_text(Some("Show package filters (F9)"));
+
     let spinner = gtk::Spinner::new();
     let btn_update = gtk::Button::from_icon_name("software-update-available-symbolic");
-    btn_update.set_label("Refresh repositories");
     btn_update.set_tooltip_text(Some("Sync repositories and reload package list"));
     let btn_reload = gtk::Button::from_icon_name("view-refresh-symbolic");
-    btn_reload.set_tooltip_text(Some("Reload local package list without syncing"));
+    btn_reload.set_tooltip_text(Some("Reload local package list without syncing (F5)"));
     let btn_mark_upgrades = gtk::Button::from_icon_name("software-update-urgent-symbolic");
     btn_mark_upgrades.set_tooltip_text(Some("Mark All Updates"));
     let btn_unmark_all = gtk::Button::from_icon_name("edit-clear-all-symbolic");
     btn_unmark_all.set_sensitive(false);
     btn_unmark_all.set_tooltip_text(Some("Unmark All"));
+    let mark_state_group = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    mark_state_group.add_css_class("linked");
+    mark_state_group.append(&btn_mark_upgrades);
+    mark_state_group.append(&btn_unmark_all);
 
+    // The 0.7 header toolbar; narrow windows keep only the essentials.
+    let desktop_tools = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    desktop_tools.append(&btn_toggle_sidebar);
+    header.pack_start(&desktop_tools);
+    header.pack_start(&btn_update);
+    let desktop_marks = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    desktop_marks.append(&btn_reload);
+    desktop_marks.append(&mark_state_group);
+    desktop_tools
+        .bind_property("visible", &desktop_marks, "visible")
+        .sync_create()
+        .build();
+    header.pack_start(&desktop_marks);
     header.pack_start(&spinner);
 
     let btn_apply = gtk::Button::new();
     btn_apply.set_sensitive(false);
     btn_apply.add_css_class("suggested-action");
-    btn_apply.set_tooltip_text(Some("Review pending changes before applying"));
+    btn_apply.set_tooltip_text(Some("Review pending changes before applying (Ctrl+Enter)"));
     let apply_btn_content = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     apply_btn_content.append(&gtk::Image::from_icon_name("object-select-symbolic"));
     let apply_count_pill = crate::ui::dialog_util::count_pill();
-    let apply_label = gtk::Label::new(Some("Review changes"));
-    apply_btn_content.append(&apply_label);
     apply_btn_content.append(&apply_count_pill);
     btn_apply.set_child(Some(&apply_btn_content));
 
@@ -293,15 +314,13 @@ fn build_window_state(
         .set_tooltip_text(Some("Search by name only (default: name + description)"));
 
     let search_entry = gtk::SearchEntry::new();
-    search_entry.set_hexpand(true);
-    search_entry.set_width_request(160);
+    search_entry.set_width_request(180);
     search_entry.set_placeholder_text(Some("Search packages\u{2026}"));
 
     let btn_toggle_detail_pane = gtk::ToggleButton::new();
     btn_toggle_detail_pane.set_icon_name("sidebar-show-right-symbolic");
     btn_toggle_detail_pane.set_active(geometry.detail_pane_visible);
-    btn_toggle_detail_pane
-        .set_tooltip_text(Some("Show package details when a package is selected"));
+    btn_toggle_detail_pane.set_tooltip_text(Some("Show/hide the detail panel"));
     header.pack_end(&btn_toggle_detail_pane);
 
     let menu_button = gtk::MenuButton::new();
@@ -309,6 +328,13 @@ fn build_window_state(
     menu_button.set_tooltip_text(Some("Menu"));
     let menu_stack = gtk::Stack::new();
     header.pack_end(&menu_button);
+
+    let search_group = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    search_group.add_css_class("linked");
+    search_group.append(&search_entry);
+    search_group.append(&btn_search_name_only);
+    header.pack_end(&search_group);
+    header.pack_end(&btn_apply);
 
     window.set_titlebar(Some(&header));
 
@@ -324,12 +350,10 @@ fn build_window_state(
     right_paned.set_shrink_end_child(false);
     right_paned.set_start_child(Some(pkg_list.widget()));
     right_paned.set_end_child(Some(detail_pane.widget()));
-    set_right_paned_position(&right_paned, geometry.width - 32);
-
-    let packages_page = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    packages_page.add_css_class("packages-page");
-    packages_page.set_margin_start(16);
-    packages_page.set_margin_end(16);
+    set_right_paned_position(
+        &right_paned,
+        geometry.width - crate::ui::filter_sidebar::FULL_WIDTH,
+    );
 
     let filters_button =
         sidebar.filter_button(crate::ui::filter_sidebar::Section::Filters, "All packages");
@@ -339,27 +363,31 @@ fn build_window_state(
         "All repositories",
     );
     repositories_button.set_tooltip_text(Some("Filter by repository"));
-    let search_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    let search_group = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    search_group.set_hexpand(true);
-    search_group.append(&search_entry);
-    search_group.append(&btn_search_name_only);
-    let filter_group = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    filter_group.append(&filters_button);
-    filter_group.append(&repositories_button);
-    btn_reload.set_label("Reload");
-    btn_mark_upgrades.set_label("Mark updates");
-    btn_unmark_all.set_label("Clear marks");
-    filter_group.append(&btn_update);
-    let package_actions = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    package_actions.append(&btn_reload);
-    package_actions.append(&btn_mark_upgrades);
-    package_actions.append(&btn_unmark_all);
-    search_row.append(&search_group);
-    search_row.append(&filter_group);
-    packages_page.append(&search_row);
-    packages_page.append(&package_actions);
-    packages_page.append(&right_paned);
+    // Narrow windows replace the sidebar with these two dropdowns.
+    let filter_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    filter_row.add_css_class("narrow-filters");
+    filter_row.append(&filters_button);
+    filter_row.append(&repositories_button);
+    // The sidebar's Maintenance and Tools sections, reachable without it.
+    let actions_button = sidebar.actions_menu_button();
+    actions_button.set_hexpand(true);
+    actions_button.set_halign(gtk::Align::End);
+    filter_row.append(&actions_button);
+    filter_row.set_visible(false);
+
+    let main_paned = gtk::Paned::new(gtk::Orientation::Horizontal);
+    main_paned.set_vexpand(true);
+    main_paned.set_position(crate::ui::filter_sidebar::FULL_WIDTH);
+    main_paned.set_resize_start_child(false);
+    main_paned.set_shrink_start_child(false);
+    main_paned.set_resize_end_child(true);
+    main_paned.set_start_child(Some(sidebar.widget()));
+    main_paned.set_end_child(Some(&right_paned));
+
+    let packages_page = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    packages_page.add_css_class("packages-page");
+    packages_page.append(&filter_row);
+    packages_page.append(&main_paned);
 
     let status_label = gtk::Label::new(Some("Loading\u{2026}"));
     status_label.set_xalign(0.0);
@@ -389,19 +417,16 @@ fn build_window_state(
     pending_label.set_hexpand(true);
     pending_label.set_wrap(true);
     let clear = gtk::Button::with_label("Clear");
+    let review = gtk::Button::with_label("Review changes");
+    review.add_css_class("suggested-action");
     pending_bar.append(&pending_label);
     pending_bar.append(&clear);
-    pending_bar.append(&btn_apply);
+    pending_bar.append(&review);
     pending_bar.set_visible(false);
     let root_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    header.pack_start(&workflows.history);
     header.set_title_widget(Some(&workflows.navigation));
-    let content = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    content.set_vexpand(true);
-    content.append(sidebar.widget());
-    content.append(&gtk::Separator::new(gtk::Orientation::Vertical));
-    content.append(&workflows.stack);
-    root_box.append(&content);
+    desktop_marks.append(&workflows.history);
+    root_box.append(&workflows.stack);
     root_box.append(&pending_bar);
     root_box.append(&status_bar);
 
@@ -422,18 +447,20 @@ fn build_window_state(
         sidebar,
         pkg_list,
         detail_pane,
-        packages_page,
         header,
         root_box,
         filters_button,
         repositories_button,
-        search_row,
+        filter_row,
         right_paned,
+        desktop_tools,
+        btn_toggle_sidebar,
         detail_page,
         workflows,
         pending_bar,
         pending_label,
         narrow: std::cell::Cell::new(false),
+        wide_header_min: std::cell::Cell::new(0),
         spinner,
         btn_update,
         btn_reload,
@@ -457,6 +484,14 @@ fn build_window_state(
         action_busy: Cell::new(false),
     });
 
+    {
+        let weak = Rc::downgrade(&state);
+        review.connect_clicked(move |_| {
+            if let Some(state) = weak.upgrade() {
+                show_pending_changes(&state);
+            }
+        });
+    }
     {
         let weak = Rc::downgrade(&state);
         clear.connect_clicked(move |_| {
@@ -483,8 +518,10 @@ fn build_window_state(
             .section_widget(section)
             .set_visible(i < 2 || geometry.section_visible[i]);
     }
-    // Open the inspector only for a selection; an empty pane wastes table space.
-    state.detail_pane.widget().set_visible(false);
+    state
+        .detail_pane
+        .widget()
+        .set_visible(geometry.detail_pane_visible);
     state.status_bar.set_visible(geometry.status_bar_visible);
     state
         .sidebar
@@ -667,9 +704,8 @@ fn toggle_package_filters(state: &Rc<WindowState>) {
     state.workflows.stack.set_visible_child_name("packages");
     if !state.narrow.get() {
         state
-            .sidebar
-            .widget()
-            .set_visible(!state.sidebar.widget().get_visible());
+            .btn_toggle_sidebar
+            .set_active(!state.btn_toggle_sidebar.is_active());
     } else if let Some(popover) = state.filters_button.popover() {
         if popover.is_visible() {
             popover.popdown();
@@ -1169,10 +1205,6 @@ fn wire_up(state: &Rc<WindowState>) {
         pkg_list.connect_package_selected(move |pkg| {
             *state.selected_pkg.borrow_mut() = pkg.clone();
             state.detail_pane.show_package(pkg.as_ref());
-            state
-                .detail_pane
-                .widget()
-                .set_visible(pkg.is_some() && state.btn_toggle_detail_pane.is_active());
             if pkg.is_some() && state.narrow.get() && state.btn_toggle_detail_pane.is_active() {
                 state.workflows.stack.set_visible_child_name("details");
             }
@@ -2116,10 +2148,6 @@ fn update_status_bar(state: &Rc<WindowState>) {
         state.status_label.set_text(&format!(
             "Applications from enabled repositories. {marked} marked."
         ));
-    } else if page.as_deref() == Some("maintenance") {
-        state
-            .status_label
-            .set_text("System maintenance and package tools.");
     } else if state.pkg_list.has_active_filters() {
         let (total, installed, not_installed) = state.pkg_list.visible_counts();
         state.status_label.set_text(&format!(
@@ -2149,6 +2177,9 @@ fn update_status_bar(state: &Rc<WindowState>) {
         .pending_label
         .update_property(&[gtk::accessible::Property::Description(&summary)]);
     state.pending_bar.set_visible(marked > 0);
+    if page.as_deref() == Some("discover") {
+        state.workflows.discovery.refresh_marks();
+    }
     update_apply_button(state, marked);
     update_mark_upgrades_button(state, upgradable);
 }
@@ -2177,6 +2208,15 @@ fn dispatch_action(state: &Rc<WindowState>, action: crate::ui::filter_sidebar::S
     match action {
         SidebarAction::FullUpgrade => on_full_upgrade_clicked(state),
         SidebarAction::RemoveOrphans => on_remove_orphans_clicked(state),
+        SidebarAction::ForceRemove => {
+            let names = state
+                .pkg_list
+                .selected()
+                .into_iter()
+                .map(|pkg| pkg.name)
+                .collect();
+            force_remove(state, names);
+        }
         SidebarAction::CleanCache => {
             run_maintenance_command(state, "CLEANCACHE", "Cleaning Package Cache");
         }
@@ -2205,6 +2245,60 @@ fn dispatch_action(state: &Rc<WindowState>, action: crate::ui::filter_sidebar::S
             );
         }
     }
+}
+
+/// `xbps-remove -F` after an explicit warning; never queued with marks.
+fn force_remove(state: &Rc<WindowState>, names: Vec<String>) {
+    let wanted: std::collections::HashSet<String> = names.into_iter().collect();
+    let mut removable = Vec::new();
+    let mut essential = Vec::new();
+    let list = state.store.list();
+    for index in 0..list.n_items() {
+        if let Some(object) = crate::backend::package_store::package_obj_at(&list, index) {
+            let pkg = object.pkg();
+            if !wanted.contains(&pkg.name) || pkg.state == PkgState::NotInstalled {
+                continue;
+            }
+            if pkg.essential {
+                essential.push(pkg.name.clone());
+            } else {
+                removable.push(pkg.name.clone());
+            }
+        }
+    }
+    if !essential.is_empty() {
+        show_toast(
+            state,
+            &format!(
+                "Essential packages are never force-removed: {}",
+                essential.join(", ")
+            ),
+        );
+    }
+    if removable.is_empty() {
+        if essential.is_empty() {
+            show_toast(
+                state,
+                "Select one or more installed packages in the list to force-remove them.",
+            );
+        }
+        return;
+    }
+    removable.sort();
+    let weak = Rc::downgrade(state);
+    let command = format!("REMOVE_FORCE {}", removable.join(" "));
+    crate::ui::remove_confirm::confirm_force_remove(
+        Some(state.window.upcast_ref()),
+        &state.store,
+        removable,
+        move |proceed| {
+            if let Some(state) = weak.upgrade() {
+                if proceed {
+                    run_maintenance_command(&state, &command, "Force-Removing Packages");
+                }
+            }
+        },
+    );
 }
 
 fn refresh_workflow_packages(state: &Rc<WindowState>) {
@@ -2270,10 +2364,7 @@ fn wire_workflows(state: &Rc<WindowState>) {
         let weak = Rc::downgrade(state);
         state.btn_toggle_detail_pane.connect_toggled(move |button| {
             if let Some(state) = weak.upgrade() {
-                state
-                    .detail_pane
-                    .widget()
-                    .set_visible(button.is_active() && state.selected_pkg.borrow().is_some());
+                state.detail_pane.widget().set_visible(button.is_active());
                 if state.narrow.get() {
                     if button.is_active() && state.selected_pkg.borrow().is_some() {
                         state.workflows.stack.set_visible_child_name("details");
@@ -2287,6 +2378,16 @@ fn wire_workflows(state: &Rc<WindowState>) {
         });
     }
 
+    {
+        let weak = Rc::downgrade(state);
+        state.btn_toggle_sidebar.connect_toggled(move |button| {
+            if let Some(state) = weak.upgrade() {
+                if !state.narrow.get() {
+                    state.sidebar.widget().set_visible(button.is_active());
+                }
+            }
+        });
+    }
     {
         let weak = Rc::downgrade(state);
         state.workflows.refresh.connect_clicked(move |_| {
@@ -2311,12 +2412,23 @@ fn wire_workflows(state: &Rc<WindowState>) {
             }
         });
     }
-    for (button, action) in &state.workflows.maintenance {
+    {
         let weak = Rc::downgrade(state);
-        let action = *action;
-        button.connect_clicked(move |_| {
+        state
+            .workflows
+            .discovery
+            .connect_store(state.store.clone(), move || {
+                if let Some(state) = weak.upgrade() {
+                    state.detail_pane.refresh_actions();
+                    update_status_bar(&state);
+                }
+            });
+    }
+    {
+        let weak = Rc::downgrade(state);
+        state.pkg_list.connect_force_remove(move |names| {
             if let Some(state) = weak.upgrade() {
-                dispatch_action(&state, action);
+                force_remove(&state, names);
             }
         });
     }
@@ -2349,6 +2461,7 @@ fn wire_workflows(state: &Rc<WindowState>) {
     });
     // Explicit names cover controls that become icon-only in narrow windows.
     for (button, label) in [
+        (&state.btn_update, "Refresh repositories"),
         (&state.btn_reload, "Reload cached package data"),
         (&state.btn_mark_upgrades, "Mark all updates"),
         (&state.btn_unmark_all, "Clear pending changes"),
@@ -2382,34 +2495,37 @@ fn queue_adaptive_layout(weak: std::rc::Weak<WindowState>) {
     });
 }
 
+const NARROW_BREAKPOINT: i32 = 1000;
+
 fn update_adaptive_layout(state: &Rc<WindowState>, width: i32) {
-    let narrow = width < 1000;
+    // The desktop header sets the window's minimum width, so the window can
+    // never shrink below it; switch just above that wall (theme-dependent).
+    if !state.narrow.get() {
+        state
+            .wide_header_min
+            .set(state.header.measure(gtk::Orientation::Horizontal, -1).0);
+    }
+    // `width` is the surface width, which includes client-side shadows.
+    let shadow = state
+        .window
+        .surface()
+        .map_or(0, |surface| (surface.width() - state.window.width()).max(0));
+    let narrow = width < NARROW_BREAKPOINT.max(state.wide_header_min.get() + shadow + 24);
     state
         .sidebar
         .place_filters(narrow, &state.filters_button, &state.repositories_button);
-    state.sidebar.widget().set_visible(!narrow);
-    state.filters_button.set_visible(narrow);
-    state.repositories_button.set_visible(narrow);
     state
-        .packages_page
-        .set_margin_start(if narrow { 8 } else { 16 });
-    state
-        .packages_page
-        .set_margin_end(if narrow { 8 } else { 16 });
-    state.search_row.set_orientation(if narrow {
-        gtk::Orientation::Vertical
-    } else {
-        gtk::Orientation::Horizontal
-    });
-    state
-        .detail_pane
+        .sidebar
         .widget()
-        .set_margin_start(if narrow { 8 } else { 12 });
+        .set_visible(!narrow && state.btn_toggle_sidebar.is_active());
+    state.filter_row.set_visible(narrow);
+    state.btn_toggle_sidebar.set_visible(!narrow);
+    state.desktop_tools.set_visible(!narrow);
     state
-        .detail_pane
-        .widget()
-        .set_margin_end(if narrow { 8 } else { 0 });
+        .search_entry
+        .set_width_request(if narrow { 140 } else { 180 });
     state.pkg_list.set_narrow(narrow);
+    state.workflows.discovery.set_narrow(narrow);
     if state.narrow.replace(narrow) != narrow {
         let detail = state.detail_pane.widget();
         // The header holds navigation on desktop; narrow windows use a bottom bar.
@@ -2423,7 +2539,6 @@ fn update_adaptive_layout(state: &Rc<WindowState>, width: i32) {
                 .set_title_widget(Some(&state.workflows.navigation));
         }
         if narrow {
-            state.btn_update.set_icon_name("view-refresh-symbolic");
             state.right_paned.set_end_child(None::<&gtk::Widget>);
             state.detail_page.append(detail);
             state
@@ -2431,14 +2546,18 @@ fn update_adaptive_layout(state: &Rc<WindowState>, width: i32) {
                 .stack
                 .add_named(&state.detail_page, Some("details"));
         } else {
-            state.btn_update.set_label("Refresh repositories");
             if state.workflows.stack.visible_child_name().as_deref() == Some("details") {
                 state.workflows.stack.set_visible_child_name("packages");
             }
             state.detail_page.remove(detail);
             state.workflows.stack.remove(&state.detail_page);
             state.right_paned.set_end_child(Some(detail));
-            set_right_paned_position(&state.right_paned, width - 32);
+            let sidebar = if state.sidebar.widget().is_visible() {
+                crate::ui::filter_sidebar::FULL_WIDTH
+            } else {
+                0
+            };
+            set_right_paned_position(&state.right_paned, width - sidebar);
         }
     }
 }
@@ -2676,8 +2795,8 @@ pub fn smoke_test_compact_layout() {
         "sidebar must leave room for content"
     );
     assert!(
-        !state.detail_pane.widget().get_visible(),
-        "no selection should leave full width for the table"
+        state.detail_pane.widget().get_visible(),
+        "the detail pane follows its toggle, as in 0.7"
     );
     assert!(state.pkg_list.select_package_by_name("firefox"));
     settle();
@@ -2746,17 +2865,19 @@ pub fn smoke_test_compact_layout() {
     settle();
     assert!(
         state.window.measure(gtk::Orientation::Horizontal, -1).0 <= 640,
-        "the narrow layout must permit a 640px window"
+        "the narrow layout must permit a 640px window: header {}",
+        state.header.measure(gtk::Orientation::Horizontal, -1).0,
     );
     state.window.set_default_size(640, 760);
     settle();
     assert!(state.narrow.get());
-    assert_eq!(state.search_row.orientation(), gtk::Orientation::Vertical);
+    assert!(state.filter_row.is_visible());
+    assert!(!state.sidebar.widget().is_visible());
     assert!(
         state.window.width() <= 660,
-        "content should fit narrow width: window {}, header {}, page {}, toolbar {}, navigation {}, filters {}, repositories {}, refresh {}, table {}",
-        state.window.width(), state.header.width(), state.packages_page.width(), state.search_row.width(),
-        state.workflows.navigation.width(), state.filters_button.width(), state.repositories_button.width(), state.btn_update.width(), state.right_paned.width(),
+        "content should fit narrow width: window {}, header {}, filters {}, navigation {}, table {}",
+        state.window.width(), state.header.width(), state.filter_row.width(),
+        state.workflows.navigation.width(), state.right_paned.width(),
     );
     crate::ui::filter_sidebar::set_filter_button_label(
         &state.repositories_button,
@@ -2896,6 +3017,13 @@ pub fn smoke_test_compact_layout() {
         state.workflows.discover_button.set_active(true);
         settle();
         capture(&state.window, "discover-sections");
+        state.workflows.discovery.show_for_test("Graphics", "");
+        settle();
+        capture(&state.window, "discover-category");
+        if state.workflows.discovery.show_for_test("", "gimp") {
+            settle();
+            capture(&state.window, "discover-app");
+        }
         state.window.destroy();
     }
 }

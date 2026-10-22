@@ -34,7 +34,7 @@ struct Inner {
     update_chip: gtk::Label,
     tags_box: gtk::Box,
     desc: gtk::Label,
-    action_row: gtk::FlowBox,
+    action_row: gtk::Box,
     btn_install: gtk::Button,
     btn_upgrade: gtk::Button,
     btn_remove: gtk::Button,
@@ -149,22 +149,6 @@ fn card_simple_no_header() -> gtk::Box {
     card.set_valign(gtk::Align::Start);
     card.set_size_request(230, -1);
     card
-}
-
-fn collapsible_card(card: &gtk::Box) -> gtk::Expander {
-    let section = gtk::Expander::new(None);
-    section.add_css_class("inspector-section");
-    if let Some(header) = card.first_child() {
-        card.remove(&header);
-        header.set_margin_bottom(0);
-        section.set_label_widget(Some(&header));
-    }
-    card.remove_css_class("card");
-    section.set_child(Some(card));
-    card.bind_property("visible", &section, "visible")
-        .sync_create()
-        .build();
-    section
 }
 
 fn set_card_visible(card: &gtk::Box, visible: bool) {
@@ -325,10 +309,6 @@ impl DetailPane {
         let widget = gtk::Box::new(gtk::Orientation::Vertical, 0);
         widget.set_height_request(220);
         widget.add_css_class("package-inspector");
-        widget.set_margin_start(12);
-        widget.set_margin_end(0);
-        widget.set_margin_top(0);
-        widget.set_margin_bottom(0);
 
         let header_card = gtk::Box::new(gtk::Orientation::Vertical, 0);
         header_card.add_css_class("card");
@@ -402,38 +382,30 @@ impl DetailPane {
         pkg_head.append(&title_col);
         header_card.append(&pkg_head);
 
-        let action_row = gtk::FlowBox::new();
-        action_row.set_selection_mode(gtk::SelectionMode::None);
-        action_row.set_column_spacing(8);
-        action_row.set_row_spacing(8);
-        action_row.set_max_children_per_line(2);
+        let action_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         action_row.set_margin_top(12);
-        let btn_install = gtk::Button::with_label("Mark for install");
+        let btn_install = gtk::Button::with_label("Install");
         btn_install.set_visible(false);
         btn_install.add_css_class("suggested-action");
-        let btn_upgrade = gtk::Button::with_label("Mark for upgrade");
+        let btn_upgrade = gtk::Button::with_label("Upgrade");
         btn_upgrade.set_visible(false);
         btn_upgrade.add_css_class("suggested-action");
-        let btn_remove = gtk::Button::with_label("Mark for removal");
+        let btn_remove = gtk::Button::with_label("Remove");
         btn_remove.set_visible(false);
-        let btn_purge = gtk::Button::with_label("Remove + unused dependencies");
+        btn_remove.add_css_class("destructive-action");
+        let btn_purge = gtk::Button::with_label("Purge");
         btn_purge.set_visible(false);
+        btn_purge.add_css_class("destructive-action");
         btn_purge.set_tooltip_text(Some(
             "Remove this package and any dependencies left orphaned by doing so",
         ));
         let btn_unmark = gtk::Button::with_label("Unmark");
         btn_unmark.set_visible(false);
-        action_row.insert(&btn_install, -1);
-        action_row.insert(&btn_upgrade, -1);
-        action_row.insert(&btn_unmark, -1);
-        for button in [&btn_install, &btn_upgrade, &btn_unmark] {
-            if let Some(child) = button.parent() {
-                button
-                    .bind_property("visible", &child, "visible")
-                    .sync_create()
-                    .build();
-            }
-        }
+        action_row.append(&btn_install);
+        action_row.append(&btn_upgrade);
+        action_row.append(&btn_remove);
+        action_row.append(&btn_purge);
+        action_row.append(&btn_unmark);
         header_card.append(&action_row);
 
         let secondary_row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -460,34 +432,24 @@ impl DetailPane {
             "Fetch and verify the package file without installing it",
         ));
 
+        // Icon-only buttons: name them for assistive technologies.
         for (button, label) in [
             (&btn_hold, "Hold / release version"),
             (&btn_repolock, "Lock / unlock repository"),
             (&btn_automark, "Automatic / manual install"),
-            (&btn_reinstall, "Reinstall…"),
-            (&btn_reconfigure, "Reconfigure…"),
-            (&btn_download, "Download only…"),
+            (&btn_reinstall, "Reinstall"),
+            (&btn_reconfigure, "Reconfigure"),
+            (&btn_download, "Download only"),
         ] {
-            button.set_label(label);
             button.update_property(&[gtk::accessible::Property::Label(label)]);
         }
-        secondary_row.append(&btn_remove);
-        secondary_row.append(&btn_purge);
         secondary_row.append(&hold_overlay);
         secondary_row.append(&repolock_overlay);
         secondary_row.append(&automark_overlay);
         secondary_row.append(&btn_reinstall);
         secondary_row.append(&btn_reconfigure);
         secondary_row.append(&btn_download);
-        let more = gtk::MenuButton::new();
-        more.set_label("More actions");
-        more.set_halign(gtk::Align::Start);
-        more.set_margin_top(8);
-        let popover = gtk::Popover::new();
-        secondary_row.set_orientation(gtk::Orientation::Vertical);
-        popover.set_child(Some(&secondary_row));
-        more.set_popover(Some(&popover));
-        header_card.append(&more);
+        header_card.append(&secondary_row);
 
         let size_install_card = card_simple("Size & Installation");
         let size_install_list = gtk::Box::new(gtk::Orientation::Vertical, 6);
@@ -568,17 +530,21 @@ impl DetailPane {
         files_expander.set_margin_top(4);
         files_card.append(&files_expander);
 
-        let cards_col = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        let cards_col = gtk::Box::new(gtk::Orientation::Vertical, 12);
         cards_col.set_hexpand(true);
         cards_col.set_halign(gtk::Align::Fill);
 
-        for card in [&header_card, &size_install_card, &source_card] {
+        for card in [
+            &header_card,
+            &size_install_card,
+            &source_card,
+            &deps_card,
+            &rdeps_card,
+            &provides_card,
+            &files_card,
+        ] {
             cards_col.append(card);
         }
-        for card in [&deps_card, &rdeps_card, &provides_card] {
-            cards_col.append(&collapsible_card(card));
-        }
-        cards_col.append(&files_card);
 
         let content_scroll = gtk::ScrolledWindow::new();
         content_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
@@ -898,10 +864,7 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
         owned.as_ref()
     };
 
-    inner.action_row.set_visible(pkg.is_some_and(|pkg| {
-        pkg.mark != PkgMark::None
-            || matches!(pkg.state, PkgState::NotInstalled | PkgState::Upgradable)
-    }));
+    inner.action_row.set_visible(pkg.is_some());
     let Some(pkg) = pkg else {
         inner.btn_install.set_visible(false);
         inner.btn_remove.set_visible(false);
@@ -929,7 +892,6 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
         } else {
             "Hold version"
         };
-        inner.btn_hold.set_label(action);
         inner
             .btn_hold
             .update_property(&[gtk::accessible::Property::Label(action)]);
@@ -951,7 +913,6 @@ fn update_action_buttons(inner: &Rc<Inner>, pkg: Option<&Package>) {
         } else {
             "Lock repository"
         };
-        inner.btn_repolock.set_label(action);
         inner
             .btn_repolock
             .update_property(&[gtk::accessible::Property::Label(action)]);
@@ -1395,7 +1356,6 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
                     } else {
                         "Mark as dependency"
                     };
-                    inner.btn_automark.set_label(action);
                     inner
                         .btn_automark
                         .update_property(&[gtk::accessible::Property::Label(action)]);
