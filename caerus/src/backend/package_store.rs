@@ -1119,6 +1119,10 @@ unsafe fn run_preview_ops(
                 name.as_str(),
                 xbps_sys::xbps_transaction_install_pkg(xh, cstr(name).as_ptr(), false),
             ),
+            PreviewOp::Reinstall(name) => (
+                name.as_str(),
+                xbps_sys::xbps_transaction_install_pkg(xh, cstr(name).as_ptr(), true),
+            ),
             PreviewOp::Remove(name) => (
                 name.as_str(),
                 xbps_sys::xbps_transaction_remove_pkg(xh, cstr(name).as_ptr(), false),
@@ -1261,6 +1265,7 @@ unsafe fn run_preview_ops(
                 PreviewOp::UpdateAll => TransAction::from_raw(ttype) != TransAction::Install,
                 PreviewOp::Install(n)
                 | PreviewOp::Update(n)
+                | PreviewOp::Reinstall(n)
                 | PreviewOp::Remove(n)
                 | PreviewOp::Purge(n) => n == &pkgname,
             });
