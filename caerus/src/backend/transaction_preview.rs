@@ -4,6 +4,7 @@ pub enum PreviewOp {
     UpdateAll,
     Install(String),
     Update(String),
+    Reinstall(String),
     Remove(String),
     Purge(String),
     #[cfg(feature = "apk")]
