@@ -111,8 +111,23 @@ else
     fi
 
     mkdir -p "$(dirname "$DESKTOP_FILE")" "$(dirname "$APP_ICON")"
-    sed "s|^Exec=caerus\$|Exec=$BIN|" "$SRC_DIR/caerus/data/org.voidlinux.caerus.desktop" \
-        > "$DESKTOP_FILE"
+    # Desktop entries unescape string values before parsing Exec quoting.
+    # Backslashes therefore need four copies, and quoted special characters
+    # need two. Percent signs are escaped separately as Exec field codes.
+    exec_bin=$(printf '%s' "$BIN" | sed \
+        -e 's/\\/\\\\\\\\/g' \
+        -e 's/"/\\\\"/g' \
+        -e 's/`/\\\\`/g' \
+        -e 's/\$/\\\\$/g' \
+        -e 's/%/%%/g')
+    # GIO checks the first executable before expanding %% field codes. Keep
+    # env as that executable so percent signs in the checkout path also work.
+    while IFS= read -r line; do
+        case "$line" in
+            Exec=caerus) printf 'Exec=env -- "%s"\n' "$exec_bin" ;;
+            *) printf '%s\n' "$line" ;;
+        esac
+    done < "$SRC_DIR/caerus/data/org.voidlinux.caerus.desktop" > "$DESKTOP_FILE"
     ln -sf "$SRC_DIR/caerus/data/icons/hicolor/scalable/apps/org.voidlinux.caerus.svg" "$APP_ICON"
     symbolic_icon_paths | while read -r rel; do
         mkdir -p "$DATADIR/icons/$(dirname "$rel")"
