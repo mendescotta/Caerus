@@ -11,8 +11,12 @@ not commit dates.
   inspired by Debian, with availability resolved against the active backend.
 - Optional startup milestone diagnostics through `CAERUS_TRACE_STARTUP=1` and
   a display test for loading real cached repositories without a manual refresh.
-- Dedicated Updates, optional Discover and Maintenance views, with adaptive
-  package details and clearer keyboard/screen-reader navigation.
+- Dedicated Updates and optional Discover views, with adaptive package details
+  and clearer keyboard/screen-reader navigation. Maintenance and tools stay in
+  the sidebar, and narrow windows reach them from an actions menu.
+- Removal choice dialog (remove, purge, or force remove). Force removal
+  (`xbps-remove -F`) always shows the dependents it may break, never touches
+  essential packages, and runs immediately rather than joining the review.
 - Pending changes summary and editable review queue; exact-name search ranking,
   active-filter summaries and loading/empty/error states.
 - Versioned helper progress events, package outcomes and copyable logs.
@@ -25,7 +29,8 @@ not commit dates.
   package list actions, hide titlebar branding, show Discover apps in wrapping
   columns, and let transaction logs fill spare dialog space.
 - Adopt Compact Focus (D): one-line package rows, visible descriptions and version
-  columns, header navigation, and a smaller selection-driven right inspector.
+  columns, header navigation, a sidebar toggle (F9), and a right inspector that
+  follows its toggle as in 0.7.
 - Dependency and relationship sections collapse in the inspector. Narrow windows
   retain their table column choices when returning to the desktop layout.
 - Startup loads cached package data before optional repository synchronization;
@@ -37,13 +42,18 @@ not commit dates.
 - Package rows pair names with descriptions; optional sortable columns retain
   access to installed versions, descriptions, and size information.
 - Narrow windows move navigation to the bottom and show details on a separate
-  page. Package activation selects rather than marking an operation; removal
-  actions are available from the package actions menu.
+  page. Double-clicking a package toggles its mark again, as in 0.7.
 - Transaction previews show net disk growth/shrinkage instead of total payload size.
 - Failed or missing previews block Apply; mixed operation types use separate
   reviewed steps and remaining marks survive reloads.
 - Failed changes reload current state before another review instead of offering
   a force retry. System upgrades use already-reviewed repository metadata.
+
+### Fixed
+- While a reviewed apply sequence runs, every page, the narrow actions menu and
+  the review bar are locked, so no other action or mark change can start between
+  steps.
+- Force-removal progress lists the packages being removed.
 
 ## [0.7.2] - 2026-10-13
 
