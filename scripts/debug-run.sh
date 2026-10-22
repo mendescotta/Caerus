@@ -23,14 +23,24 @@ for arg in "$@"; do
     case "$arg" in
         --fatal-criticals) FATAL_CRITICALS=1 ;;
         --no-build)        DO_BUILD=0 ;;
+        *)
+            echo "Usage: $0 [--fatal-criticals] [--no-build]" >&2
+            exit 1
+            ;;
     esac
 done
 
 BIN="$REPO/target/daily/caerus"
 
+# Chimera Linux builds the APK backend; everything else uses XBPS.
+FEATURES=()
+if [[ -r /etc/os-release ]] && [[ "$(. /etc/os-release && echo "${ID:-}")" == chimera ]]; then
+    FEATURES=(-p caerus -p caerus-helper --no-default-features --features caerus/apk)
+fi
+
 if [[ $DO_BUILD -eq 1 ]]; then
     echo "Building (profile: daily)…"
-    cargo build --manifest-path "$REPO/Cargo.toml" --profile daily --quiet
+    cargo build --manifest-path "$REPO/Cargo.toml" --profile daily --quiet "${FEATURES[@]}"
 fi
 
 if [[ ! -x "$BIN" ]]; then
@@ -46,7 +56,8 @@ export RUST_BACKTRACE=full
 export G_MESSAGES_DEBUG=all
 [[ $FATAL_CRITICALS -eq 1 ]] && export G_DEBUG=fatal-criticals
 
-ulimit -c unlimited
+# A hard limit below "unlimited" must not abort the run under errexit.
+ulimit -c unlimited 2>/dev/null || echo "note: core dumps limited ($(ulimit -c))" >&2
 
 {
     echo "=== caerus debug run $TIMESTAMP ==="

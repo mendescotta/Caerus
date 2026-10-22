@@ -24,8 +24,7 @@ serde = { version = "1", features = ["derive"], optional = true }
 # all. Enable with `--features adwaita` when building/packaging for a
 # system where libadwaita is expected to be present — this is a
 # build-time choice (whoever builds Caerus picks one or the other), not
-# something a single binary detects per-machine at runtime. See
-# DISCLAIMER.md/CONTRIBUTING.md for what it currently changes.
+# something a single binary detects per-machine at runtime.
 [features]
 default = ["xbps"]
 xbps = ["dep:xbps-sys"]

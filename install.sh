@@ -18,8 +18,10 @@ SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 if [ "$SCOPE" = system ]; then
     if [ "$(id -u)" -ne 0 ]; then
+        flag=""
+        [ "$MODE" = uninstall ] && flag=" --uninstall"
         echo "System-wide mode needs root, e.g.:" >&2
-        echo "  sudo $0${MODE:+ --uninstall}" >&2
+        echo "  sudo $0$flag   (or doas)" >&2
         echo "...or add --user for a no-root, this-user-only install." >&2
         exit 1
     fi
