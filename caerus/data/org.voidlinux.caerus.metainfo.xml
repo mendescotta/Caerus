@@ -15,14 +15,20 @@
     <p>
       Features a sortable, searchable package table with bulk marking; a real
       transaction preview computed by libxbps itself before anything is applied;
-      dependency and reverse-dependency impact checks; full system upgrade, orphan
-      removal, and package database verification; and repository management.
+      dependency and reverse-dependency impact checks; an Updates view and a
+      Discover catalog of applications; full system upgrade, orphan removal, and
+      package database verification; and repository management. An optional
+      build targets Chimera Linux and APK.
     </p>
   </description>
   <screenshots>
     <screenshot type="default">
       <image>https://raw.githubusercontent.com/mendescotta/Caerus/main/screenshots/main-window.png</image>
-      <caption>Main window: sortable package table with state and repository filters</caption>
+      <caption>Main window: package table with filters, pending changes and details</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/mendescotta/Caerus/main/screenshots/discover.png</image>
+      <caption>Discover: applications by category</caption>
     </screenshot>
   </screenshots>
   <developer id="io.github.mendescotta">
@@ -34,6 +40,7 @@
   <url type="vcs-browser">https://github.com/mendescotta/Caerus</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.8.0" date="2026-10-22"/>
     <release version="0.7.3" date="2026-10-18"/>
     <release version="0.7.2" date="2026-10-13"/>
     <release version="0.7.1" date="2026-10-05"/>
