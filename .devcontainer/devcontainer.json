@@ -1,0 +1,16 @@
+{
+  "name": "caerus Rust development",
+  "image": "ghcr.io/void-linux/void-glibc-full@sha256:9533af64ff46c0173b671ebc3477857c622afdb36eaf11f51419adb0a32f9f90",
+  "postCreateCommand": "xbps-install -Sy && xbps-install -uy xbps && xbps-install -Suy && xbps-install -y base-devel libxbps-devel gtk4-devel libadwaita-devel pkg-config rust cargo clang zstd",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer"
+      ],
+      "settings": {
+        "rust-analyzer.check.command": "clippy"
+      }
+    }
+  },
+  "remoteUser": "root"
+}
