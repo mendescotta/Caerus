@@ -241,6 +241,32 @@ impl PackageStore {
         out
     }
 
+    /// Current copy of one package, or `None` once it is gone from the list.
+    pub fn package(&self, pkgname: &str) -> Option<Package> {
+        let mut out = None;
+        self.for_each(|o| {
+            if out.is_none() && o.name() == pkgname {
+                out = Some(o.pkg().clone());
+            }
+        });
+        out
+    }
+
+    /// State and mark of just the named packages, without copying the rest.
+    pub fn states_and_marks_of(
+        &self,
+        names: &HashSet<String>,
+    ) -> HashMap<String, (PkgState, PkgMark)> {
+        let mut out = HashMap::new();
+        self.for_each(|o| {
+            let p = o.pkg();
+            if names.contains(&p.name) {
+                out.insert(p.name.clone(), (p.state, p.mark));
+            }
+        });
+        out
+    }
+
     pub fn state_and_mark_snapshot(&self) -> HashMap<String, (PkgState, PkgMark)> {
         let mut out = HashMap::new();
         self.for_each(|o| {

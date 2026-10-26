@@ -60,6 +60,9 @@ struct WindowState {
     search_name_only_default: std::cell::Cell<bool>,
     auto_close_on_success: std::cell::Cell<bool>,
     action_busy: Cell<bool>,
+    /// A repository SYNC is in flight. Marks stay editable, but nothing may
+    /// preview or run a transaction against the index it is about to replace.
+    syncing: Cell<bool>,
 }
 
 struct WindowGeometry {
@@ -482,6 +485,7 @@ fn build_window_state(
         search_name_only_default: std::cell::Cell::new(geometry.search_name_only_default),
         auto_close_on_success: std::cell::Cell::new(geometry.auto_close_on_success),
         action_busy: Cell::new(false),
+        syncing: Cell::new(false),
     });
 
     {
@@ -1141,18 +1145,21 @@ fn wire_up(state: &Rc<WindowState>) {
         let state = state.clone();
         store.connect_load_finished(move |n| {
             set_loading(&state, false);
-            crate::startup::trace(format_args!(
-                "loading completed: {n} packages, {} visible",
-                state.pkg_list.visible_counts().0
-            ));
-            let seen_frame = std::cell::Cell::new(false);
-            state.pkg_list.widget().add_tick_callback(move |_, _| {
-                if !seen_frame.replace(true) {
-                    return glib::ControlFlow::Continue;
-                }
-                crate::startup::trace("package list frame ready");
-                glib::ControlFlow::Break
-            });
+            if crate::startup::enabled() {
+                crate::startup::trace(format_args!(
+                    "loading completed: {n} packages, {} visible",
+                    state.pkg_list.visible_counts().0
+                ));
+                let seen_frame = std::cell::Cell::new(false);
+                state.pkg_list.widget().add_tick_callback(move |_, _| {
+                    if !seen_frame.replace(true) {
+                        return glib::ControlFlow::Continue;
+                    }
+                    crate::startup::trace("package list frame ready");
+                    glib::ControlFlow::Break
+                });
+            }
+            refresh_selected_package(&state);
             update_status_bar(&state);
             refresh_workflow_packages(&state);
             state.sidebar.set_available_repositories(
@@ -1456,6 +1463,15 @@ fn wire_up(state: &Rc<WindowState>) {
     }
 }
 
+const BLOCKED_MESSAGE: &str =
+    "Wait for the current sync, reload or transaction to finish, then try again.";
+
+/// Whether a transaction, reload or repository sync currently owns the
+/// package state, so no new action may start.
+fn actions_blocked(state: &WindowState) -> bool {
+    state.action_busy.get() || state.store.is_loading() || state.syncing.get()
+}
+
 fn set_loading(state: &Rc<WindowState>, loading: bool) {
     state.workflows.set_loading(loading);
     state.pkg_list.set_loading(loading);
@@ -1469,7 +1485,7 @@ fn set_loading(state: &Rc<WindowState>, loading: bool) {
         state.btn_mark_upgrades.set_sensitive(false);
     } else {
         state.spinner.stop();
-        let available = !state.action_busy.get() && !state.store.is_loading();
+        let available = !actions_blocked(state);
         state.btn_update.set_sensitive(available);
         state.btn_reload.set_sensitive(available);
         state.menu_button.set_sensitive(available);
@@ -1478,7 +1494,7 @@ fn set_loading(state: &Rc<WindowState>, loading: bool) {
 
 fn set_action_busy(state: &Rc<WindowState>, busy: bool) {
     state.action_busy.set(busy);
-    let available = !busy && !state.store.is_loading();
+    let available = !actions_blocked(state);
     state.btn_update.set_sensitive(available);
     state.btn_reload.set_sensitive(available);
     state.menu_button.set_sensitive(available);
@@ -1501,12 +1517,24 @@ fn set_action_busy(state: &Rc<WindowState>, busy: bool) {
     state.pending_bar.set_sensitive(!busy);
 }
 
+/// A reload replaces every list item without a selection-changed signal, so
+/// re-read the inspected package (or clear the pane if it is gone) instead of
+/// leaving its pre-reload state and actions on screen.
+fn refresh_selected_package(state: &Rc<WindowState>) {
+    let Some(name) = state.selected_pkg.borrow().as_ref().map(|p| p.name.clone()) else {
+        return;
+    };
+    let current = state.store.package(&name);
+    state.detail_pane.show_package(current.as_ref());
+    *state.selected_pkg.borrow_mut() = current;
+}
+
 fn do_reload(state: &Rc<WindowState>) {
     state.store.load_async();
 }
 
 fn trigger_update(state: &Rc<WindowState>, sync_first: bool, silent: bool) {
-    if state.action_busy.get() || state.store.is_loading() {
+    if actions_blocked(state) {
         return;
     }
     set_loading(state, true);
@@ -1517,11 +1545,13 @@ fn trigger_update(state: &Rc<WindowState>, sync_first: bool, silent: bool) {
             "Syncing repositories\u{2026}"
         });
         let commands = vec!["SYNC".to_string()];
+        state.syncing.set(true);
         if silent {
             let state2 = state.clone();
             let commands_for_history = commands.clone();
             state.session.run_batch(commands, move |success| {
                 crate::backend::history::record(&commands_for_history, success);
+                state2.syncing.set(false);
                 state2.workflows.sync_finished(success);
                 if success {
                     show_toast(&state2, "Repositories synced. Loading package list\u{2026}");
@@ -1538,6 +1568,7 @@ fn trigger_update(state: &Rc<WindowState>, sync_first: bool, silent: bool) {
                 &commands,
                 "Syncing Repositories",
                 move |success| {
+                    state2.syncing.set(false);
                     state2.workflows.sync_finished(success);
                     if !success {
                         show_toast(
@@ -1801,7 +1832,7 @@ fn run_next_apply_step(state: &Rc<WindowState>, flow: &Rc<RefCell<ApplyFlow>>) {
 }
 
 fn on_apply_clicked(state: &Rc<WindowState>) {
-    if state.action_busy.get() || state.store.is_loading() {
+    if actions_blocked(state) {
         return;
     }
     let installs = state.store.marked_names(PkgMark::Install);
@@ -1824,7 +1855,7 @@ fn on_apply_clicked(state: &Rc<WindowState>) {
 }
 
 fn on_reinstall_requested(state: &Rc<WindowState>, pkgname: &str) {
-    if state.action_busy.get() || state.store.is_loading() {
+    if actions_blocked(state) {
         return;
     }
     set_action_busy(state, true);
@@ -1913,7 +1944,7 @@ fn held_back_note(held: &[String]) -> String {
 }
 
 fn on_full_upgrade_clicked(state: &Rc<WindowState>) {
-    if state.action_busy.get() || state.store.is_loading() {
+    if actions_blocked(state) {
         return;
     }
     set_action_busy(state, true);
@@ -2140,6 +2171,12 @@ fn on_reconfigure_all_clicked(state: &Rc<WindowState>) {
 }
 
 fn run_maintenance_command(state: &Rc<WindowState>, cmd: &str, title: &str) {
+    // Every privileged one-off command passes here, from the sidebar, the
+    // details pane and confirmation dialogs alike.
+    if actions_blocked(state) {
+        show_toast(state, BLOCKED_MESSAGE);
+        return;
+    }
     let state2 = state.clone();
     apply_dialog::run_recorded(
         Some(state.window.upcast_ref()),
@@ -2250,16 +2287,16 @@ fn update_apply_button(state: &Rc<WindowState>, marked: u32) {
     );
     state
         .btn_apply
-        .set_sensitive(marked > 0 && !state.action_busy.get() && !state.store.is_loading());
+        .set_sensitive(marked > 0 && !actions_blocked(state));
     state
         .btn_unmark_all
-        .set_sensitive(marked > 0 && !state.action_busy.get() && !state.store.is_loading());
+        .set_sensitive(marked > 0 && !actions_blocked(state));
 }
 
 fn update_mark_upgrades_button(state: &Rc<WindowState>, upgradable: u32) {
     state
         .btn_mark_upgrades
-        .set_sensitive(upgradable > 0 && !state.action_busy.get() && !state.store.is_loading());
+        .set_sensitive(upgradable > 0 && !actions_blocked(state));
 }
 
 fn dispatch_action(state: &Rc<WindowState>, action: crate::ui::filter_sidebar::SidebarAction) {
@@ -2311,6 +2348,10 @@ fn dispatch_action(state: &Rc<WindowState>, action: crate::ui::filter_sidebar::S
 
 /// `xbps-remove -F` after an explicit warning; never queued with marks.
 fn force_remove(state: &Rc<WindowState>, names: Vec<String>) {
+    if actions_blocked(state) {
+        show_toast(state, BLOCKED_MESSAGE);
+        return;
+    }
     let wanted: std::collections::HashSet<String> = names.into_iter().collect();
     let mut removable = Vec::new();
     let mut essential = Vec::new();

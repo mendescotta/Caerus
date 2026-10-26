@@ -219,6 +219,21 @@ impl PackageStore {
             .find(|p| p.name == n)
             .map(|p| (p.state, p.mark))
     }
+    /// Current copy of one package, or `None` once it is gone from the list.
+    pub fn package(&self, n: &str) -> Option<Package> {
+        self.all().into_iter().find(|p| p.name == n)
+    }
+    /// State and mark of just the named packages, without copying the rest.
+    pub fn states_and_marks_of(
+        &self,
+        names: &HashSet<String>,
+    ) -> HashMap<String, (PkgState, PkgMark)> {
+        self.all()
+            .into_iter()
+            .filter(|p| names.contains(&p.name))
+            .map(|p| (p.name, (p.state, p.mark)))
+            .collect()
+    }
     pub fn state_and_mark_snapshot(&self) -> HashMap<String, (PkgState, PkgMark)> {
         self.all()
             .into_iter()

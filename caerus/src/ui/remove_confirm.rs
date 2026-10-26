@@ -129,40 +129,52 @@ fn show_impact_dialog(
     affected: Vec<(String, String)>,
     cb: impl Fn(bool) + 'static,
 ) {
-    show_impact_dialog_with(parent, roots, affected, &REMOVE_IMPACT, cb);
+    show_impact_dialog_with(parent, roots, Some(affected), &REMOVE_IMPACT, cb);
+}
+
+/// Dialog heading; `affected` is `None` when the dependency check failed,
+/// which must never read as "nothing depends on it".
+fn impact_heading(verb: &str, subject: &str, affected: Option<usize>) -> String {
+    match affected {
+        None => format!(
+            "{verb} {subject}: could not check which installed packages depend on it, \
+             so packages that need it may break."
+        ),
+        Some(0) => format!("{verb} {subject}: no other installed package depends on it."),
+        Some(n) => format!(
+            "{verb} {subject} may break {n} other installed package{} that depend{} on it:",
+            if n == 1 { "" } else { "s" },
+            if n == 1 { "s" } else { "" },
+        ),
+    }
+}
+
+fn subject_of(roots: &[String]) -> String {
+    match roots {
+        [one] => one.clone(),
+        many => format!("{} selected packages", many.len()),
+    }
 }
 
 fn show_impact_dialog_with(
     parent: Option<&gtk::Window>,
     roots: &[String],
-    affected: Vec<(String, String)>,
+    affected: Option<Vec<(String, String)>>,
     text: &ImpactText,
     cb: impl Fn(bool) + 'static,
 ) {
+    let heading_text = impact_heading(
+        text.verb,
+        &subject_of(roots),
+        affected.as_ref().map(Vec::len),
+    );
+    let affected = affected.unwrap_or_default();
     let n = affected.len();
     let cb: Rc<dyn Fn(bool)> = Rc::new(cb);
 
     let (dlg, outer) = modal_window(text.title, parent, true, (420, -1), 10);
 
-    let subject = match roots {
-        [one] => one.clone(),
-        many => format!("{} selected packages", many.len()),
-    };
-    let heading = gtk::Label::new(Some(&if n == 0 {
-        format!(
-            "{} {subject}: no other installed package depends on it.",
-            text.verb
-        )
-    } else {
-        format!(
-            "{} {} may break {} other installed package{} that depend{} on it:",
-            text.verb,
-            subject,
-            n,
-            if n == 1 { "" } else { "s" },
-            if n == 1 { "s" } else { "" },
-        )
-    }));
+    let heading = gtk::Label::new(Some(&heading_text));
     heading.set_xalign(0.0);
     heading.set_wrap(true);
     outer.append(&heading);
@@ -267,7 +279,8 @@ pub fn confirm_force_remove(
     let snapshot = store.state_and_mark_snapshot();
     let parent = parent.cloned();
     store.get_rdeps_transitive_many_async(names, move |rdeps| {
-        let affected = bulk_affected(&roots, &snapshot, rdeps.unwrap_or_default());
+        // A failed lookup is reported as unknown, never as "no dependents".
+        let affected = rdeps.map(|rdeps| bulk_affected(&roots, &snapshot, rdeps));
         let mut roots: Vec<String> = roots.into_iter().collect();
         roots.sort();
         show_impact_dialog_with(parent.as_ref(), &roots, affected, &FORCE_IMPACT, cb);
@@ -452,6 +465,18 @@ mod tests {
     fn bulk_affected_drops_names_absent_from_the_snapshot() {
         let affected = bulk_affected(&roots(&["a"]), &HashMap::new(), rdeps(&[("x", "a")]));
         assert!(affected.is_empty());
+    }
+
+    #[test]
+    fn failed_dependency_check_is_not_reported_as_no_dependents() {
+        let unknown = impact_heading("Force-removing", "foo", None);
+        assert!(unknown.contains("could not check"), "{unknown}");
+        assert!(!unknown.contains("no other installed package"), "{unknown}");
+        assert!(impact_heading("Removing", "foo", Some(0)).contains("no other installed package"));
+        assert_eq!(
+            impact_heading("Removing", "foo", Some(1)),
+            "Removing foo may break 1 other installed package that depends on it:"
+        );
     }
 
     #[test]
