@@ -23,7 +23,7 @@ jobs:
           xbps-install -Suy
           xbps-install -y base-devel libxbps-devel gtk4-devel libadwaita-devel pkg-config rust cargo git clang zstd
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: Swatinem/rust-cache@v2
         with:

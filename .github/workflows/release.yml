@@ -24,7 +24,7 @@ jobs:
           xbps-install -Suy
           xbps-install -y base-devel libxbps-devel gtk4-devel libadwaita-devel pkg-config rust cargo clang zstd git github-cli
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
