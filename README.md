@@ -60,6 +60,8 @@ cargo build --release -p caerus -p caerus-helper --no-default-features --feature
 Add `--features caerus/adwaita` (needs `libadwaita-devel`) for the libadwaita
 look. Then install system-wide with `./install.sh` as root, or register the
 build for your user only with `./install.sh --user`. Both accept `--uninstall`.
+System-wide installation requires the `/usr` layout; custom `PREFIX` values
+are rejected because helper discovery and polkit authorization use fixed paths.
 
 ## Chimera (APK) backend
 
