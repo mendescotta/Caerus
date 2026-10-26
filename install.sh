@@ -17,13 +17,24 @@ done
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 if [ "$SCOPE" = system ]; then
-    # Helper discovery and the polkit action use the fixed /usr layout.
-    # Refuse other layouts before installing or removing any files.
+    # Helper discovery and the polkit action use the fixed /usr layout, so
+    # installs require it. Uninstall also accepts another absolute prefix to
+    # clean up an older non-/usr install, but never a relative or `..` path.
+    # Both checks run before any file is installed or removed.
     PREFIX="${PREFIX:-/usr}"
-    if [ "$PREFIX" != /usr ]; then
-        echo "Unsupported system PREFIX: $PREFIX. Caerus requires PREFIX=/usr for helper discovery and polkit authorization." >&2
-        exit 1
-    fi
+    case "$MODE:$PREFIX" in
+        install:/usr | uninstall:/*) ;;
+        *)
+            echo "Unsupported system PREFIX: $PREFIX. Caerus requires PREFIX=/usr for helper discovery and polkit authorization." >&2
+            exit 1
+            ;;
+    esac
+    case "$PREFIX/" in
+        */../* | */./*)
+            echo "Unsupported system PREFIX: $PREFIX. Use a normalized absolute path." >&2
+            exit 1
+            ;;
+    esac
     if [ "$(id -u)" -ne 0 ]; then
         flag=""
         [ "$MODE" = uninstall ] && flag=" --uninstall"

@@ -313,7 +313,6 @@ fn make_custom_filter_row(name: &str, kind: FilterKind) -> gtk::ListBoxRow {
     l.set_hexpand(true);
     l.set_max_width_chars(24);
     l.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    l.set_ellipsize(gtk::pango::EllipsizeMode::End);
     row_box.append(&l);
 
     let row = gtk::ListBoxRow::new();
@@ -334,7 +333,6 @@ fn make_text_row(label: &str) -> gtk::ListBoxRow {
     l.set_xalign(0.0);
     l.set_hexpand(true);
     l.set_max_width_chars(24);
-    l.set_ellipsize(gtk::pango::EllipsizeMode::End);
     l.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
     row_box.append(&l);
 
@@ -356,7 +354,6 @@ fn build_repo_row(inner: &Rc<Inner>, url: String, stale: bool) -> gtk::ListBoxRo
     l.set_xalign(0.0);
     l.set_hexpand(true);
     l.set_max_width_chars(24);
-    l.set_ellipsize(gtk::pango::EllipsizeMode::End);
     l.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
     if stale {
         l.add_css_class("dim-label");

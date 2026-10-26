@@ -224,7 +224,20 @@ impl PackageList {
             sizes.is_visible(),
             "responsive changes must preserve optional column choices"
         );
+        // Choices made in the columns popover while narrow survive widening.
         sizes.set_visible(false);
+        self.set_narrow(true);
+        sizes.set_visible(true);
+        self.set_narrow(false);
+        assert!(sizes.is_visible(), "a column enabled while narrow stays on");
+        self.set_narrow(true);
+        sizes.set_visible(true);
+        sizes.set_visible(false);
+        self.set_narrow(false);
+        assert!(
+            !sizes.is_visible(),
+            "a column disabled while narrow stays off"
+        );
     }
 
     #[cfg(test)]
@@ -284,9 +297,11 @@ impl PackageList {
         if self.inner.narrow.replace(narrow) == narrow {
             return;
         }
+        // Hiding or showing a column fires its popover toggle synchronously,
+        // so never hold the `wide_columns` borrow across `set_visible`.
         if narrow {
             if let Some(view) = self.inner.column_view.borrow().as_ref() {
-                let mut saved = self.inner.wide_columns.borrow_mut();
+                let mut saved = Vec::new();
                 for column in view.columns().iter::<gtk::ColumnViewColumn>().flatten() {
                     if column.title().as_deref() == Some("Package") {
                         column.set_expand(true);
@@ -299,6 +314,7 @@ impl PackageList {
                         column.set_visible(false);
                     }
                 }
+                *self.inner.wide_columns.borrow_mut() = saved;
             }
         } else {
             if let Some(view) = self.inner.column_view.borrow().as_ref() {
@@ -308,7 +324,8 @@ impl PackageList {
                     }
                 }
             }
-            for (column, visible) in self.inner.wide_columns.borrow_mut().drain(..) {
+            let saved = std::mem::take(&mut *self.inner.wide_columns.borrow_mut());
+            for (column, visible) in saved {
                 column.set_visible(visible);
             }
         }
@@ -939,6 +956,20 @@ fn build(inner: Rc<Inner>) {
             .bidirectional()
             .sync_create()
             .build();
+        // A column the user toggles while narrow keeps that choice when the
+        // window widens instead of reverting to its saved wide visibility.
+        let weak = Rc::downgrade(&inner);
+        let toggled_column = column.clone();
+        toggle.connect_toggled(move |_| {
+            if let Some(inner) = weak.upgrade() {
+                if inner.narrow.get() {
+                    inner
+                        .wide_columns
+                        .borrow_mut()
+                        .retain(|(column, _)| column != &toggled_column);
+                }
+            }
+        });
         options.append(&toggle);
     }
     columns_popover.set_child(Some(&options));
