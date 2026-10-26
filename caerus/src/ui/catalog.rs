@@ -119,6 +119,18 @@ pub const CATALOG: &[CatalogApp] = &[
         "hexchat"
     ),
     app!("Mail & communication", "Dino", "dino.desktop", "dino"),
+    app!(
+        "Mail & communication",
+        "Polari",
+        "org.gnome.Polari.desktop",
+        "polari"
+    ),
+    app!(
+        "Mail & communication",
+        "Sylpheed",
+        "sylpheed.desktop",
+        "sylpheed"
+    ),
     app!("Mail & communication", "Gajim", "gajim.desktop", "gajim"),
     app!(
         "Mail & communication",
@@ -158,6 +170,18 @@ pub const CATALOG: &[CatalogApp] = &[
         "gnumeric"
     ),
     app!("Office & documents", "Evince", "evince.desktop", "evince"),
+    app!(
+        "Office & documents",
+        "Gnote",
+        "org.gnome.Gnote.desktop",
+        "gnote"
+    ),
+    app!(
+        "Office & documents",
+        "ghostwriter",
+        "org.kde.ghostwriter.desktop",
+        "ghostwriter"
+    ),
     app!("Office & documents", "Okular", "okular.desktop", "okular"),
     app!(
         "Office & documents",
@@ -248,6 +272,13 @@ pub const CATALOG: &[CatalogApp] = &[
     ),
     app!("Graphics", "Viewnior", "viewnior.desktop", "viewnior"),
     app!("Graphics", "Ristretto", "ristretto.desktop", "ristretto"),
+    app!(
+        "Graphics",
+        "nomacs",
+        "org.nomacs.ImageLounge.desktop",
+        "nomacs"
+    ),
+    app!("Graphics", "Loupe", "org.gnome.Loupe.desktop", "loupe"),
     app!("Sound", "Audacity", "audacity.desktop", "audacity"),
     app!("Sound", "Ardour", "ardour.desktop", "ardour"),
     app!("Sound", "LMMS", "lmms.desktop", "lmms"),
@@ -276,6 +307,13 @@ pub const CATALOG: &[CatalogApp] = &[
         "soundconverter.desktop",
         "soundconverter"
     ),
+    app!("Sound", "Mixxx", "org.mixxx.Mixxx.desktop", "mixxx"),
+    app!(
+        "Sound",
+        "QjackCtl",
+        "org.rncbc.qjackctl.desktop",
+        "qjackctl"
+    ),
     app!("Video", "VLC", "vlc.desktop", "vlc"),
     app!("Video", "mpv", "mpv.desktop", "mpv"),
     app!("Video", "Celluloid", "celluloid.desktop", "celluloid"),
@@ -294,6 +332,8 @@ pub const CATALOG: &[CatalogApp] = &[
     app!("Video", "HandBrake", "HandBrake.desktop", "HandBrake"),
     app!("Video", "FFmpeg", "ffmpeg.desktop", "ffmpeg"),
     app!("Video", "yt-dlp", "yt-dlp.desktop", "yt-dlp"),
+    app!("Video", "Kodi", "org.xbmc.kodi.desktop", "kodi"),
+    app!("Video", "Kamoso", "org.kde.kamoso.desktop", "kamoso"),
     app!(
         "Games",
         "SuperTuxKart",
@@ -319,6 +359,42 @@ pub const CATALOG: &[CatalogApp] = &[
         "warzone2100"
     ),
     app!("Games", "GNOME Chess", "gnome-chess.desktop", "gnome-chess"),
+    app!(
+        "Games",
+        "Five or More",
+        "org.gnome.five-or-more.desktop",
+        "five-or-more"
+    ),
+    app!(
+        "Games",
+        "Four-in-a-row",
+        "org.gnome.Four-in-a-row.desktop",
+        "four-in-a-row"
+    ),
+    app!(
+        "Games",
+        "GNOME Mines",
+        "org.gnome.Mines.desktop",
+        "gnome-mines"
+    ),
+    app!(
+        "Games",
+        "GNOME Mahjongg",
+        "org.gnome.Mahjongg.desktop",
+        "gnome-mahjongg"
+    ),
+    app!(
+        "Games",
+        "GNOME Tetravex",
+        "org.gnome.Tetravex.desktop",
+        "gnome-tetravex"
+    ),
+    app!(
+        "Games",
+        "Quadrapassel",
+        "org.gnome.Quadrapassel.desktop",
+        "quadrapassel"
+    ),
     app!(
         "Games",
         "GNOME Sudoku",
@@ -347,6 +423,7 @@ pub const CATALOG: &[CatalogApp] = &[
     app!("Education", "Kalzium", "kalzium.desktop", "kalzium"),
     app!("Education", "KTurtle", "kturtle.desktop", "kturtle"),
     app!("Education", "Parley", "parley.desktop", "parley"),
+    app!("Education", "Marble", "org.kde.marble.desktop", "marble"),
     app!(
         "Science & mathematics",
         "Stellarium",
@@ -417,10 +494,28 @@ pub const CATALOG: &[CatalogApp] = &[
     ),
     app!("Science & mathematics", "QGIS", "qgis.desktop", "qgis"),
     app!(
+        "Science & mathematics",
+        "LabPlot",
+        "org.kde.labplot.desktop",
+        "labplot"
+    ),
+    app!(
         "Development",
         "GNOME Builder",
         "org.gnome.Builder.desktop",
         "gnome-builder"
+    ),
+    app!(
+        "Development",
+        "Devhelp",
+        "org.gnome.Devhelp.desktop",
+        "devhelp"
+    ),
+    app!(
+        "Development",
+        "GNOME Hex Editor",
+        "org.gnome.GHex.desktop",
+        "ghex"
     ),
     app!(
         "Development",
@@ -454,6 +549,12 @@ pub const CATALOG: &[CatalogApp] = &[
         "sqlitebrowser"
     ),
     app!(
+        "Development",
+        "KDevelop",
+        "org.kde.kdevelop.desktop",
+        "kdevelop"
+    ),
+    app!(
         "Network",
         "Transmission",
         "transmission-gtk.desktop",
@@ -477,10 +578,83 @@ pub const CATALOG: &[CatalogApp] = &[
     app!("Network", "Nicotine+", "nicotine+.desktop", "nicotine+"),
     app!("Network", "OpenSSH", "openssh.desktop", "openssh"),
     app!(
+        "Network",
+        "KDE Connect",
+        "org.kde.kdeconnect.app.desktop",
+        "kdeconnect"
+    ),
+    app!("Network", "KRDC", "org.kde.krdc.desktop", "krdc"),
+    app!(
+        "Network",
+        "KTorrent",
+        "org.kde.ktorrent.desktop",
+        "ktorrent"
+    ),
+    app!(
         "Utilities",
         "GNOME Disks",
         "gnome-disk-utility.desktop",
         "gnome-disk-utility"
+    ),
+    app!(
+        "Utilities",
+        "GNOME Calculator",
+        "org.gnome.Calculator.desktop",
+        "gnome-calculator"
+    ),
+    app!(
+        "Office & documents",
+        "GNOME Calendar",
+        "org.gnome.Calendar.desktop",
+        "gnome-calendar"
+    ),
+    app!(
+        "Network",
+        "GNOME Maps",
+        "org.gnome.Maps.desktop",
+        "gnome-maps"
+    ),
+    app!(
+        "Utilities",
+        "GNOME Clocks",
+        "org.gnome.clocks.desktop",
+        "gnome-clocks"
+    ),
+    app!(
+        "Utilities",
+        "GNOME Characters",
+        "org.gnome.Characters.desktop",
+        "gnome-characters"
+    ),
+    app!(
+        "Network",
+        "GNOME Connections",
+        "org.gnome.Connections.desktop",
+        "gnome-connections"
+    ),
+    app!(
+        "Utilities",
+        "GNOME Console",
+        "org.gnome.Console.desktop",
+        "gnome-console"
+    ),
+    app!(
+        "Utilities",
+        "Document Scanner",
+        "simple-scan.desktop",
+        "simple-scan"
+    ),
+    app!(
+        "Utilities",
+        "Snapshot",
+        "org.gnome.Snapshot.desktop",
+        "snapshot"
+    ),
+    app!(
+        "Utilities",
+        "Dconf Editor",
+        "ca.desrt.dconf-editor.desktop",
+        "dconf-editor"
     ),
     app!("Utilities", "GParted", "gparted.desktop", "gparted"),
     app!("Utilities", "Baobab", "baobab.desktop", "baobab"),
@@ -516,6 +690,8 @@ pub const CATALOG: &[CatalogApp] = &[
     app!("Utilities", "Dolphin", "dolphin.desktop", "dolphin"),
     app!("Utilities", "PCManFM", "pcmanfm.desktop", "pcmanfm"),
     app!("Utilities", "Tilix", "tilix.desktop", "tilix"),
+    app!("Utilities", "Tellico", "org.kde.tellico.desktop", "tellico"),
+    app!("Utilities", "Ark", "org.kde.ark.desktop", "ark"),
 ];
 
 pub fn contains_package(name: &str) -> bool {
@@ -576,8 +752,17 @@ mod tests {
     #[test]
     fn catalog_has_consistent_sections_and_unique_package_aliases() {
         let mut aliases = HashSet::new();
+        let mut names = HashSet::new();
+        let mut desktop_ids = HashSet::new();
         for app in CATALOG {
             assert!(CATEGORIES.contains(&app.category), "{}", app.name);
+            assert!(names.insert(app.name), "duplicate app name: {}", app.name);
+            assert!(!app.desktop.is_empty(), "missing desktop id: {}", app.name);
+            assert!(
+                desktop_ids.insert(app.desktop),
+                "duplicate desktop id: {}",
+                app.desktop
+            );
             assert!(!app.packages.is_empty());
             for name in app.packages {
                 assert!(aliases.insert(name), "duplicate alias: {name}");

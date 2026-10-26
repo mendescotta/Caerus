@@ -272,7 +272,8 @@ impl Transaction {
         let tx_err = line_tx;
         let err_handle = thread::spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                if tx_err.send(line).is_err() {
+                // Authentication/helper diagnostics are never protocol messages.
+                if tx_err.send(diagnostic_line(&line)).is_err() {
                     break;
                 }
             }
@@ -492,10 +493,34 @@ fn command_is_safe(command: &str) -> bool {
     !command.chars().any(char::is_control)
 }
 
+fn diagnostic_line(line: &str) -> String {
+    format!("LOG {line}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::os::unix::fs::MetadataExt;
+
+    #[test]
+    fn stderr_cannot_complete_or_advance_a_batch() {
+        let txn = Transaction::without_poll();
+        txn.inner.state.set(TxnState::Busy);
+        let result = Rc::new(Cell::new(None));
+        let callback = result.clone();
+        txn.inner.batches.borrow_mut().push_back(Batch {
+            commands: VecDeque::from(["REMOVE next".into()]),
+            on_finished: Some(Box::new(move |ok| callback.set(Some(ok)))),
+        });
+        for line in ["OK", "READY", "ERROR diagnostic", "EVENT 1\\tfinished\\t1"] {
+            txn.handle_line(&diagnostic_line(line));
+        }
+        assert_eq!(result.get(), None);
+        assert_eq!(txn.inner.state.get(), TxnState::Busy);
+        assert_eq!(txn.inner.batches.borrow()[0].commands.len(), 1);
+        txn.fail_all_batches();
+        assert_eq!(result.get(), Some(false));
+    }
 
     /// Scratch directory under the system temp dir, removed on drop.
     struct Scratch(PathBuf);
