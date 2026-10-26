@@ -734,6 +734,11 @@ fn preview(ops: &[PreviewOp]) -> Result<TransactionPreview, TransactionError> {
             PreviewOp::Install(name) => ("add", name),
             PreviewOp::Update(name) => ("upgrade", name),
             PreviewOp::Remove(name) => ("del", name),
+            PreviewOp::Reinstall(name) => {
+                return Err(TransactionError::Other(format!(
+                    "Reinstallation is unavailable with the APK backend ({name})"
+                )));
+            }
             PreviewOp::Purge(name) => {
                 return Err(TransactionError::Other(format!(
                     "APK does not provide Void-style recursive purge ({name})"
