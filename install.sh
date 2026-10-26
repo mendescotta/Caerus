@@ -17,6 +17,13 @@ done
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 if [ "$SCOPE" = system ]; then
+    # Helper discovery and the polkit action use the fixed /usr layout.
+    # Refuse other layouts before installing or removing any files.
+    PREFIX="${PREFIX:-/usr}"
+    if [ "$PREFIX" != /usr ]; then
+        echo "Unsupported system PREFIX: $PREFIX. Caerus requires PREFIX=/usr for helper discovery and polkit authorization." >&2
+        exit 1
+    fi
     if [ "$(id -u)" -ne 0 ]; then
         flag=""
         [ "$MODE" = uninstall ] && flag=" --uninstall"
@@ -25,7 +32,6 @@ if [ "$SCOPE" = system ]; then
         echo "...or add --user for a no-root, this-user-only install." >&2
         exit 1
     fi
-    PREFIX="${PREFIX:-/usr}"
     BINDIR="$PREFIX/bin"
     LIBEXECDIR="$PREFIX/libexec"
     DATADIR="$PREFIX/share"
