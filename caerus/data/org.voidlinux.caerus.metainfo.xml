@@ -40,6 +40,11 @@
   <url type="vcs-browser">https://github.com/mendescotta/Caerus</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.8.1" date="2026-10-26">
+      <description>
+        <p>Fix stale package details after reloads, prevent package actions during startup synchronization, and improve APK package handling and installer cleanup.</p>
+      </description>
+    </release>
     <release version="0.8.0" date="2026-10-22"/>
     <release version="0.7.3" date="2026-10-18"/>
     <release version="0.7.2" date="2026-10-13"/>

@@ -1,22 +1,36 @@
 name: Release
 
-# Pushing a v* tag publishes its GitHub release. The release notes are the
-# annotated tag's message after its first line, so a tag never ends up
-# without a release.
+# Pushing a v* tag publishes the binary archive, checksum, and build provenance.
 on:
   push:
     tags: [ 'v*' ]
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/void-linux/void-linux:latest-full-x86_64
     steps:
+      - name: Install build dependencies
+        run: |
+          xbps-install -Sy
+          xbps-install -uy xbps
+          xbps-install -Suy
+          xbps-install -y base-devel libxbps-devel gtk4-devel libadwaita-devel pkg-config rust cargo clang zstd git github-cli
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Allow Git operations in the build container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Check the tag matches the workspace version
         run: |
@@ -25,6 +39,21 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $version" >&2
             exit 1
           }
+
+      - name: Build release binary and checksum
+        run: |
+          cargo build --release --locked -p caerus -p caerus-helper
+          mkdir -p dist
+          install -m 0755 target/release/caerus dist/caerus
+          install -m 0755 target/release/caerus-helper dist/caerus-helper
+          cp LICENSE README.md dist/
+          tar -C dist -czf dist/caerus-linux-x86_64.tar.gz caerus caerus-helper LICENSE README.md
+          sha256sum dist/caerus-linux-x86_64.tar.gz > dist/SHA256SUMS
+
+      - name: Attest release archive
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/caerus-linux-x86_64.tar.gz
 
       - name: Publish the release
         env:
@@ -38,3 +67,4 @@ jobs:
             gh release create "$GITHUB_REF_NAME" --verify-tag \
               --title "Caerus ${GITHUB_REF_NAME#v}" --notes-file notes.md
           fi
+          gh release upload "$GITHUB_REF_NAME" dist/caerus-linux-x86_64.tar.gz dist/SHA256SUMS --clobber
