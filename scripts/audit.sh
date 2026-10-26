@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Run from any directory; restrict the review to maintained Rust sources so
+# repeated runs never scan their own JSON report or local build artifacts.
+repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd -- "$repo_dir"
+
 patterns=(
   'unwrap\('
   'expect\('
@@ -16,8 +21,9 @@ if ! command -v rg >/dev/null 2>&1; then
   exit 1
 fi
 
-if rg --json -n -S -g '!target/' -g '!.git/' \
+if rg --json -n -S -g '*.rs' \
   -e "${patterns[0]}" -e "${patterns[1]}" -e "${patterns[2]}" -e "${patterns[3]}" -e "${patterns[4]}" -e "${patterns[5]}" -e "${patterns[6]}" \
+  -- caerus/src caerus-helper/src xbps-sys/src shared \
   > audit-report.json; then
   :
 else

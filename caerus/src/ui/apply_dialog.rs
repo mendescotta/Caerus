@@ -421,7 +421,10 @@ pub fn smoke_test_transaction_history() {
     }
     use std::os::unix::fs::PermissionsExt;
     let root = std::env::temp_dir().join(format!("caerus-ui-transaction-{}", std::process::id()));
-    std::fs::create_dir_all(&root).unwrap();
+    // The helper trust check rejects group-writable ancestors; do not depend
+    // on the caller's umask or reuse a directory left by another process.
+    std::fs::create_dir(&root).unwrap();
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
     let launcher = root.join("pkexec");
     std::fs::write(&launcher, "#!/bin/sh\nexec \"$@\"\n").unwrap();
     std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -497,7 +500,12 @@ done
     std::fs::remove_dir_all(root).unwrap();
     assert_eq!(finished.get(), Some(false));
     assert_eq!(entries.len(), 1);
-    assert!(entries[0].changes.contains("foo · Completed"));
+    assert!(
+        entries[0].changes.contains("foo · Completed"),
+        "fixture changes: {}; log: {}",
+        entries[0].changes,
+        entries[0].log
+    );
     assert!(entries[0].changes.contains("bar · Not processed"));
     assert!(entries[0]
         .changes

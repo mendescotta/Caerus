@@ -21,7 +21,7 @@ More views: [Discover](screenshots/discover.png),
 - Dependency-aware previews before anything is applied; mixed changes are
   reviewed and applied one step at a time
 - Per-package progress, copyable logs and detailed history
-- Discover catalog of 174 applications in 13 sections, limited to what your
+- Discover catalog of 254 applications in 19 sections, limited to what your
   enabled repositories provide (can be hidden)
 - Adaptive layout: sidebar, package table and inspector on desktop; bottom
   navigation and a separate details page in narrow windows
@@ -90,6 +90,14 @@ The GTK smoke test needs a display:
 helper fixture and never changes host packages. `scripts/debug-run.sh` runs a
 debug build with full logging and core dumps; `CAERUS_TRACE_STARTUP=1` logs
 startup milestones.
+
+To verify Discover candidates against Void's official binary repository, run
+`python3 scripts/check-discover-void.py --desktop-files PACKAGE...`.
+The checker ignores configured third-party repositories, fetches metadata in
+memory, and reports package versions and desktop filenames as JSON. Use
+`--output PATH` to save the report. Results apply to the host XBPS architecture;
+other architectures may provide a different set of packages. No packages are
+installed or repository configuration changed.
 
 ## License
 

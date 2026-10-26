@@ -11,9 +11,11 @@
   border-radius: 99px; padding: 1px 10px;
   font-size: 0.82em; font-weight: 600;
   background: alpha(currentColor, 0.13); }
-.chip-ok   { color: @success_color; }
-.chip-warn { color: @warning_color; }
-.chip-err  { color: @error_color; }
+/* Keep small status text readable even when a theme supplies dark semantic
+   colors for buttons; use those colors for the tint instead of the text. */
+.chip-ok   { color: @theme_fg_color; background: alpha(@success_color, 0.18); }
+.chip-warn { color: @theme_fg_color; background: alpha(@warning_color, 0.18); }
+.chip-err  { color: @theme_fg_color; background: alpha(@error_color, 0.18); }
 .count-pill {
   border-radius: 99px; padding: 0px 8px;
   font-size: 0.78em;
@@ -116,6 +118,7 @@ paned > separator { background: @borders; }
   background: alpha(@theme_fg_color, 0.06); }
 .app-card:hover { background: alpha(@theme_fg_color, 0.10); }
 .app-card label { font-weight: normal; }
+.app-card label.chip { font-weight: 600; }
 .app-card label.heading { font-weight: 800; }
 .result-row { padding: 12px 16px; }
 .discover-results > row:hover { background: alpha(@theme_fg_color, 0.05); }
@@ -127,7 +130,7 @@ paned > separator { background: @borders; }
   border-radius: 12px; padding: 14px 10px;
   background: alpha(@theme_fg_color, 0.06); }
 .info-tile-icon { color: @accent_color; }
-.chip-accent { color: @accent_color; }
+.chip-accent { color: @theme_fg_color; background: alpha(@accent_color, 0.18); }
 
 .category-icon.accent-blue   { color: #3584e4; }
 .category-icon.accent-teal   { color: #2190a4; }
