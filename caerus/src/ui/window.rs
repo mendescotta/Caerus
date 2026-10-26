@@ -1262,11 +1262,7 @@ fn wire_up(state: &Rc<WindowState>) {
         let detail_pane = state.detail_pane.clone();
         let state = state.clone();
         detail_pane.connect_reinstall_requested(move |pkgname| {
-            run_maintenance_command(
-                &state,
-                &format!("REINSTALL {pkgname}"),
-                "Reinstalling Package",
-            );
+            on_reinstall_requested(&state, &pkgname);
         });
     }
     {
@@ -1825,6 +1821,64 @@ fn on_apply_clicked(state: &Rc<WindowState>) {
         stopped: false,
     }));
     run_next_apply_step(state, &flow);
+}
+
+fn on_reinstall_requested(state: &Rc<WindowState>, pkgname: &str) {
+    if state.action_busy.get() || state.store.is_loading() {
+        return;
+    }
+    set_action_busy(state, true);
+    let state = state.clone();
+    let name = pkgname.to_string();
+    state.store.clone().preview_transaction_async(
+        vec![PreviewOp::Reinstall(name.clone())],
+        move |preview| {
+            let changes = preview.as_ref().and_then(|p| p.as_ref().ok()).map_or_else(
+                String::new,
+                crate::backend::transaction_preview::TransactionPreview::changes,
+            );
+            let state_for_confirm = state.clone();
+            let command = format!("REINSTALL {name}");
+            apply_confirm::confirm(
+                Some(state.window.upcast_ref()),
+                std::slice::from_ref(&name),
+                &[],
+                &[],
+                &[],
+                preview,
+                move |confirmed| {
+                    if !confirmed {
+                        set_action_busy(&state_for_confirm, false);
+                        update_status_bar(&state_for_confirm);
+                        return;
+                    }
+                    let state_after_command = state_for_confirm.clone();
+                    apply_dialog::run_recorded_until_closed(
+                        Some(state_for_confirm.window.upcast_ref()),
+                        &state_for_confirm.session,
+                        std::slice::from_ref(&command),
+                        "Reinstalling Package",
+                        changes.clone(),
+                        move |_success| {
+                            let state_after_reload = state_after_command.clone();
+                            state_after_command
+                                .store
+                                .load_async_with_result(move |result| {
+                                    set_action_busy(&state_after_reload, false);
+                                    update_status_bar(&state_after_reload);
+                                    if let Err(err) = result {
+                                        show_toast(
+                                            &state_after_reload,
+                                            &format!("Could not reload package state: {err}"),
+                                        );
+                                    }
+                                });
+                        },
+                    );
+                },
+            );
+        },
+    );
 }
 
 fn on_hold_requested(state: &Rc<WindowState>, pkgname: &str, want_hold: bool) {
@@ -2662,9 +2716,24 @@ fn show_pending_changes(state: &Rc<WindowState>) {
 }
 
 /// Runs inside the existing single-thread GTK smoke test with an unprivileged
-/// fixture store. No load or transaction is started for this window.
+/// fixture store. Preview failures are exercised without starting privileged transactions.
 #[cfg(test)]
 pub fn smoke_test_compact_layout() {
+    fn button_named(widget: &gtk::Widget, name: &str) -> Option<gtk::Button> {
+        if let Some(button) = widget.downcast_ref::<gtk::Button>() {
+            if button.label().as_deref() == Some(name) {
+                return Some(button.clone());
+            }
+        }
+        let mut child = widget.first_child();
+        while let Some(current) = child {
+            if let Some(button) = button_named(&current, name) {
+                return Some(button);
+            }
+            child = current.next_sibling();
+        }
+        None
+    }
     use crate::backend::package::PackageObject;
 
     fn settle() {
@@ -2901,6 +2970,32 @@ pub fn smoke_test_compact_layout() {
         "actions must not open while busy"
     );
     set_action_busy(&state, false);
+    let marked_before = state.store.count_marked();
+    on_reinstall_requested(&state, "caerus-nonexistent-preview-fixture");
+    assert!(state.action_busy.get());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let dialog = loop {
+        settle();
+        if let Some(dialog) = gtk::Window::list_toplevels()
+            .into_iter()
+            .filter_map(|widget| widget.downcast::<gtk::Window>().ok())
+            .find(|window| window.title().as_deref() == Some("Confirm Changes"))
+        {
+            break dialog;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "reinstall must open a preview confirmation"
+        );
+    };
+    assert!(!button_named(dialog.upcast_ref(), "Preview required")
+        .unwrap()
+        .is_sensitive());
+    button_named(dialog.upcast_ref(), "Cancel")
+        .unwrap()
+        .emit_clicked();
+    assert!(!state.action_busy.get());
+    assert_eq!(state.store.count_marked(), marked_before);
     assert!(state.workflows.stack.is_sensitive());
     assert!(state.pending_bar.is_sensitive());
     assert!(
