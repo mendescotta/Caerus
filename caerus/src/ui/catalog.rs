@@ -1,5 +1,5 @@
-//! A curated application index, organized using Debian package sections as a guide.
-//! https://packages.debian.org/stable/ — names resolve only against the active backend.
+//! A curated application index; names resolve only against the active backend.
+//! Void candidates and desktop IDs can be checked with scripts/check-discover-void.py.
 use crate::backend::package::Package;
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
@@ -692,6 +692,196 @@ pub const CATALOG: &[CatalogApp] = &[
     app!("Utilities", "Tilix", "tilix.desktop", "tilix"),
     app!("Utilities", "Tellico", "org.kde.tellico.desktop", "tellico"),
     app!("Utilities", "Ark", "org.kde.ark.desktop", "ark"),
+    app!(
+        "Mail & communication",
+        "KMail",
+        "org.kde.kmail2.desktop",
+        "kmail"
+    ),
+    app!(
+        "Mail & communication",
+        "Element",
+        "element-desktop.desktop",
+        "element-desktop"
+    ),
+    app!("Mail & communication", "Nheko", "nheko.desktop", "nheko"),
+    app!(
+        "Mail & communication",
+        "Quassel IRC",
+        "quassel.desktop",
+        "quassel"
+    ),
+    app!(
+        "Web",
+        "Liferea",
+        "net.sourceforge.liferea.desktop",
+        "liferea"
+    ),
+    app!("Web", "Akregator", "org.kde.akregator.desktop", "akregator"),
+    app!(
+        "Web",
+        "RSS Guard",
+        "io.github.martinrotter.rssguardlite.desktop",
+        "rssguard"
+    ),
+    app!(
+        "Office & documents",
+        "GnuCash",
+        "gnucash.desktop",
+        "gnucash"
+    ),
+    app!(
+        "Office & documents",
+        "HomeBank",
+        "homebank.desktop",
+        "homebank"
+    ),
+    app!(
+        "Office & documents",
+        "KMyMoney",
+        "org.kde.kmymoney.desktop",
+        "kmymoney"
+    ),
+    app!(
+        "Office & documents",
+        "KAddressBook",
+        "org.kde.kaddressbook.desktop",
+        "kaddressbook"
+    ),
+    app!(
+        "Office & documents",
+        "KOrganizer",
+        "org.kde.korganizer.desktop",
+        "korganizer"
+    ),
+    app!(
+        "Office & documents",
+        "Bookworm",
+        "com.github.babluboy.bookworm.desktop",
+        "bookworm"
+    ),
+    app!(
+        "Office & documents",
+        "FocusWriter",
+        "focuswriter.desktop",
+        "focuswriter"
+    ),
+    app!(
+        "Office & documents",
+        "CherryTree",
+        "cherrytree.desktop",
+        "cherrytree"
+    ),
+    app!(
+        "Office & documents",
+        "Zim",
+        "org.zim_wiki.Zim.desktop",
+        "zim"
+    ),
+    app!(
+        "Office & documents",
+        "QOwnNotes",
+        "PBE.QOwnNotes.desktop",
+        "qownnotes"
+    ),
+    app!("Graphics", "digiKam", "org.kde.digikam.desktop", "digikam"),
+    app!("Graphics", "Hugin", "hugin.desktop", "hugin"),
+    app!(
+        "Sound",
+        "Hydrogen",
+        "org.hydrogenmusic.Hydrogen.desktop",
+        "hydrogen"
+    ),
+    app!("Sound", "Helvum", "org.pipewire.Helvum.desktop", "helvum"),
+    app!(
+        "Sound",
+        "qpwgraph",
+        "org.rncbc.qpwgraph.desktop",
+        "qpwgraph"
+    ),
+    app!("Sound", "gPodder", "gpodder.desktop", "gpodder"),
+    app!(
+        "Sound",
+        "Shortwave",
+        "de.haeckerfelix.Shortwave.desktop",
+        "shortwave"
+    ),
+    app!(
+        "Sound",
+        "Lollypop",
+        "org.gnome.Lollypop.desktop",
+        "lollypop"
+    ),
+    app!(
+        "Sound",
+        "Audacious",
+        "audacious.desktop",
+        "audacious",
+        "audacious-base"
+    ),
+    app!("Sound", "DeaDBeeF", "deadbeef.desktop", "deadbeef"),
+    app!("Sound", "Kid3", "org.kde.kid3-qt.desktop", "kid3"),
+    app!(
+        "Sound",
+        "MusicBrainz Picard",
+        "org.musicbrainz.Picard.desktop",
+        "picard"
+    ),
+    app!(
+        "Sound",
+        "Sound Juicer",
+        "org.gnome.SoundJuicer.desktop",
+        "sound-juicer"
+    ),
+    app!("Sound", "Asunder", "asunder.desktop", "asunder"),
+    app!(
+        "Science & mathematics",
+        "OpenSCAD",
+        "openscad.desktop",
+        "openscad"
+    ),
+    app!(
+        "Science & mathematics",
+        "SolveSpace",
+        "solvespace.desktop",
+        "solvespace"
+    ),
+    app!(
+        "Network",
+        "Syncthing Tray",
+        "syncthingtray.desktop",
+        "syncthingtray"
+    ),
+    app!(
+        "Utilities",
+        "Pika Backup",
+        "org.gnome.World.PikaBackup.desktop",
+        "pika-backup"
+    ),
+    app!(
+        "Utilities",
+        "Passwords and Keys",
+        "org.gnome.seahorse.Application.desktop",
+        "seahorse"
+    ),
+    app!("Utilities", "GNU Privacy Assistant", "gpa.desktop", "gpa"),
+    app!(
+        "Utilities",
+        "Kleopatra",
+        "org.kde.kleopatra.desktop",
+        "kleopatra"
+    ),
+    app!(
+        "Utilities",
+        "Filelight",
+        "org.kde.filelight.desktop",
+        "filelight"
+    ),
+    app!("Utilities", "QDirStat", "qdirstat.desktop", "qdirstat"),
+    app!("Utilities", "KRename", "org.kde.krename.desktop", "krename"),
+    app!("Utilities", "KFind", "org.kde.kfind.desktop", "kfind"),
+    app!("Utilities", "Brasero", "brasero.desktop", "brasero"),
+    app!("Utilities", "Xfburn", "xfburn.desktop", "xfburn"),
 ];
 
 pub fn contains_package(name: &str) -> bool {
