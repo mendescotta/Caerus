@@ -539,6 +539,7 @@ fn stream_key_msgs<R: Read + Send + 'static>(src: R, tx: mpsc::Sender<KeyMsg>) {
 fn run_sync_pinned(fingerprint: &str) -> Option<i32> {
     let mut child = Command::new("xbps-install")
         .arg("-S")
+        .env("LC_ALL", "C")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::piped())
@@ -562,7 +563,7 @@ fn run_sync_pinned(fingerprint: &str) -> Option<i32> {
                 let _ = io::stdout().flush();
             }
             KeyMsg::Prompt => {
-                let ok = seen.as_deref() == Some(fingerprint);
+                let ok = consume_fingerprint(&mut seen, fingerprint);
                 if !ok {
                     mismatch = true;
                     println!("LOG refusing to import a key whose fingerprint is not {fingerprint}");
@@ -580,6 +581,11 @@ fn run_sync_pinned(fingerprint: &str) -> Option<i32> {
     } else {
         code
     }
+}
+
+// A fingerprint authorizes one prompt only, never a later repository's key.
+fn consume_fingerprint(seen: &mut Option<String>, expected: &str) -> bool {
+    seen.take().as_deref() == Some(expected)
 }
 
 fn handle_sync_trust(rest: &str) {
@@ -1058,6 +1064,19 @@ mod tests {
         assert!(!is_valid_fingerprint(""));
         assert!(!is_valid_fingerprint("zz:zz:zz:zz"));
         assert!(!is_valid_fingerprint("--foo"));
+    }
+
+    #[test]
+    fn each_key_prompt_requires_a_fresh_matching_fingerprint() {
+        let expected = "3d:22:2e:eb:26:a5:15:a8:e3:91:c9:eb:97:4e:c6:94";
+        let mut seen = Some(expected.to_string());
+        assert!(consume_fingerprint(&mut seen, expected));
+        assert!(!consume_fingerprint(&mut seen, expected));
+        seen = Some("another key".to_string());
+        assert!(!consume_fingerprint(&mut seen, expected));
+        assert!(seen.is_none());
+        seen = Some(expected.to_string());
+        assert!(consume_fingerprint(&mut seen, expected));
     }
 
     #[test]

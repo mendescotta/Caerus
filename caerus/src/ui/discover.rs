@@ -424,7 +424,8 @@ impl Discover {
         self.inner.dirty.set(true);
         render_if_visible(&self.inner);
         if self.inner.root.visible_child_name().as_deref() == Some("app") {
-            if let Some(name) = self.inner.current_app.borrow().clone() {
+            let current = self.inner.current_app.borrow().clone();
+            if let Some(name) = current {
                 fill_app_page(&self.inner, &name);
             }
         }
@@ -448,7 +449,8 @@ impl Discover {
         self.inner.dirty.set(true);
         render_if_visible(&self.inner);
         if self.inner.root.visible_child_name().as_deref() == Some("app") {
-            if let Some(name) = self.inner.current_app.borrow().clone() {
+            let current = self.inner.current_app.borrow().clone();
+            if let Some(name) = current {
                 fill_app_page(&self.inner, &name);
             }
         }
@@ -510,6 +512,21 @@ impl Discover {
         self.inner.search.set_text("");
         render(&self.inner);
         assert!(self.inner.home.is_visible());
+        show_app(&self.inner, "firefox", "explore");
+        let packages: Vec<_> = self
+            .inner
+            .available
+            .borrow()
+            .iter()
+            .map(|(_, pkg)| pkg.clone())
+            .collect();
+        self.set_packages(&[]);
+        assert_eq!(
+            self.inner.root.visible_child_name().as_deref(),
+            Some("explore")
+        );
+        assert!(self.inner.current_app.borrow().is_none());
+        self.set_packages(&packages);
         self.inner.dirty.set(true);
     }
 }
@@ -637,13 +654,20 @@ fn render_results(inner: &Rc<Inner>, query: &str) {
             3
         }
     });
-    inner.results_title.set_text(&match matches.len() {
-        0 => "No results".to_string(),
-        1 => "1 application".to_string(),
-        n => format!("{n} applications"),
-    });
+    inner.results_title.set_text(&results_title(matches.len()));
     for (app, pkg) in matches.into_iter().take(MAX_RESULTS) {
         inner.results.append(&result_row(inner, app, pkg));
+    }
+}
+
+fn results_title(count: usize) -> String {
+    match count {
+        0 => "No results".to_string(),
+        1 => "1 application".to_string(),
+        n if n > MAX_RESULTS => {
+            format!("Showing {MAX_RESULTS} of {n} applications — refine your search")
+        }
+        n => format!("{n} applications"),
     }
 }
 
@@ -798,8 +822,8 @@ fn fill_category(inner: &Rc<Inner>, category: &str) {
 fn show_app(inner: &Rc<Inner>, package: &str, from: &'static str) {
     inner.app_return.set(from);
     *inner.current_app.borrow_mut() = Some(package.to_string());
-    fill_app_page(inner, package);
     inner.root.set_visible_child_name("app");
+    fill_app_page(inner, package);
     if let Some(scroller) = inner
         .root
         .child_by_name("app")
@@ -834,6 +858,16 @@ fn tile(icon: &str, value: &str, caption: &str) -> gtk::Box {
 fn fill_app_page(inner: &Rc<Inner>, package: &str) {
     let available = inner.available.borrow();
     let Some((app, pkg)) = available.iter().find(|(_, pkg)| pkg.name == package) else {
+        // A reload can remove the selected package from enabled repositories;
+        // go back where the user came from, as the Back button would.
+        inner.current_app.borrow_mut().take();
+        drop(available);
+        let from = inner.app_return.get();
+        inner.root.set_visible_child_name(from);
+        // render() refills the category page only while it is visible.
+        if from == "category" {
+            fill_category(inner, &inner.category_title.text());
+        }
         return;
     };
     let mut pkg = pkg.clone();
@@ -889,7 +923,7 @@ fn fill_app_page(inner: &Rc<Inner>, package: &str) {
     if let Some(class) = class {
         primary.add_css_class(class);
     }
-    if pkg.mark == PkgMark::None && pkg.state != PkgState::NotInstalled && pkg.essential {
+    if removal_blocked(&pkg) {
         primary.set_sensitive(false);
         primary.set_tooltip_text(Some("Essential package — removal disabled"));
     }
@@ -944,6 +978,12 @@ fn fill_app_page(inner: &Rc<Inner>, package: &str) {
     }
 }
 
+fn removal_blocked(pkg: &Package) -> bool {
+    pkg.essential
+        && pkg.mark == PkgMark::None
+        && !matches!(pkg.state, PkgState::NotInstalled | PkgState::Upgradable)
+}
+
 fn primary_action(inner: &Rc<Inner>, button: &gtk::Button) {
     let Some(name) = inner.current_app.borrow().clone() else {
         return;
@@ -964,7 +1004,11 @@ fn primary_action(inner: &Rc<Inner>, button: &gtk::Button) {
                 if let Some(callback) = inner.on_marks_changed.borrow().as_ref() {
                     callback();
                 }
-                fill_app_page(&inner, &name);
+                // A confirmation may finish after navigation to another app.
+                let current = inner.current_app.borrow().clone();
+                if let Some(current) = current {
+                    fill_app_page(&inner, &current);
+                }
             }
         }
     };
@@ -986,5 +1030,38 @@ fn primary_action(inner: &Rc<Inner>, button: &gtk::Button) {
             });
         }
         _ => finish(PkgMark::None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn essential_apps_allow_updates_and_cancellation_but_not_removal() {
+        let mut pkg = Package {
+            essential: true,
+            state: PkgState::Upgradable,
+            ..Package::default()
+        };
+        assert!(!removal_blocked(&pkg));
+        pkg.state = PkgState::Installed;
+        assert!(removal_blocked(&pkg));
+        pkg.mark = PkgMark::Upgrade;
+        assert!(!removal_blocked(&pkg));
+        pkg.mark = PkgMark::None;
+        pkg.essential = false;
+        assert!(!removal_blocked(&pkg));
+    }
+
+    #[test]
+    fn truncated_search_results_explain_how_to_find_remaining_apps() {
+        assert_eq!(results_title(0), "No results");
+        assert_eq!(results_title(1), "1 application");
+        assert_eq!(results_title(MAX_RESULTS), "120 applications");
+        assert_eq!(
+            results_title(MAX_RESULTS + 1),
+            "Showing 120 of 121 applications — refine your search"
+        );
     }
 }

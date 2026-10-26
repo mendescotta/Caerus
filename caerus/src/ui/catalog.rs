@@ -1,5 +1,5 @@
-//! A curated application index, organized using Debian package sections as a guide.
-//! https://packages.debian.org/stable/ — names resolve only against the active backend.
+//! A curated application index; names resolve only against the active backend.
+//! Void candidates and desktop IDs can be checked with scripts/check-discover-void.py.
 use crate::backend::package::Package;
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
@@ -14,16 +14,22 @@ pub struct CatalogApp {
 pub const CATEGORIES: &[&str] = &[
     "Web",
     "Mail & communication",
+    "News & podcasts",
     "Office & documents",
+    "Notes & planning",
+    "Finance",
     "Editors",
     "Graphics",
+    "Photography",
     "Sound",
     "Video",
     "Games",
     "Education",
     "Science & mathematics",
+    "CAD & engineering",
     "Development",
     "Network",
+    "Backup & security",
     "Utilities",
 ];
 
@@ -54,16 +60,22 @@ pub fn category_style(category: &str) -> (&'static str, &'static str) {
     match category {
         "Web" => ("web-browser-symbolic", "accent-blue"),
         "Mail & communication" => ("mail-send-symbolic", "accent-teal"),
+        "News & podcasts" => ("application-rss+xml-symbolic", "accent-orange"),
         "Office & documents" => ("x-office-document-symbolic", "accent-orange"),
+        "Notes & planning" => ("x-office-calendar-symbolic", "accent-yellow"),
+        "Finance" => ("accessories-calculator-symbolic", "accent-green"),
         "Editors" => ("text-editor-symbolic", "accent-slate"),
         "Graphics" => ("image-x-generic-symbolic", "accent-pink"),
+        "Photography" => ("camera-photo-symbolic", "accent-purple"),
         "Sound" => ("audio-x-generic-symbolic", "accent-green"),
         "Video" => ("video-x-generic-symbolic", "accent-red"),
         "Games" => ("applications-games-symbolic", "accent-purple"),
         "Education" => ("accessories-dictionary-symbolic", "accent-yellow"),
         "Science & mathematics" => ("applications-science-symbolic", "accent-teal"),
+        "CAD & engineering" => ("x-office-drawing-symbolic", "accent-slate"),
         "Development" => ("applications-engineering-symbolic", "accent-blue"),
         "Network" => ("network-workgroup-symbolic", "accent-green"),
+        "Backup & security" => ("security-high-symbolic", "accent-red"),
         _ => ("applications-utilities-symbolic", "accent-slate"),
     }
 }
@@ -119,6 +131,18 @@ pub const CATALOG: &[CatalogApp] = &[
         "hexchat"
     ),
     app!("Mail & communication", "Dino", "dino.desktop", "dino"),
+    app!(
+        "Mail & communication",
+        "Polari",
+        "org.gnome.Polari.desktop",
+        "polari"
+    ),
+    app!(
+        "Mail & communication",
+        "Sylpheed",
+        "sylpheed.desktop",
+        "sylpheed"
+    ),
     app!("Mail & communication", "Gajim", "gajim.desktop", "gajim"),
     app!(
         "Mail & communication",
@@ -158,6 +182,18 @@ pub const CATALOG: &[CatalogApp] = &[
         "gnumeric"
     ),
     app!("Office & documents", "Evince", "evince.desktop", "evince"),
+    app!(
+        "Office & documents",
+        "Gnote",
+        "org.gnome.Gnote.desktop",
+        "gnote"
+    ),
+    app!(
+        "Office & documents",
+        "ghostwriter",
+        "org.kde.ghostwriter.desktop",
+        "ghostwriter"
+    ),
     app!("Office & documents", "Okular", "okular.desktop", "okular"),
     app!(
         "Office & documents",
@@ -228,7 +264,7 @@ pub const CATALOG: &[CatalogApp] = &[
     ),
     app!("Graphics", "Krita", "krita.desktop", "krita"),
     app!("Graphics", "Blender", "blender.desktop", "blender"),
-    app!("Graphics", "Darktable", "darktable.desktop", "darktable"),
+    app!("Photography", "Darktable", "darktable.desktop", "darktable"),
     app!(
         "Graphics",
         "RawTherapee",
@@ -248,6 +284,13 @@ pub const CATALOG: &[CatalogApp] = &[
     ),
     app!("Graphics", "Viewnior", "viewnior.desktop", "viewnior"),
     app!("Graphics", "Ristretto", "ristretto.desktop", "ristretto"),
+    app!(
+        "Graphics",
+        "nomacs",
+        "org.nomacs.ImageLounge.desktop",
+        "nomacs"
+    ),
+    app!("Graphics", "Loupe", "org.gnome.Loupe.desktop", "loupe"),
     app!("Sound", "Audacity", "audacity.desktop", "audacity"),
     app!("Sound", "Ardour", "ardour.desktop", "ardour"),
     app!("Sound", "LMMS", "lmms.desktop", "lmms"),
@@ -276,6 +319,13 @@ pub const CATALOG: &[CatalogApp] = &[
         "soundconverter.desktop",
         "soundconverter"
     ),
+    app!("Sound", "Mixxx", "org.mixxx.Mixxx.desktop", "mixxx"),
+    app!(
+        "Sound",
+        "QjackCtl",
+        "org.rncbc.qjackctl.desktop",
+        "qjackctl"
+    ),
     app!("Video", "VLC", "vlc.desktop", "vlc"),
     app!("Video", "mpv", "mpv.desktop", "mpv"),
     app!("Video", "Celluloid", "celluloid.desktop", "celluloid"),
@@ -294,6 +344,8 @@ pub const CATALOG: &[CatalogApp] = &[
     app!("Video", "HandBrake", "HandBrake.desktop", "HandBrake"),
     app!("Video", "FFmpeg", "ffmpeg.desktop", "ffmpeg"),
     app!("Video", "yt-dlp", "yt-dlp.desktop", "yt-dlp"),
+    app!("Video", "Kodi", "org.xbmc.kodi.desktop", "kodi"),
+    app!("Video", "Kamoso", "org.kde.kamoso.desktop", "kamoso"),
     app!(
         "Games",
         "SuperTuxKart",
@@ -319,6 +371,42 @@ pub const CATALOG: &[CatalogApp] = &[
         "warzone2100"
     ),
     app!("Games", "GNOME Chess", "gnome-chess.desktop", "gnome-chess"),
+    app!(
+        "Games",
+        "Five or More",
+        "org.gnome.five-or-more.desktop",
+        "five-or-more"
+    ),
+    app!(
+        "Games",
+        "Four-in-a-row",
+        "org.gnome.Four-in-a-row.desktop",
+        "four-in-a-row"
+    ),
+    app!(
+        "Games",
+        "GNOME Mines",
+        "org.gnome.Mines.desktop",
+        "gnome-mines"
+    ),
+    app!(
+        "Games",
+        "GNOME Mahjongg",
+        "org.gnome.Mahjongg.desktop",
+        "gnome-mahjongg"
+    ),
+    app!(
+        "Games",
+        "GNOME Tetravex",
+        "org.gnome.Tetravex.desktop",
+        "gnome-tetravex"
+    ),
+    app!(
+        "Games",
+        "Quadrapassel",
+        "org.gnome.Quadrapassel.desktop",
+        "quadrapassel"
+    ),
     app!(
         "Games",
         "GNOME Sudoku",
@@ -347,6 +435,7 @@ pub const CATALOG: &[CatalogApp] = &[
     app!("Education", "Kalzium", "kalzium.desktop", "kalzium"),
     app!("Education", "KTurtle", "kturtle.desktop", "kturtle"),
     app!("Education", "Parley", "parley.desktop", "parley"),
+    app!("Education", "Marble", "org.kde.marble.desktop", "marble"),
     app!(
         "Science & mathematics",
         "Stellarium",
@@ -408,19 +497,32 @@ pub const CATALOG: &[CatalogApp] = &[
         "speedcrunch.desktop",
         "speedcrunch"
     ),
-    app!("Science & mathematics", "KiCad", "kicad.desktop", "kicad"),
+    app!("CAD & engineering", "KiCad", "kicad.desktop", "kicad"),
+    app!("CAD & engineering", "FreeCAD", "FreeCAD.desktop", "FreeCAD"),
+    app!("Science & mathematics", "QGIS", "qgis.desktop", "qgis"),
     app!(
         "Science & mathematics",
-        "FreeCAD",
-        "FreeCAD.desktop",
-        "FreeCAD"
+        "LabPlot",
+        "org.kde.labplot.desktop",
+        "labplot"
     ),
-    app!("Science & mathematics", "QGIS", "qgis.desktop", "qgis"),
     app!(
         "Development",
         "GNOME Builder",
         "org.gnome.Builder.desktop",
         "gnome-builder"
+    ),
+    app!(
+        "Development",
+        "Devhelp",
+        "org.gnome.Devhelp.desktop",
+        "devhelp"
+    ),
+    app!(
+        "Development",
+        "GNOME Hex Editor",
+        "org.gnome.GHex.desktop",
+        "ghex"
     ),
     app!(
         "Development",
@@ -454,6 +556,12 @@ pub const CATALOG: &[CatalogApp] = &[
         "sqlitebrowser"
     ),
     app!(
+        "Development",
+        "KDevelop",
+        "org.kde.kdevelop.desktop",
+        "kdevelop"
+    ),
+    app!(
         "Network",
         "Transmission",
         "transmission-gtk.desktop",
@@ -477,10 +585,83 @@ pub const CATALOG: &[CatalogApp] = &[
     app!("Network", "Nicotine+", "nicotine+.desktop", "nicotine+"),
     app!("Network", "OpenSSH", "openssh.desktop", "openssh"),
     app!(
+        "Network",
+        "KDE Connect",
+        "org.kde.kdeconnect.app.desktop",
+        "kdeconnect"
+    ),
+    app!("Network", "KRDC", "org.kde.krdc.desktop", "krdc"),
+    app!(
+        "Network",
+        "KTorrent",
+        "org.kde.ktorrent.desktop",
+        "ktorrent"
+    ),
+    app!(
         "Utilities",
         "GNOME Disks",
         "gnome-disk-utility.desktop",
         "gnome-disk-utility"
+    ),
+    app!(
+        "Utilities",
+        "GNOME Calculator",
+        "org.gnome.Calculator.desktop",
+        "gnome-calculator"
+    ),
+    app!(
+        "Office & documents",
+        "GNOME Calendar",
+        "org.gnome.Calendar.desktop",
+        "gnome-calendar"
+    ),
+    app!(
+        "Network",
+        "GNOME Maps",
+        "org.gnome.Maps.desktop",
+        "gnome-maps"
+    ),
+    app!(
+        "Utilities",
+        "GNOME Clocks",
+        "org.gnome.clocks.desktop",
+        "gnome-clocks"
+    ),
+    app!(
+        "Utilities",
+        "GNOME Characters",
+        "org.gnome.Characters.desktop",
+        "gnome-characters"
+    ),
+    app!(
+        "Network",
+        "GNOME Connections",
+        "org.gnome.Connections.desktop",
+        "gnome-connections"
+    ),
+    app!(
+        "Utilities",
+        "GNOME Console",
+        "org.gnome.Console.desktop",
+        "gnome-console"
+    ),
+    app!(
+        "Utilities",
+        "Document Scanner",
+        "simple-scan.desktop",
+        "simple-scan"
+    ),
+    app!(
+        "Utilities",
+        "Snapshot",
+        "org.gnome.Snapshot.desktop",
+        "snapshot"
+    ),
+    app!(
+        "Utilities",
+        "Dconf Editor",
+        "ca.desrt.dconf-editor.desktop",
+        "dconf-editor"
     ),
     app!("Utilities", "GParted", "gparted.desktop", "gparted"),
     app!("Utilities", "Baobab", "baobab.desktop", "baobab"),
@@ -491,7 +672,12 @@ pub const CATALOG: &[CatalogApp] = &[
         "file-roller"
     ),
     app!("Utilities", "Engrampa", "engrampa.desktop", "engrampa"),
-    app!("Utilities", "KeepassXC", "keepassxc.desktop", "keepassxc"),
+    app!(
+        "Backup & security",
+        "KeepassXC",
+        "keepassxc.desktop",
+        "keepassxc"
+    ),
     app!("Utilities", "KeePass", "keepass.desktop", "keepass"),
     app!("Utilities", "Déjà Dup", "deja-dup.desktop", "deja-dup"),
     app!(
@@ -516,6 +702,193 @@ pub const CATALOG: &[CatalogApp] = &[
     app!("Utilities", "Dolphin", "dolphin.desktop", "dolphin"),
     app!("Utilities", "PCManFM", "pcmanfm.desktop", "pcmanfm"),
     app!("Utilities", "Tilix", "tilix.desktop", "tilix"),
+    app!("Utilities", "Tellico", "org.kde.tellico.desktop", "tellico"),
+    app!("Utilities", "Ark", "org.kde.ark.desktop", "ark"),
+    app!(
+        "Mail & communication",
+        "KMail",
+        "org.kde.kmail2.desktop",
+        "kmail"
+    ),
+    app!(
+        "Mail & communication",
+        "Element",
+        "element-desktop.desktop",
+        "element-desktop"
+    ),
+    app!("Mail & communication", "Nheko", "nheko.desktop", "nheko"),
+    app!(
+        "Mail & communication",
+        "Quassel IRC",
+        "quassel.desktop",
+        "quassel"
+    ),
+    app!(
+        "News & podcasts",
+        "Liferea",
+        "net.sourceforge.liferea.desktop",
+        "liferea"
+    ),
+    app!(
+        "News & podcasts",
+        "Akregator",
+        "org.kde.akregator.desktop",
+        "akregator"
+    ),
+    app!(
+        "Web",
+        "RSS Guard",
+        "io.github.martinrotter.rssguardlite.desktop",
+        "rssguard"
+    ),
+    app!("Finance", "GnuCash", "gnucash.desktop", "gnucash"),
+    app!("Finance", "HomeBank", "homebank.desktop", "homebank"),
+    app!(
+        "Finance",
+        "KMyMoney",
+        "org.kde.kmymoney.desktop",
+        "kmymoney"
+    ),
+    app!(
+        "Office & documents",
+        "KAddressBook",
+        "org.kde.kaddressbook.desktop",
+        "kaddressbook"
+    ),
+    app!(
+        "Notes & planning",
+        "KOrganizer",
+        "org.kde.korganizer.desktop",
+        "korganizer"
+    ),
+    app!(
+        "Office & documents",
+        "Bookworm",
+        "com.github.babluboy.bookworm.desktop",
+        "bookworm"
+    ),
+    app!(
+        "Office & documents",
+        "FocusWriter",
+        "focuswriter.desktop",
+        "focuswriter"
+    ),
+    app!(
+        "Notes & planning",
+        "CherryTree",
+        "cherrytree.desktop",
+        "cherrytree"
+    ),
+    app!("Notes & planning", "Zim", "org.zim_wiki.Zim.desktop", "zim"),
+    app!(
+        "Notes & planning",
+        "QOwnNotes",
+        "PBE.QOwnNotes.desktop",
+        "qownnotes"
+    ),
+    app!(
+        "Photography",
+        "digiKam",
+        "org.kde.digikam.desktop",
+        "digikam"
+    ),
+    app!("Photography", "Hugin", "hugin.desktop", "hugin"),
+    app!(
+        "Sound",
+        "Hydrogen",
+        "org.hydrogenmusic.Hydrogen.desktop",
+        "hydrogen"
+    ),
+    app!("Sound", "Helvum", "org.pipewire.Helvum.desktop", "helvum"),
+    app!(
+        "Sound",
+        "qpwgraph",
+        "org.rncbc.qpwgraph.desktop",
+        "qpwgraph"
+    ),
+    app!("News & podcasts", "gPodder", "gpodder.desktop", "gpodder"),
+    app!(
+        "Sound",
+        "Shortwave",
+        "de.haeckerfelix.Shortwave.desktop",
+        "shortwave"
+    ),
+    app!(
+        "Sound",
+        "Lollypop",
+        "org.gnome.Lollypop.desktop",
+        "lollypop"
+    ),
+    app!(
+        "Sound",
+        "Audacious",
+        "audacious.desktop",
+        "audacious",
+        "audacious-base"
+    ),
+    app!("Sound", "DeaDBeeF", "deadbeef.desktop", "deadbeef"),
+    app!("Sound", "Kid3", "org.kde.kid3-qt.desktop", "kid3"),
+    app!(
+        "Sound",
+        "MusicBrainz Picard",
+        "org.musicbrainz.Picard.desktop",
+        "picard"
+    ),
+    app!(
+        "Sound",
+        "Sound Juicer",
+        "org.gnome.SoundJuicer.desktop",
+        "sound-juicer"
+    ),
+    app!("Sound", "Asunder", "asunder.desktop", "asunder"),
+    app!(
+        "CAD & engineering",
+        "OpenSCAD",
+        "openscad.desktop",
+        "openscad"
+    ),
+    app!(
+        "CAD & engineering",
+        "SolveSpace",
+        "solvespace.desktop",
+        "solvespace"
+    ),
+    app!(
+        "Network",
+        "Syncthing Tray",
+        "syncthingtray.desktop",
+        "syncthingtray"
+    ),
+    app!(
+        "Backup & security",
+        "Pika Backup",
+        "org.gnome.World.PikaBackup.desktop",
+        "pika-backup"
+    ),
+    app!(
+        "Utilities",
+        "Passwords and Keys",
+        "org.gnome.seahorse.Application.desktop",
+        "seahorse"
+    ),
+    app!("Utilities", "GNU Privacy Assistant", "gpa.desktop", "gpa"),
+    app!(
+        "Backup & security",
+        "Kleopatra",
+        "org.kde.kleopatra.desktop",
+        "kleopatra"
+    ),
+    app!(
+        "Utilities",
+        "Filelight",
+        "org.kde.filelight.desktop",
+        "filelight"
+    ),
+    app!("Utilities", "QDirStat", "qdirstat.desktop", "qdirstat"),
+    app!("Utilities", "KRename", "org.kde.krename.desktop", "krename"),
+    app!("Utilities", "KFind", "org.kde.kfind.desktop", "kfind"),
+    app!("Utilities", "Brasero", "brasero.desktop", "brasero"),
+    app!("Utilities", "Xfburn", "xfburn.desktop", "xfburn"),
 ];
 
 pub fn contains_package(name: &str) -> bool {
@@ -576,8 +949,17 @@ mod tests {
     #[test]
     fn catalog_has_consistent_sections_and_unique_package_aliases() {
         let mut aliases = HashSet::new();
+        let mut names = HashSet::new();
+        let mut desktop_ids = HashSet::new();
         for app in CATALOG {
             assert!(CATEGORIES.contains(&app.category), "{}", app.name);
+            assert!(names.insert(app.name), "duplicate app name: {}", app.name);
+            assert!(!app.desktop.is_empty(), "missing desktop id: {}", app.name);
+            assert!(
+                desktop_ids.insert(app.desktop),
+                "duplicate desktop id: {}",
+                app.desktop
+            );
             assert!(!app.packages.is_empty());
             for name in app.packages {
                 assert!(aliases.insert(name), "duplicate alias: {name}");
