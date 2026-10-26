@@ -535,11 +535,24 @@ fn worker(rx: mpsc::Receiver<Cmd>, out: mpsc::Sender<ResultMsg>) {
     }
 }
 fn load() -> Result<Vec<Package>, String> {
+    load_with(run)
+}
+
+fn load_with(
+    mut query: impl FnMut(&[&str]) -> Result<String, String>,
+) -> Result<Vec<Package>, String> {
     const FIELDS: &str = "name,version,description,arch,license,maintainer,url,file-size,installed-size,repositories";
-    let all = run(&[
-        "query", "--from", "system", "--fields", FIELDS, "--format", "json", "*",
+    let all = query(&[
+        "query",
+        "--from",
+        "repositories",
+        "--fields",
+        FIELDS,
+        "--format",
+        "json",
+        "*",
     ])?;
-    let ins = run(&[
+    let ins = query(&[
         "query",
         "--installed",
         "--fields",
@@ -548,7 +561,7 @@ fn load() -> Result<Vec<Package>, String> {
         "json",
         "*",
     ])?;
-    let up = run(&[
+    let up = query(&[
         "query",
         "--upgradable",
         "--fields",
@@ -1082,5 +1095,37 @@ mod world_tests {
             world_names("# comment\nfoo@testing>=1.2\nbar~2\nbaz=3\n"),
             HashSet::from(["foo".into(), "bar".into(), "baz".into()])
         );
+    }
+}
+
+#[cfg(test)]
+mod availability_tests {
+    use super::*;
+
+    #[test]
+    fn repository_versions_and_installed_only_packages_remain_distinct() {
+        let packages = load_with(|args| {
+            if args.contains(&"--from") {
+                assert!(args.windows(2).any(|pair| pair == ["--from", "repositories"]));
+                Ok(r#"[{"name":"app","version":"2-r0","repositories":["https://repo.example"]}]"#.into())
+            } else if args.contains(&"--installed") {
+                Ok(r#"[{"name":"app","version":"1-r0"},{"name":"firefox","version":"3-r0","repositories":["lib/apk/db/installed"]}]"#.into())
+            } else {
+                assert!(args.contains(&"--upgradable"));
+                Ok(r#"[{"name":"app","version":"2-r0"}]"#.into())
+            }
+        }).unwrap();
+        let app = packages.iter().find(|p| p.name == "app").unwrap();
+        assert_eq!(app.version_installed.as_deref(), Some("1-r0"));
+        assert_eq!(app.version_available.as_deref(), Some("2-r0"));
+        assert_eq!(app.state, PkgState::Upgradable);
+        let local = packages.iter().find(|p| p.name == "firefox").unwrap();
+        assert_eq!(local.version_installed.as_deref(), Some("3-r0"));
+        assert_eq!(local.version_available, None);
+        assert_eq!(local.repository, None);
+        assert_eq!(local.state, PkgState::Installed);
+        assert!(crate::ui::catalog::available_apps(&packages)
+            .iter()
+            .all(|(_, p)| p.name != "firefox"));
     }
 }
