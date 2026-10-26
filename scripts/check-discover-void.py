@@ -5,10 +5,11 @@ Usage: python3 scripts/check-discover-void.py pika-backup gnucash openscad
        python3 scripts/check-discover-void.py --desktop-files pika-backup gnucash
        python3 scripts/check-discover-void.py --output /tmp/void-apps.json PACKAGE...
 
-Requires xbps-query and network access. Repository metadata is fetched in memory;
-configured third-party repositories are ignored. Results describe the host XBPS
-architecture only, not other architectures or installability. --desktop-files
-also queries each matching binary package's file list (additional downloads).
+Requires xbps-query and network access; xbps-uhelper determines the architecture
+unless XBPS_ARCH is set. Repository metadata is fetched in memory; configured
+third-party repositories are ignored. Results describe the host XBPS architecture
+only, not other architectures or installability. --desktop-files also queries
+each matching binary package's file list (additional downloads).
 Exit 0 means every requested name was found; 1 means missing names; 2 is an error.
 """
 
@@ -22,7 +23,27 @@ import re
 import subprocess
 import sys
 
-REPOSITORY = "https://repo-default.voidlinux.org/current"
+REPOSITORY_BASE = "https://repo-default.voidlinux.org/current"
+
+
+def effective_architecture():
+    architecture = os.environ.get("XBPS_ARCH")
+    if architecture:
+        return architecture
+    return subprocess.run(
+        ["xbps-uhelper", "arch"],
+        capture_output=True, text=True, check=True, timeout=30,
+        env={**os.environ, "LC_ALL": "C"},
+    ).stdout.strip()
+
+
+def repository_for_architecture(architecture):
+    suffix = ""
+    if architecture.startswith("aarch64"):
+        suffix = "/aarch64"
+    elif architecture.endswith("-musl"):
+        suffix = "/musl"
+    return REPOSITORY_BASE + suffix
 
 
 def package_name(value):
@@ -31,16 +52,17 @@ def package_name(value):
     return value
 
 
-def query(arguments):
+def query(arguments, repository):
     return subprocess.run(
-        ["xbps-query", "-i", "-M", "--repository", REPOSITORY, *arguments],
+        ["xbps-query", "-i", "-M", "--repository", repository, *arguments],
         capture_output=True, text=True, check=True, timeout=180,
         env={**os.environ, "LC_ALL": "C"},
     ).stdout
 
 
-def desktop_files(name):
-    paths = (line.split(" -> ", 1)[0] for line in query(["-f", name]).splitlines())
+def desktop_files(name, repository):
+    paths = (line.split(" -> ", 1)[0]
+             for line in query(["-f", name], repository).splitlines())
     return name, sorted({
         path.removeprefix("/usr/share/applications/") for path in paths
         if path.startswith("/usr/share/applications/") and path.endswith(".desktop")
@@ -59,7 +81,11 @@ def main():
     # names are selected below, excluding similarly named libraries/subpackages.
     pattern = "|".join(re.escape(name) for name in requested)
     try:
-        result = query(["--regex", "-s", pattern])
+        architecture = effective_architecture()
+        if not architecture:
+            raise ValueError("could not determine XBPS architecture")
+        repository = repository_for_architecture(architecture)
+        result = query(["--regex", "-s", pattern], repository)
         found = {}
         for line in result.splitlines():
             fields = line.split(maxsplit=2)
@@ -74,10 +100,12 @@ def main():
         if args.desktop_files:
             # Bound parallel downloads; an empty list is valid for metapackages.
             with ThreadPoolExecutor(max_workers=4) as executor:
-                for name, paths in executor.map(desktop_files, found):
+                for name, paths in executor.map(
+                    lambda name: desktop_files(name, repository), found
+                ):
                     found[name]["desktop_files"] = paths
         report = {
-            "repository": REPOSITORY,
+            "repository": repository,
             "checked_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "architecture_override": os.environ.get("XBPS_ARCH"),
             "machine": os.uname().machine,
