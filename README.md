@@ -21,7 +21,7 @@ More views: [Discover](screenshots/discover.png),
 - Dependency-aware previews before anything is applied; mixed changes are
   reviewed and applied one step at a time
 - Per-package progress, copyable logs and detailed history
-- Discover catalog of 254 applications in 13 sections, limited to what your
+- Discover catalog of 254 applications in 19 sections, limited to what your
   enabled repositories provide (can be hidden)
 - Adaptive layout: sidebar, package table and inspector on desktop; bottom
   navigation and a separate details page in narrow windows

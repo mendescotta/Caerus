@@ -858,9 +858,16 @@ fn tile(icon: &str, value: &str, caption: &str) -> gtk::Box {
 fn fill_app_page(inner: &Rc<Inner>, package: &str) {
     let available = inner.available.borrow();
     let Some((app, pkg)) = available.iter().find(|(_, pkg)| pkg.name == package) else {
-        // A reload can remove the selected package from enabled repositories.
+        // A reload can remove the selected package from enabled repositories;
+        // go back where the user came from, as the Back button would.
         inner.current_app.borrow_mut().take();
-        inner.root.set_visible_child_name("explore");
+        drop(available);
+        let from = inner.app_return.get();
+        inner.root.set_visible_child_name(from);
+        // render() refills the category page only while it is visible.
+        if from == "category" {
+            fill_category(inner, &inner.category_title.text());
+        }
         return;
     };
     let mut pkg = pkg.clone();

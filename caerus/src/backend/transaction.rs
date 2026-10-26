@@ -512,7 +512,7 @@ mod tests {
             commands: VecDeque::from(["REMOVE next".into()]),
             on_finished: Some(Box::new(move |ok| callback.set(Some(ok)))),
         });
-        for line in ["OK", "READY", "ERROR diagnostic", "EVENT 1\\tfinished\\t1"] {
+        for line in ["OK", "READY", "ERROR diagnostic", "EVENT 1\tfinished\tok"] {
             txn.handle_line(&diagnostic_line(line));
         }
         assert_eq!(result.get(), None);

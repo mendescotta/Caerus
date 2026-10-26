@@ -14,16 +14,22 @@ pub struct CatalogApp {
 pub const CATEGORIES: &[&str] = &[
     "Web",
     "Mail & communication",
+    "News & podcasts",
     "Office & documents",
+    "Notes & planning",
+    "Finance",
     "Editors",
     "Graphics",
+    "Photography",
     "Sound",
     "Video",
     "Games",
     "Education",
     "Science & mathematics",
+    "CAD & engineering",
     "Development",
     "Network",
+    "Backup & security",
     "Utilities",
 ];
 
@@ -54,16 +60,22 @@ pub fn category_style(category: &str) -> (&'static str, &'static str) {
     match category {
         "Web" => ("web-browser-symbolic", "accent-blue"),
         "Mail & communication" => ("mail-send-symbolic", "accent-teal"),
+        "News & podcasts" => ("application-rss+xml-symbolic", "accent-orange"),
         "Office & documents" => ("x-office-document-symbolic", "accent-orange"),
+        "Notes & planning" => ("x-office-calendar-symbolic", "accent-yellow"),
+        "Finance" => ("accessories-calculator-symbolic", "accent-green"),
         "Editors" => ("text-editor-symbolic", "accent-slate"),
         "Graphics" => ("image-x-generic-symbolic", "accent-pink"),
+        "Photography" => ("camera-photo-symbolic", "accent-purple"),
         "Sound" => ("audio-x-generic-symbolic", "accent-green"),
         "Video" => ("video-x-generic-symbolic", "accent-red"),
         "Games" => ("applications-games-symbolic", "accent-purple"),
         "Education" => ("accessories-dictionary-symbolic", "accent-yellow"),
         "Science & mathematics" => ("applications-science-symbolic", "accent-teal"),
+        "CAD & engineering" => ("x-office-drawing-symbolic", "accent-slate"),
         "Development" => ("applications-engineering-symbolic", "accent-blue"),
         "Network" => ("network-workgroup-symbolic", "accent-green"),
+        "Backup & security" => ("security-high-symbolic", "accent-red"),
         _ => ("applications-utilities-symbolic", "accent-slate"),
     }
 }
@@ -252,7 +264,7 @@ pub const CATALOG: &[CatalogApp] = &[
     ),
     app!("Graphics", "Krita", "krita.desktop", "krita"),
     app!("Graphics", "Blender", "blender.desktop", "blender"),
-    app!("Graphics", "Darktable", "darktable.desktop", "darktable"),
+    app!("Photography", "Darktable", "darktable.desktop", "darktable"),
     app!(
         "Graphics",
         "RawTherapee",
@@ -485,13 +497,8 @@ pub const CATALOG: &[CatalogApp] = &[
         "speedcrunch.desktop",
         "speedcrunch"
     ),
-    app!("Science & mathematics", "KiCad", "kicad.desktop", "kicad"),
-    app!(
-        "Science & mathematics",
-        "FreeCAD",
-        "FreeCAD.desktop",
-        "FreeCAD"
-    ),
+    app!("CAD & engineering", "KiCad", "kicad.desktop", "kicad"),
+    app!("CAD & engineering", "FreeCAD", "FreeCAD.desktop", "FreeCAD"),
     app!("Science & mathematics", "QGIS", "qgis.desktop", "qgis"),
     app!(
         "Science & mathematics",
@@ -665,7 +672,12 @@ pub const CATALOG: &[CatalogApp] = &[
         "file-roller"
     ),
     app!("Utilities", "Engrampa", "engrampa.desktop", "engrampa"),
-    app!("Utilities", "KeepassXC", "keepassxc.desktop", "keepassxc"),
+    app!(
+        "Backup & security",
+        "KeepassXC",
+        "keepassxc.desktop",
+        "keepassxc"
+    ),
     app!("Utilities", "KeePass", "keepass.desktop", "keepass"),
     app!("Utilities", "Déjà Dup", "deja-dup.desktop", "deja-dup"),
     app!(
@@ -712,32 +724,27 @@ pub const CATALOG: &[CatalogApp] = &[
         "quassel"
     ),
     app!(
-        "Web",
+        "News & podcasts",
         "Liferea",
         "net.sourceforge.liferea.desktop",
         "liferea"
     ),
-    app!("Web", "Akregator", "org.kde.akregator.desktop", "akregator"),
+    app!(
+        "News & podcasts",
+        "Akregator",
+        "org.kde.akregator.desktop",
+        "akregator"
+    ),
     app!(
         "Web",
         "RSS Guard",
         "io.github.martinrotter.rssguardlite.desktop",
         "rssguard"
     ),
+    app!("Finance", "GnuCash", "gnucash.desktop", "gnucash"),
+    app!("Finance", "HomeBank", "homebank.desktop", "homebank"),
     app!(
-        "Office & documents",
-        "GnuCash",
-        "gnucash.desktop",
-        "gnucash"
-    ),
-    app!(
-        "Office & documents",
-        "HomeBank",
-        "homebank.desktop",
-        "homebank"
-    ),
-    app!(
-        "Office & documents",
+        "Finance",
         "KMyMoney",
         "org.kde.kmymoney.desktop",
         "kmymoney"
@@ -749,7 +756,7 @@ pub const CATALOG: &[CatalogApp] = &[
         "kaddressbook"
     ),
     app!(
-        "Office & documents",
+        "Notes & planning",
         "KOrganizer",
         "org.kde.korganizer.desktop",
         "korganizer"
@@ -767,25 +774,25 @@ pub const CATALOG: &[CatalogApp] = &[
         "focuswriter"
     ),
     app!(
-        "Office & documents",
+        "Notes & planning",
         "CherryTree",
         "cherrytree.desktop",
         "cherrytree"
     ),
+    app!("Notes & planning", "Zim", "org.zim_wiki.Zim.desktop", "zim"),
     app!(
-        "Office & documents",
-        "Zim",
-        "org.zim_wiki.Zim.desktop",
-        "zim"
-    ),
-    app!(
-        "Office & documents",
+        "Notes & planning",
         "QOwnNotes",
         "PBE.QOwnNotes.desktop",
         "qownnotes"
     ),
-    app!("Graphics", "digiKam", "org.kde.digikam.desktop", "digikam"),
-    app!("Graphics", "Hugin", "hugin.desktop", "hugin"),
+    app!(
+        "Photography",
+        "digiKam",
+        "org.kde.digikam.desktop",
+        "digikam"
+    ),
+    app!("Photography", "Hugin", "hugin.desktop", "hugin"),
     app!(
         "Sound",
         "Hydrogen",
@@ -799,7 +806,7 @@ pub const CATALOG: &[CatalogApp] = &[
         "org.rncbc.qpwgraph.desktop",
         "qpwgraph"
     ),
-    app!("Sound", "gPodder", "gpodder.desktop", "gpodder"),
+    app!("News & podcasts", "gPodder", "gpodder.desktop", "gpodder"),
     app!(
         "Sound",
         "Shortwave",
@@ -835,13 +842,13 @@ pub const CATALOG: &[CatalogApp] = &[
     ),
     app!("Sound", "Asunder", "asunder.desktop", "asunder"),
     app!(
-        "Science & mathematics",
+        "CAD & engineering",
         "OpenSCAD",
         "openscad.desktop",
         "openscad"
     ),
     app!(
-        "Science & mathematics",
+        "CAD & engineering",
         "SolveSpace",
         "solvespace.desktop",
         "solvespace"
@@ -853,7 +860,7 @@ pub const CATALOG: &[CatalogApp] = &[
         "syncthingtray"
     ),
     app!(
-        "Utilities",
+        "Backup & security",
         "Pika Backup",
         "org.gnome.World.PikaBackup.desktop",
         "pika-backup"
@@ -866,7 +873,7 @@ pub const CATALOG: &[CatalogApp] = &[
     ),
     app!("Utilities", "GNU Privacy Assistant", "gpa.desktop", "gpa"),
     app!(
-        "Utilities",
+        "Backup & security",
         "Kleopatra",
         "org.kde.kleopatra.desktop",
         "kleopatra"
