@@ -62,6 +62,8 @@ look. Then install system-wide with `./install.sh` as root, or register the
 build for your user only with `./install.sh --user`. Both accept `--uninstall`.
 System-wide installation requires the `/usr` layout; custom `PREFIX` values
 are rejected because helper discovery and polkit authorization use fixed paths.
+To remove an older install from another prefix, run
+`PREFIX=/usr/local ./install.sh --uninstall` as root.
 
 ## Chimera (APK) backend
 

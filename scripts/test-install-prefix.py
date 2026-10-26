@@ -29,14 +29,31 @@ class InstallPrefixTest(unittest.TestCase):
             return subprocess.run(["sh", str(script), *args], env=env,
                                   capture_output=True, text=True)
 
-    def test_custom_prefix_is_rejected_before_install_or_uninstall(self):
+    def test_custom_prefix_is_rejected_before_install(self):
         for prefix in ["/usr/local", "/opt/caerus", "relative", "/usr/../opt"]:
-            for args in [(), ("--uninstall",)]:
-                with self.subTest(prefix=prefix, args=args):
-                    result = self.run_installer(prefix, args)
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertIn("Unsupported system PREFIX", result.stderr)
-                    self.assertNotIn("unexpected file operation", result.stderr)
+            with self.subTest(prefix=prefix):
+                result = self.run_installer(prefix)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Unsupported system PREFIX", result.stderr)
+                self.assertNotIn("unexpected file operation", result.stderr)
+
+    def test_unsafe_prefix_is_rejected_before_uninstall(self):
+        for prefix in ["relative", "/usr/../opt", "/usr/./local", "/opt/.."]:
+            with self.subTest(prefix=prefix):
+                result = self.run_installer(prefix, ("--uninstall",))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Unsupported system PREFIX", result.stderr)
+                self.assertNotIn("unexpected file operation", result.stderr)
+
+    def test_older_absolute_prefix_can_still_be_uninstalled(self):
+        # An older non-/usr install must stay removable; it reaches the
+        # normal root check instead of being refused outright.
+        for prefix in ["/usr/local", "/opt/caerus"]:
+            with self.subTest(prefix=prefix):
+                result = self.run_installer(prefix, ("--uninstall",))
+                self.assertIn("System-wide mode needs root", result.stderr)
+                self.assertNotIn("Unsupported system PREFIX", result.stderr)
+                self.assertNotIn("unexpected file operation", result.stderr)
 
     def test_default_layout_reaches_normal_root_check(self):
         for prefix in [None, "", "/usr"]:

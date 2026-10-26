@@ -6,6 +6,7 @@ use crate::backend::package_store::PackageStore;
 use crate::ui::{deps_confirm, remove_confirm};
 use gtk::prelude::*;
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 
 type OpenPackage = Rc<RefCell<Option<Box<dyn Fn(&str)>>>>;
@@ -410,25 +411,10 @@ impl Discover {
 
     /// Marks can change elsewhere (package table, pending bar); keep the
     /// visible application page and badges in step.
+    /// Called on every status-bar update while Discover is shown; it only
+    /// rebuilds cards and the app page when a catalog app's mark changed.
     pub fn refresh_marks(&self) {
-        let Some(store) = self.inner.store.borrow().clone() else {
-            return;
-        };
-        let states = store.state_and_mark_snapshot();
-        for (_, pkg) in self.inner.available.borrow_mut().iter_mut() {
-            if let Some((state, mark)) = states.get(&pkg.name) {
-                pkg.state = *state;
-                pkg.mark = *mark;
-            }
-        }
-        self.inner.dirty.set(true);
-        render_if_visible(&self.inner);
-        if self.inner.root.visible_child_name().as_deref() == Some("app") {
-            let current = self.inner.current_app.borrow().clone();
-            if let Some(name) = current {
-                fill_app_page(&self.inner, &name);
-            }
-        }
+        refresh_marks(&self.inner);
     }
 
     pub fn set_narrow(&self, narrow: bool) {
@@ -984,6 +970,47 @@ fn removal_blocked(pkg: &Package) -> bool {
         && !matches!(pkg.state, PkgState::NotInstalled | PkgState::Upgradable)
 }
 
+fn refresh_marks(inner: &Rc<Inner>) {
+    let Some(store) = inner.store.borrow().clone() else {
+        return;
+    };
+    let names = inner
+        .available
+        .borrow()
+        .iter()
+        .map(|(_, pkg)| pkg.name.clone())
+        .collect();
+    let states = store.states_and_marks_of(&names);
+    if !apply_states(&mut inner.available.borrow_mut(), &states) {
+        return;
+    }
+    inner.dirty.set(true);
+    render_if_visible(inner);
+    if inner.root.visible_child_name().as_deref() == Some("app") {
+        let current = inner.current_app.borrow().clone();
+        if let Some(name) = current {
+            fill_app_page(inner, &name);
+        }
+    }
+}
+
+/// Copies current states and marks into the catalog entries; true if any changed.
+fn apply_states(
+    available: &mut [(&'static CatalogApp, Package)],
+    states: &HashMap<String, (PkgState, PkgMark)>,
+) -> bool {
+    let mut changed = false;
+    for (_, pkg) in available.iter_mut() {
+        if let Some(&(state, mark)) = states.get(&pkg.name) {
+            if (pkg.state, pkg.mark) != (state, mark) {
+                (pkg.state, pkg.mark) = (state, mark);
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
 fn primary_action(inner: &Rc<Inner>, button: &gtk::Button) {
     let Some(name) = inner.current_app.borrow().clone() else {
         return;
@@ -1001,13 +1028,12 @@ fn primary_action(inner: &Rc<Inner>, button: &gtk::Button) {
         move |mark: PkgMark| {
             store.set_mark(&name, mark);
             if let Some(inner) = weak.upgrade() {
+                // Refills whichever app is shown now, since a confirmation may
+                // finish after navigation; the window's own status-bar refresh
+                // that follows then finds nothing left to rebuild.
+                refresh_marks(&inner);
                 if let Some(callback) = inner.on_marks_changed.borrow().as_ref() {
                     callback();
-                }
-                // A confirmation may finish after navigation to another app.
-                let current = inner.current_app.borrow().clone();
-                if let Some(current) = current {
-                    fill_app_page(&inner, &current);
                 }
             }
         }
@@ -1052,6 +1078,30 @@ mod tests {
         pkg.mark = PkgMark::None;
         pkg.essential = false;
         assert!(!removal_blocked(&pkg));
+    }
+
+    #[test]
+    fn mark_refresh_reports_only_real_changes() {
+        let app = &crate::ui::catalog::CATALOG[0];
+        let mut available = vec![(
+            app,
+            Package {
+                name: "firefox".into(),
+                state: PkgState::Installed,
+                ..Package::default()
+            },
+        )];
+        let mut states = HashMap::new();
+        states.insert("firefox".to_string(), (PkgState::Installed, PkgMark::None));
+        assert!(!apply_states(&mut available, &states));
+        states.insert(
+            "firefox".to_string(),
+            (PkgState::Installed, PkgMark::Remove),
+        );
+        assert!(apply_states(&mut available, &states));
+        assert_eq!(available[0].1.mark, PkgMark::Remove);
+        assert!(!apply_states(&mut available, &states));
+        assert!(!apply_states(&mut available, &HashMap::new()));
     }
 
     #[test]
