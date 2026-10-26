@@ -29,6 +29,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Allow Git operations in the build container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Check the tag matches the workspace version
         run: |
           version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
