@@ -32,9 +32,9 @@ done
 
 BIN="$REPO/target/daily/caerus"
 
-# Chimera Linux builds the APK backend; everything else uses XBPS.
+# Chimera and Alpine (or ID_LIKE=alpine) build the APK backend; everything else uses XBPS.
 FEATURES=()
-if [[ -r /etc/os-release ]] && [[ "$(. /etc/os-release && echo "${ID:-}")" == chimera ]]; then
+if [[ -r /etc/os-release ]] && [[ " $(. /etc/os-release && echo "${ID:-} ${ID_LIKE:-}") " =~ \ (chimera|alpine)\  ]]; then
     FEATURES=(-p caerus -p caerus-helper --no-default-features --features caerus/apk)
 fi
 

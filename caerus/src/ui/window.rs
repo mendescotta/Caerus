@@ -930,7 +930,7 @@ fn show_about_dialog(parent: &gtk::ApplicationWindow) {
         .application_name("Caerus")
         .version(env!("CARGO_PKG_VERSION"))
         .comments(if cfg!(feature = "apk") {
-            "A Synaptic-inspired package manager for Chimera Linux, using APK."
+            "A Synaptic-inspired package manager for Chimera and Alpine Linux, using APK."
         } else {
             "A Synaptic-inspired package manager for Void Linux, built directly on libxbps."
         })
@@ -967,7 +967,7 @@ fn show_about_dialog(parent: &gtk::ApplicationWindow) {
     content.append(&version);
 
     let description = gtk::Label::new(Some(if cfg!(feature = "apk") {
-        "A Synaptic-inspired package manager for Chimera Linux, using APK."
+        "A Synaptic-inspired package manager for Chimera and Alpine Linux, using APK."
     } else {
         "A Synaptic-inspired package manager for Void Linux, built directly on libxbps."
     }));

@@ -3,7 +3,8 @@
 # Caerus
 
 A GTK4 package manager for [Void Linux](https://voidlinux.org/) (XBPS), with
-an optional backend for [Chimera Linux](https://chimera-linux.org/) (APK).
+an optional APK backend for [Chimera Linux](https://chimera-linux.org/) and
+[Alpine Linux](https://alpinelinux.org/) 3.23 or newer.
 
 <img src="screenshots/main-window.png" width="100%">
 
@@ -37,7 +38,7 @@ The installer builds the latest release and offers to install it:
 curl -fsSL https://raw.githubusercontent.com/mendescotta/Caerus/main/get-caerus.sh | sh
 ```
 
-It detects Void or Chimera and installs missing build dependencies with
+It detects Void, Chimera or Alpine and installs missing build dependencies with
 `xbps-install` or `apk` (through `doas` or `sudo`). Set `CAERUS_REF=main` to
 build the development branch, or `CAERUS_SRC_DIR` to choose the checkout path.
 
@@ -57,17 +58,28 @@ apk add git rust cargo gtk4-devel glib-devel pkgconf polkit
 cargo build --release -p caerus -p caerus-helper --no-default-features --features caerus/apk
 ```
 
-Add `--features caerus/adwaita` (needs `libadwaita-devel`) for the libadwaita
-look. Then install system-wide with `./install.sh` as root, or register the
+Alpine Linux (3.23 or newer, which ship apk-tools 3):
+
+```sh
+apk add git rust cargo build-base gtk4.0-dev glib-dev pkgconf polkit
+cargo build --release -p caerus -p caerus-helper --no-default-features --features caerus/apk
+```
+
+`gtk4.0-dev` is in Alpine's `community` repository; enable it with
+`setup-apkrepos -c` if `apk add` cannot find it.
+
+Add `--features caerus/adwaita` (needs `libadwaita-devel`, or `libadwaita-dev`
+on Alpine) for the libadwaita look. Then install system-wide with `./install.sh` as root, or register the
 build for your user only with `./install.sh --user`. Both accept `--uninstall`.
 System-wide installation requires the `/usr` layout; custom `PREFIX` values
 are rejected because helper discovery and polkit authorization use fixed paths.
 To remove an older install from another prefix, run
 `PREFIX=/usr/local ./install.sh --uninstall` as root.
 
-## Chimera (APK) backend
+## APK backend (Chimera, Alpine)
 
-The helper detects Chimera through `/etc/os-release` and runs `apk`. Search,
+The helper detects Chimera, Alpine and their derivatives (`ID_LIKE`)
+through `/etc/os-release` and runs `apk`. It needs apk-tools 3 (`apk query`). Search,
 details, repositories, previews, install, remove, updates and system upgrades
 work. Void-only tools (purge, hold, repo-lock, kernel purge, alternatives,
 orphan removal, cache cleanup, reconfigure, force remove) are disabled.

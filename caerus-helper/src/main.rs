@@ -85,12 +85,17 @@ fn run_command(argv: &[&str]) -> Option<i32> {
 fn uses_apk() -> bool {
     std::fs::read_to_string("/etc/os-release")
         .ok()
-        .is_some_and(|release| {
-            release.lines().any(|line| {
-                line.strip_prefix("ID=")
-                    .is_some_and(|id| id.trim_matches('"') == "chimera")
-            })
-        })
+        .is_some_and(|release| is_apk_os(&release))
+}
+
+/// Chimera, Alpine and their derivatives (`ID_LIKE`, e.g. postmarketOS).
+fn is_apk_os(release: &str) -> bool {
+    release.lines().any(|line| {
+        let value = |key: &str| line.strip_prefix(key).map(|v| v.trim_matches(['"', '\'']));
+        let apk_id = |id: &str| id == "chimera" || id == "alpine";
+        value("ID=").is_some_and(apk_id)
+            || value("ID_LIKE=").is_some_and(|ids| ids.split_whitespace().any(apk_id))
+    })
 }
 
 fn apk_argv_for(verb: &str) -> Option<&'static [&'static str]> {
@@ -1109,6 +1114,19 @@ mod tests {
         assert_eq!(apk_argv_for("DOWNLOAD"), None);
         assert_eq!(apk_argv_for("HOLD"), None);
         assert_eq!(apk_argv_for("INSTALL_FORCE"), None);
+    }
+
+    #[test]
+    fn apk_backend_is_used_on_chimera_alpine_and_derivatives() {
+        assert!(is_apk_os("NAME=\"Chimera\"\nID=\"chimera\"\n"));
+        assert!(is_apk_os(
+            "NAME=\"Alpine Linux\"\nID=alpine\nVERSION_ID=3.24.3\n"
+        ));
+        assert!(is_apk_os("ID=postmarketos\nID_LIKE=\"alpine\"\n"));
+        assert!(is_apk_os("ID=hybrid\nID_LIKE=chimera\n"));
+        assert!(!is_apk_os("NAME=\"Void\"\nID=\"void\"\n"));
+        assert!(!is_apk_os("ID=debian\nID_LIKE=\"ubuntu alpinelike\"\n"));
+        assert!(!is_apk_os("VERSION_ID=alpine\n"));
     }
 
     #[test]
