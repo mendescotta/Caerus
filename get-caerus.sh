@@ -24,16 +24,33 @@ ask() {
 }
 
 os_id=""
+os_like=""
 if [ -r /etc/os-release ]; then
     os_id="$(. /etc/os-release && echo "${ID:-}")"
+    os_like="$(. /etc/os-release && echo "${ID_LIKE:-}")"
 fi
+case " $os_id $os_like " in
+    *" alpine "*) apk_distro=alpine ;;
+    *" chimera "*) apk_distro=chimera ;;
+    *) apk_distro="" ;;
+esac
 
-if [ "$os_id" = chimera ] && command -v apk >/dev/null 2>&1; then
-    DISTRO=chimera
-    BUILD_PKGS="gtk4-devel glib-devel pkgconf polkit"
+if [ -n "$apk_distro" ] && command -v apk >/dev/null 2>&1; then
+    DISTRO=$apk_distro
+    # The APK backend reads packages through `apk query`, new in apk-tools 3
+    # (Alpine 3.23+).
+    if ! apk query --fields name --format json apk-tools >/dev/null 2>&1; then
+        echo "Caerus needs apk-tools 3 or newer; found: $(apk --version 2>&1)" >&2
+        exit 1
+    fi
+    if [ "$DISTRO" = alpine ]; then
+        BUILD_PKGS="gtk4.0-dev glib-dev pkgconf polkit build-base"
+    else
+        BUILD_PKGS="gtk4-devel glib-devel pkgconf polkit"
+    fi
     has_pkg() { apk info -e "$1" >/dev/null 2>&1; }
     pkg_install="apk add --interactive=no"
-    # The xbps backend links libxbps; Chimera builds the APK backend instead.
+    # The xbps backend links libxbps; APK systems build the APK backend instead.
     build() {
         cargo build --release -p caerus -p caerus-helper \
             --no-default-features --features caerus/apk
@@ -45,8 +62,8 @@ elif command -v xbps-install >/dev/null 2>&1; then
     pkg_install="xbps-install -Sy"
     build() { cargo build --release; }
 else
-    echo "Caerus supports Void Linux (XBPS) and Chimera Linux (APK);" >&2
-    echo "neither 'xbps-install' nor a Chimera 'apk' was found." >&2
+    echo "Caerus supports Void Linux (XBPS) and Chimera or Alpine Linux (APK);" >&2
+    echo "neither 'xbps-install' nor a Chimera/Alpine 'apk' was found." >&2
     exit 1
 fi
 
@@ -78,7 +95,12 @@ if [ -n "$to_install" ]; then
         exit 1
     fi
     if ask "Install them now via '${as_root:+$as_root }$pkg_install$to_install'?" y; then
-        $as_root $pkg_install $to_install
+        if ! $as_root $pkg_install $to_install; then
+            # gtk4.0-dev lives in Alpine's community repository.
+            [ "$DISTRO" = alpine ] &&
+                echo "If packages were not found, enable the community repository (setup-apkrepos -c) and re-run." >&2
+            exit 1
+        fi
     else
         echo "Can't build without them — install manually and re-run." >&2
         exit 1
