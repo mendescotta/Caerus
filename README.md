@@ -6,10 +6,13 @@ A GTK4 package manager for [Void Linux](https://voidlinux.org/) (XBPS), with
 an optional APK backend for [Chimera Linux](https://chimera-linux.org/) and
 [Alpine Linux](https://alpinelinux.org/) 3.23 or newer.
 
-<img src="screenshots/main-window.png" width="100%">
+<img src="screenshots/main-window.png" width="100%" alt="Caerus main window">
 
-More views: [Discover](screenshots/discover.png),
-[package details in a narrow window](screenshots/package-details-narrow.png).
+Discover browses 743 applications and tools in 28 sections:
+
+<img src="screenshots/discover.png" width="100%" alt="Discover catalog with its sections">
+
+More views: [package details in a narrow window](screenshots/package-details-narrow.png).
 
 ## Features
 
@@ -66,7 +69,10 @@ cargo build --release -p caerus -p caerus-helper --no-default-features --feature
 ```
 
 `gtk4.0-dev` is in Alpine's `community` repository; enable it with
-`setup-apkrepos -c` if `apk add` cannot find it.
+`setup-apkrepos -c` if `apk add` cannot find it. Alpine edge works too, and so
+do derivatives that set `ID_LIKE=alpine` (such as postmarketOS). For a desktop
+to run Caerus in, `setup-desktop gnome` installs GNOME with GDM and a polkit
+agent.
 
 Add `--features caerus/adwaita` (needs `libadwaita-devel`, or `libadwaita-dev`
 on Alpine) for the libadwaita look. Then install system-wide with `./install.sh` as root, or register the
@@ -79,9 +85,12 @@ To remove an older install from another prefix, run
 ## APK backend (Chimera, Alpine)
 
 The helper detects Chimera, Alpine and their derivatives (`ID_LIKE`)
-through `/etc/os-release` and runs `apk`. It needs apk-tools 3 (`apk query`). Search,
-details, repositories, previews, install, remove, updates and system upgrades
-work. Void-only tools (purge, hold, repo-lock, kernel purge, alternatives,
+through `/etc/os-release` and runs `apk`. It needs apk-tools 3 (`apk query`);
+the installer refuses Alpine 3.22 and older. Search, details, repositories,
+previews, install, remove, updates and system upgrades work. Removal previews
+follow the whole reverse-dependency chain, and a removal that apk would not
+carry out (because something else still needs the package) is refused with the
+reason. Void-only tools (purge, hold, repo-lock, kernel purge, alternatives,
 orphan removal, cache cleanup, reconfigure, force remove) are disabled.
 
 APK treats `/etc/apk/world` as a set of constraints: removing a package drops
@@ -111,10 +120,11 @@ debug build with full logging and core dumps; `CAERUS_TRACE_STARTUP=1` logs
 startup milestones.
 
 `scripts/test-apk-distros.sh` builds and exercises the APK backend in fresh
-Chimera and Alpine containers (podman): unit tests, the `apk query` calls,
-the helper protocol, `install.sh` and a GUI launch under a virtual display.
-Pass `ssh:HOST` to run the same checks on a disposable machine instead; that
-run changes its packages. Logs and screenshots go to `temp/apk-distros/`.
+Chimera, Alpine and Alpine edge containers (podman): unit tests, the `apk query`
+calls, the helper protocol, `install.sh` and a GUI launch under a virtual
+display. Pass images (`alpine:3.24`) to pick others, or `ssh:HOST` to run the
+same checks on a disposable machine instead; that run changes its packages.
+Logs and screenshots go to `temp/apk-distros/`.
 
 To verify Discover candidates against Void's official binary repository, run
 `python3 scripts/check-discover-void.py --desktop-files PACKAGE...`.
@@ -130,6 +140,19 @@ names with `--desktop-files`. Use `--catalog --nonfree` to audit existing aliase
 The search rules, verification evidence and coverage counts
 are documented in [Discover coverage](scripts/discover/README.md). Offline checker tests:
 `python3 scripts/test-check-discover-void.py`.
+
+### Scripts
+
+| Script | What it does |
+| --- | --- |
+| `get-caerus.sh` | Installer: detects Void, Chimera or Alpine, installs build dependencies, builds, then offers to install |
+| `install.sh` | Installs a build system-wide (`/usr`) or for one user (`--user`); `--uninstall` removes it |
+| `scripts/debug-run.sh` | Debug build (XBPS or APK, chosen from `/etc/os-release`) with full logging and core dumps; `--no-build` runs an existing binary, `--fatal-criticals` aborts on the first GLib critical |
+| `scripts/test-apk-distros.sh` | APK backend checks in Chimera/Alpine containers or over SSH |
+| `scripts/check-discover-void.py` | Verifies and finds Discover packages in Void's official repository |
+| `scripts/check-coderabbit.py` | Validates `.coderabbit.yaml` against CodeRabbit's schema (`uv run`) |
+| `scripts/audit.sh` | Flags `unwrap`, `expect`, `downcast`, `panic!`, `unsafe` and `TODO` in Rust sources into `audit-report.json` (needs `rg`) |
+| `scripts/test-*.py` | Offline tests for the installer, prefix checks, user install and checkers; CI runs them |
 
 ## License
 
