@@ -5,6 +5,10 @@ on:
   push:
     tags: [ 'v*' ]
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
   id-token: write
@@ -15,7 +19,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/void-linux/void-linux:latest-full-x86_64
+      image: ghcr.io/void-linux/void-glibc-full:latest
     steps:
       - name: Install build dependencies
         run: |
@@ -24,7 +28,7 @@ jobs:
           xbps-install -Suy
           xbps-install -y base-devel libxbps-devel gtk4-devel libadwaita-devel pkg-config rust cargo clang zstd git github-cli
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -39,6 +43,9 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $version" >&2
             exit 1
           }
+
+      - name: Test
+        run: cargo test --workspace --locked
 
       - name: Build release binary and checksum
         run: |

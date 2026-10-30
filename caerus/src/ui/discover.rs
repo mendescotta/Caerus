@@ -137,7 +137,9 @@ fn app_icon(app: &CatalogApp, package: &str, size: i32) -> gtk::Widget {
     if !themed {
         let stem = app.desktop.trim_end_matches(".desktop");
         let display = gtk::gdk::Display::default();
-        if display.is_some_and(|display| gtk::IconTheme::for_display(&display).has_icon(stem)) {
+        if !stem.is_empty()
+            && display.is_some_and(|display| gtk::IconTheme::for_display(&display).has_icon(stem))
+        {
             image.set_icon_name(Some(stem));
         } else {
             let (symbol, accent) = category_style(app.category);

@@ -8,6 +8,7 @@ pub struct CatalogApp {
     pub category: &'static str,
     pub name: &'static str,
     pub packages: &'static [&'static str],
+    /// Verified launcher filename, or empty when the package ships none.
     pub desktop: &'static str,
 }
 
@@ -24,12 +25,21 @@ pub const CATEGORIES: &[&str] = &[
     "Sound",
     "Video",
     "Games",
+    "Emulation",
     "Education",
     "Science & mathematics",
     "CAD & engineering",
     "Development",
+    "Reverse engineering",
+    "Virtualization & containers",
     "Network",
-    "Backup & security",
+    "Backup & recovery",
+    "Security & privacy",
+    "Files & storage",
+    "Terminals",
+    "Accessibility",
+    "Desktop & appearance",
+    "Printing & scanning",
     "Utilities",
 ];
 
@@ -75,7 +85,16 @@ pub fn category_style(category: &str) -> (&'static str, &'static str) {
         "CAD & engineering" => ("x-office-drawing-symbolic", "accent-slate"),
         "Development" => ("applications-engineering-symbolic", "accent-blue"),
         "Network" => ("network-workgroup-symbolic", "accent-green"),
-        "Backup & security" => ("security-high-symbolic", "accent-red"),
+        "Reverse engineering" => ("applications-engineering-symbolic", "accent-purple"),
+        "Virtualization & containers" => ("computer-symbolic", "accent-blue"),
+        "Backup & recovery" => ("document-save-symbolic", "accent-teal"),
+        "Security & privacy" => ("security-high-symbolic", "accent-red"),
+        "Files & storage" => ("drive-harddisk-symbolic", "accent-orange"),
+        "Terminals" => ("utilities-terminal-symbolic", "accent-slate"),
+        "Accessibility" => ("preferences-desktop-accessibility-symbolic", "accent-green"),
+        "Emulation" => ("input-gaming-symbolic", "accent-red"),
+        "Desktop & appearance" => ("preferences-desktop-appearance-symbolic", "accent-pink"),
+        "Printing & scanning" => ("printer-symbolic", "accent-slate"),
         _ => ("applications-utilities-symbolic", "accent-slate"),
     }
 }
@@ -183,7 +202,7 @@ pub const CATALOG: &[CatalogApp] = &[
     ),
     app!("Office & documents", "Evince", "evince.desktop", "evince"),
     app!(
-        "Office & documents",
+        "Notes & planning",
         "Gnote",
         "org.gnome.Gnote.desktop",
         "gnote"
@@ -266,16 +285,16 @@ pub const CATALOG: &[CatalogApp] = &[
     app!("Graphics", "Blender", "blender.desktop", "blender"),
     app!("Photography", "Darktable", "darktable.desktop", "darktable"),
     app!(
-        "Graphics",
+        "Photography",
         "RawTherapee",
         "rawtherapee.desktop",
         "rawtherapee"
     ),
     app!("Graphics", "MyPaint", "mypaint.desktop", "mypaint"),
     app!("Graphics", "Pinta", "pinta.desktop", "pinta"),
-    app!("Graphics", "gThumb", "gthumb.desktop", "gthumb"),
+    app!("Photography", "gThumb", "gthumb.desktop", "gthumb"),
     app!("Graphics", "Gwenview", "gwenview.desktop", "gwenview"),
-    app!("Graphics", "Shotwell", "shotwell.desktop", "shotwell"),
+    app!("Photography", "Shotwell", "shotwell.desktop", "shotwell"),
     app!(
         "Graphics",
         "ImageMagick",
@@ -341,7 +360,13 @@ pub const CATALOG: &[CatalogApp] = &[
         "com.obsproject.Studio.desktop",
         "obs"
     ),
-    app!("Video", "HandBrake", "HandBrake.desktop", "HandBrake"),
+    app!(
+        "Video",
+        "HandBrake",
+        "fr.handbrake.ghb.desktop",
+        "handbrake",
+        "HandBrake"
+    ),
     app!("Video", "FFmpeg", "ffmpeg.desktop", "ffmpeg"),
     app!("Video", "yt-dlp", "yt-dlp.desktop", "yt-dlp"),
     app!("Video", "Kodi", "org.xbmc.kodi.desktop", "kodi"),
@@ -352,7 +377,13 @@ pub const CATALOG: &[CatalogApp] = &[
         "supertuxkart.desktop",
         "supertuxkart"
     ),
-    app!("Games", "SuperTux", "supertux.desktop", "supertux"),
+    app!(
+        "Games",
+        "SuperTux",
+        "supertux2.desktop",
+        "supertux2",
+        "supertux"
+    ),
     app!("Games", "OpenTTD", "openttd.desktop", "openttd"),
     app!(
         "Games",
@@ -445,7 +476,8 @@ pub const CATALOG: &[CatalogApp] = &[
     app!(
         "Science & mathematics",
         "Celestia",
-        "celestia.desktop",
+        "",
+        "celestia-glut",
         "celestia"
     ),
     app!(
@@ -476,7 +508,8 @@ pub const CATALOG: &[CatalogApp] = &[
     app!(
         "Science & mathematics",
         "wxMaxima",
-        "wxmaxima.desktop",
+        "io.github.wxmaxima_developers.wxMaxima.desktop",
+        "wxMaxima",
         "wxmaxima"
     ),
     app!(
@@ -498,7 +531,13 @@ pub const CATALOG: &[CatalogApp] = &[
         "speedcrunch"
     ),
     app!("CAD & engineering", "KiCad", "kicad.desktop", "kicad"),
-    app!("CAD & engineering", "FreeCAD", "FreeCAD.desktop", "FreeCAD"),
+    app!(
+        "CAD & engineering",
+        "FreeCAD",
+        "org.freecad.FreeCAD.desktop",
+        "freecad",
+        "FreeCAD"
+    ),
     app!("Science & mathematics", "QGIS", "qgis.desktop", "qgis"),
     app!(
         "Science & mathematics",
@@ -519,7 +558,7 @@ pub const CATALOG: &[CatalogApp] = &[
         "devhelp"
     ),
     app!(
-        "Development",
+        "Reverse engineering",
         "GNOME Hex Editor",
         "org.gnome.GHex.desktop",
         "ghex"
@@ -536,7 +575,13 @@ pub const CATALOG: &[CatalogApp] = &[
         "codeblocks.desktop",
         "codeblocks"
     ),
-    app!("Development", "Code - OSS", "code-oss.desktop", "code-oss"),
+    app!(
+        "Development",
+        "Code - OSS",
+        "code-oss.desktop",
+        "vscode",
+        "code-oss"
+    ),
     app!("Development", "VSCodium", "vscodium.desktop", "vscodium"),
     app!("Development", "GCC", "gcc.desktop", "gcc"),
     app!("Development", "Clang", "clang.desktop", "clang"),
@@ -598,7 +643,7 @@ pub const CATALOG: &[CatalogApp] = &[
         "ktorrent"
     ),
     app!(
-        "Utilities",
+        "Files & storage",
         "GNOME Disks",
         "gnome-disk-utility.desktop",
         "gnome-disk-utility"
@@ -610,7 +655,7 @@ pub const CATALOG: &[CatalogApp] = &[
         "gnome-calculator"
     ),
     app!(
-        "Office & documents",
+        "Notes & planning",
         "GNOME Calendar",
         "org.gnome.Calendar.desktop",
         "gnome-calendar"
@@ -640,13 +685,13 @@ pub const CATALOG: &[CatalogApp] = &[
         "gnome-connections"
     ),
     app!(
-        "Utilities",
+        "Terminals",
         "GNOME Console",
         "org.gnome.Console.desktop",
         "gnome-console"
     ),
     app!(
-        "Utilities",
+        "Printing & scanning",
         "Document Scanner",
         "simple-scan.desktop",
         "simple-scan"
@@ -663,27 +708,43 @@ pub const CATALOG: &[CatalogApp] = &[
         "ca.desrt.dconf-editor.desktop",
         "dconf-editor"
     ),
-    app!("Utilities", "GParted", "gparted.desktop", "gparted"),
-    app!("Utilities", "Baobab", "baobab.desktop", "baobab"),
+    app!("Files & storage", "GParted", "gparted.desktop", "gparted"),
+    app!("Files & storage", "Baobab", "baobab.desktop", "baobab"),
     app!(
-        "Utilities",
+        "Files & storage",
         "File Roller",
         "file-roller.desktop",
         "file-roller"
     ),
-    app!("Utilities", "Engrampa", "engrampa.desktop", "engrampa"),
     app!(
-        "Backup & security",
+        "Files & storage",
+        "Engrampa",
+        "engrampa.desktop",
+        "engrampa"
+    ),
+    app!(
+        "Security & privacy",
         "KeepassXC",
         "keepassxc.desktop",
         "keepassxc"
     ),
-    app!("Utilities", "KeePass", "keepass.desktop", "keepass"),
-    app!("Utilities", "Déjà Dup", "deja-dup.desktop", "deja-dup"),
     app!(
-        "Utilities",
+        "Security & privacy",
+        "KeePass",
+        "keepass.desktop",
+        "keepass"
+    ),
+    app!(
+        "Backup & recovery",
+        "Déjà Dup",
+        "org.gnome.DejaDup.desktop",
+        "deja-dup"
+    ),
+    app!(
+        "Backup & recovery",
         "Back In Time",
-        "backintime.desktop",
+        "backintime-qt.desktop",
+        "backintime-qt",
         "backintime"
     ),
     app!(
@@ -697,13 +758,18 @@ pub const CATALOG: &[CatalogApp] = &[
     app!("Utilities", "Fastfetch", "fastfetch.desktop", "fastfetch"),
     app!("Utilities", "Flameshot", "flameshot.desktop", "flameshot"),
     app!("Utilities", "Spectacle", "spectacle.desktop", "spectacle"),
-    app!("Utilities", "Thunar", "Thunar.desktop", "Thunar"),
-    app!("Utilities", "Nautilus", "nautilus.desktop", "nautilus"),
-    app!("Utilities", "Dolphin", "dolphin.desktop", "dolphin"),
-    app!("Utilities", "PCManFM", "pcmanfm.desktop", "pcmanfm"),
-    app!("Utilities", "Tilix", "tilix.desktop", "tilix"),
+    app!("Files & storage", "Thunar", "Thunar.desktop", "Thunar"),
+    app!(
+        "Files & storage",
+        "Nautilus",
+        "nautilus.desktop",
+        "nautilus"
+    ),
+    app!("Files & storage", "Dolphin", "dolphin.desktop", "dolphin"),
+    app!("Files & storage", "PCManFM", "pcmanfm.desktop", "pcmanfm"),
+    app!("Terminals", "Tilix", "tilix.desktop", "tilix"),
     app!("Utilities", "Tellico", "org.kde.tellico.desktop", "tellico"),
-    app!("Utilities", "Ark", "org.kde.ark.desktop", "ark"),
+    app!("Files & storage", "Ark", "org.kde.ark.desktop", "ark"),
     app!(
         "Mail & communication",
         "KMail",
@@ -736,7 +802,7 @@ pub const CATALOG: &[CatalogApp] = &[
         "akregator"
     ),
     app!(
-        "Web",
+        "News & podcasts",
         "RSS Guard",
         "io.github.martinrotter.rssguardlite.desktop",
         "rssguard"
@@ -860,35 +926,1345 @@ pub const CATALOG: &[CatalogApp] = &[
         "syncthingtray"
     ),
     app!(
-        "Backup & security",
+        "Backup & recovery",
         "Pika Backup",
         "org.gnome.World.PikaBackup.desktop",
         "pika-backup"
     ),
     app!(
-        "Utilities",
+        "Security & privacy",
         "Passwords and Keys",
         "org.gnome.seahorse.Application.desktop",
         "seahorse"
     ),
-    app!("Utilities", "GNU Privacy Assistant", "gpa.desktop", "gpa"),
     app!(
-        "Backup & security",
+        "Security & privacy",
+        "GNU Privacy Assistant",
+        "gpa.desktop",
+        "gpa"
+    ),
+    app!(
+        "Security & privacy",
         "Kleopatra",
         "org.kde.kleopatra.desktop",
         "kleopatra"
     ),
     app!(
-        "Utilities",
+        "Files & storage",
         "Filelight",
         "org.kde.filelight.desktop",
         "filelight"
     ),
-    app!("Utilities", "QDirStat", "qdirstat.desktop", "qdirstat"),
-    app!("Utilities", "KRename", "org.kde.krename.desktop", "krename"),
-    app!("Utilities", "KFind", "org.kde.kfind.desktop", "kfind"),
-    app!("Utilities", "Brasero", "brasero.desktop", "brasero"),
-    app!("Utilities", "Xfburn", "xfburn.desktop", "xfburn"),
+    app!(
+        "Files & storage",
+        "QDirStat",
+        "qdirstat.desktop",
+        "qdirstat"
+    ),
+    app!(
+        "Files & storage",
+        "KRename",
+        "org.kde.krename.desktop",
+        "krename"
+    ),
+    app!("Files & storage", "KFind", "org.kde.kfind.desktop", "kfind"),
+    app!("Files & storage", "Brasero", "brasero.desktop", "brasero"),
+    app!("Files & storage", "Xfburn", "xfburn.desktop", "xfburn"),
+    // Added from the official binary repository audit; see scripts/discover/README.md.
+    app!("Backup & recovery", "BorgBackup", "", "borg"),
+    app!("Backup & recovery", "borgmatic", "", "borgmatic"),
+    app!("Backup & recovery", "Restic", "", "restic"),
+    app!("Backup & recovery", "autorestic", "", "autorestic"),
+    app!("Backup & recovery", "Kopia", "", "kopia"),
+    app!("Backup & recovery", "duplicity", "", "duplicity"),
+    app!("Backup & recovery", "rdiff-backup", "", "rdiff-backup"),
+    app!("Backup & recovery", "rsnapshot", "", "rsnapshot"),
+    app!("Backup & recovery", "btrbk", "", "btrbk"),
+    app!("Backup & recovery", "bup", "", "bup"),
+    app!(
+        "Backup & recovery",
+        "Timeshift",
+        "timeshift-gtk.desktop",
+        "timeshift"
+    ),
+    app!("Backup & recovery", "Snapper", "", "snapper"),
+    app!("Backup & recovery", "GNU ddrescue", "", "ddrescue"),
+    app!("Backup & recovery", "TestDisk", "", "testdisk"),
+    app!("Backup & recovery", "FSArchiver", "", "fsarchiver"),
+    app!("Backup & recovery", "Kup", "kcm_kup.desktop", "kup"),
+    app!(
+        "Backup & recovery",
+        "Qt FSArchiver",
+        "qt-fsarchiver.desktop",
+        "qt5-fsarchiver"
+    ),
+    app!("Security & privacy", "age", "", "age"),
+    app!("Security & privacy", "GnuPG", "", "gnupg"),
+    app!("Security & privacy", "Pass", "", "pass"),
+    app!("Security & privacy", "gopass", "", "gopass"),
+    app!(
+        "Security & privacy",
+        "Authenticator",
+        "com.belmoussaoui.Authenticator.desktop",
+        "gnome-authenticator"
+    ),
+    app!(
+        "Security & privacy",
+        "Secrets",
+        "org.gnome.World.Secrets.desktop",
+        "gnome-secrets"
+    ),
+    app!(
+        "Security & privacy",
+        "Password Safe",
+        "pwsafe.desktop",
+        "passwordsafe"
+    ),
+    app!("Security & privacy", "KGpg", "org.kde.kgpg.desktop", "kgpg"),
+    app!(
+        "Security & privacy",
+        "zuluCrypt",
+        "zuluCrypt.desktop",
+        "zulucrypt-gui"
+    ),
+    app!("Security & privacy", "UFW", "", "ufw"),
+    app!("Security & privacy", "cryptsetup", "", "cryptsetup"),
+    app!("Reverse engineering", "Ghidra", "", "ghidra"),
+    app!(
+        "Reverse engineering",
+        "Cutter",
+        "re.rizin.cutter.desktop",
+        "cutter"
+    ),
+    app!("Reverse engineering", "Rizin", "", "rizin"),
+    app!("Reverse engineering", "radare2", "", "radare2"),
+    app!("Reverse engineering", "ImHex", "imhex.desktop", "imhex"),
+    app!("Reverse engineering", "JADX", "jadx-gui.desktop", "jadx"),
+    app!("Reverse engineering", "Apktool", "", "Apktool"),
+    app!("Reverse engineering", "boomerang", "", "boomerang"),
+    app!(
+        "Reverse engineering",
+        "EDB Debugger",
+        "edb.desktop",
+        "edb-debugger"
+    ),
+    app!(
+        "Reverse engineering",
+        "Okteta",
+        "org.kde.okteta.desktop",
+        "okteta"
+    ),
+    app!("Reverse engineering", "dhex", "", "dhex"),
+    app!("Reverse engineering", "hexer", "", "hexer"),
+    app!("Reverse engineering", "BIEW", "", "biew"),
+    app!("Reverse engineering", "strace", "", "strace"),
+    app!("Reverse engineering", "ltrace", "", "ltrace"),
+    app!("Reverse engineering", "Binwalk", "", "binwalk"),
+    app!(
+        "Reverse engineering",
+        "UEFITool",
+        "uefitool.desktop",
+        "UEFITool"
+    ),
+    app!("Reverse engineering", "The Sleuth Kit", "", "sleuthkit"),
+    app!("Reverse engineering", "Foremost", "", "foremost"),
+    app!(
+        "Virtualization & containers",
+        "Virtual Machine Manager",
+        "virt-manager.desktop",
+        "virt-manager"
+    ),
+    app!(
+        "Virtualization & containers",
+        "Virtual Machine Viewer",
+        "remote-viewer.desktop",
+        "virt-viewer"
+    ),
+    app!("Virtualization & containers", "QEMU", "", "qemu"),
+    app!("Virtualization & containers", "Docker", "", "docker"),
+    app!(
+        "Virtualization & containers",
+        "Docker Compose",
+        "",
+        "docker-compose"
+    ),
+    app!("Virtualization & containers", "Podman", "", "podman"),
+    app!("Virtualization & containers", "Buildah", "", "buildah"),
+    app!("Virtualization & containers", "Skopeo", "", "skopeo"),
+    app!(
+        "Virtualization & containers",
+        "Waydroid",
+        "Waydroid.desktop",
+        "waydroid"
+    ),
+    app!("Terminals", "Alacritty", "Alacritty.desktop", "alacritty"),
+    app!("Terminals", "Foot", "foot.desktop", "foot"),
+    app!(
+        "Terminals",
+        "Ghostty",
+        "com.mitchellh.ghostty.desktop",
+        "ghostty"
+    ),
+    app!("Terminals", "Kitty", "kitty.desktop", "kitty"),
+    app!(
+        "Terminals",
+        "WezTerm",
+        "org.wezfurlong.wezterm.desktop",
+        "wezterm"
+    ),
+    app!(
+        "Terminals",
+        "GNOME Terminal",
+        "org.gnome.Terminal.desktop",
+        "gnome-terminal"
+    ),
+    app!("Terminals", "Konsole", "org.kde.konsole.desktop", "konsole"),
+    app!(
+        "Terminals",
+        "Xfce Terminal",
+        "xfce4-terminal.desktop",
+        "xfce4-terminal"
+    ),
+    app!("Terminals", "QTerminal", "qterminal.desktop", "qterminal"),
+    app!(
+        "Terminals",
+        "LXTerminal",
+        "lxterminal.desktop",
+        "lxterminal"
+    ),
+    app!(
+        "Terminals",
+        "MATE Terminal",
+        "mate-terminal.desktop",
+        "mate-terminal"
+    ),
+    app!(
+        "Terminals",
+        "Terminator",
+        "terminator.desktop",
+        "terminator"
+    ),
+    app!(
+        "Terminals",
+        "Terminology",
+        "terminology.desktop",
+        "terminology"
+    ),
+    app!(
+        "Terminals",
+        "Cool Retro Term",
+        "cool-retro-term.desktop",
+        "cool-retro-term"
+    ),
+    app!("Terminals", "Guake", "guake.desktop", "guake"),
+    app!("Terminals", "Yakuake", "org.kde.yakuake.desktop", "yakuake"),
+    app!("Terminals", "XTerm", "xterm.desktop", "xterm"),
+    app!(
+        "Terminals",
+        "Rxvt Unicode",
+        "rxvt-unicode.desktop",
+        "rxvt-unicode"
+    ),
+    app!("Terminals", "tmux", "", "tmux"),
+    app!("Terminals", "GNU Screen", "", "screen"),
+    app!("Files & storage", "Caja", "caja.desktop", "caja"),
+    app!("Files & storage", "Nemo", "nemo.desktop", "nemo"),
+    app!(
+        "Files & storage",
+        "Krusader",
+        "org.kde.krusader.desktop",
+        "krusader"
+    ),
+    app!("Files & storage", "SpaceFM", "spacefm.desktop", "spacefm"),
+    app!(
+        "Files & storage",
+        "PCManFM-Qt",
+        "pcmanfm-qt.desktop",
+        "pcmanfm-qt"
+    ),
+    app!("Files & storage", "Midnight Commander", "", "mc"),
+    app!("Files & storage", "Ranger", "ranger.desktop", "ranger"),
+    app!("Files & storage", "Vifm", "vifm.desktop", "vifm"),
+    app!("Files & storage", "Yazi", "yazi.desktop", "yazi"),
+    app!("Files & storage", "lf", "lf.desktop", "lf"),
+    app!("Files & storage", "ncdu", "", "ncdu"),
+    app!("Files & storage", "gdu", "", "gdu"),
+    app!("Files & storage", "duf", "", "duf"),
+    app!(
+        "Files & storage",
+        "FSearch",
+        "io.github.cboxdoerfer.FSearch.desktop",
+        "fsearch"
+    ),
+    app!(
+        "Files & storage",
+        "ANGRYsearch",
+        "angrysearch.desktop",
+        "angrysearch"
+    ),
+    app!(
+        "Files & storage",
+        "Xarchiver",
+        "xarchiver.desktop",
+        "xarchiver"
+    ),
+    app!(
+        "Files & storage",
+        "LXQt Archiver",
+        "lxqt-archiver.desktop",
+        "lxqt-archiver"
+    ),
+    app!("Files & storage", "7-Zip", "", "7zip"),
+    app!("Files & storage", "Rclone", "", "rclone"),
+    app!("Files & storage", "rsync", "", "rsync"),
+    app!("Files & storage", "Unison", "", "unison"),
+    app!("Accessibility", "Orca", "", "orca"),
+    app!("Accessibility", "Onboard", "onboard.desktop", "onboard"),
+    app!("Accessibility", "wvkbd", "", "wvkbd"),
+    app!(
+        "Accessibility",
+        "KMagnifier",
+        "org.kde.kmag.desktop",
+        "kmag"
+    ),
+    app!("Accessibility", "eSpeak NG", "", "espeak-ng"),
+    app!("Development", "CodeLite", "codelite.desktop", "codelite"),
+    app!("Development", "Lapce", "dev.lapce.lapce.desktop", "lapce"),
+    app!("Development", "Anjuta", "anjuta.desktop", "anjuta"),
+    app!(
+        "Development",
+        "IntelliJ IDEA Community",
+        "idea.desktop",
+        "intellij-idea-community-edition"
+    ),
+    app!(
+        "Development",
+        "PyCharm Community",
+        "pycharm.desktop",
+        "pycharm-community"
+    ),
+    app!("Development", "Lazarus", "lazarus.desktop", "lazarus"),
+    app!("Development", "SASM", "sasm.desktop", "sasm"),
+    app!("Development", "Lazygit", "", "lazygit"),
+    app!("Development", "Tig", "", "tig"),
+    app!("Graphics", "Geeqie", "org.geeqie.Geeqie.desktop", "geeqie"),
+    app!("Graphics", "feh", "feh.desktop", "feh"),
+    app!("Graphics", "imv", "imv.desktop", "imv"),
+    app!("Graphics", "nsxiv", "nsxiv.desktop", "nsxiv"),
+    app!("Graphics", "mtPaint", "mtpaint.desktop", "mtpaint"),
+    app!(
+        "Graphics",
+        "qView",
+        "com.interversehq.qView.desktop",
+        "qView"
+    ),
+    app!("Graphics", "qimgv", "qimgv.desktop", "qimgv"),
+    app!("Sound", "Amberol", "io.bassi.Amberol.desktop", "amberol"),
+    app!(
+        "Sound",
+        "Cantata",
+        "dog.unix.cantata.Cantata.desktop",
+        "cantata"
+    ),
+    app!("Sound", "cmus", "", "cmus"),
+    app!("Sound", "EasyTAG", "easytag.desktop", "easytag"),
+    app!("Sound", "Ear Tag", "app.drey.EarTag.desktop", "eartag"),
+    app!("Sound", "Elisa", "org.kde.elisa.desktop", "elisa"),
+    app!("Sound", "fooyin", "org.fooyin.fooyin.desktop", "fooyin"),
+    app!("Sound", "Puddletag", "puddletag.desktop", "puddletag"),
+    app!("Sound", "Qmmp", "qmmp.desktop", "qmmp"),
+    app!("Video", "Aegisub", "org.aegisub.Aegisub.desktop", "Aegisub"),
+    app!("Video", "Kooha", "io.github.seadve.Kooha.desktop", "Kooha"),
+    app!(
+        "Video",
+        "Clapper",
+        "com.github.rafostar.Clapper.desktop",
+        "clapper"
+    ),
+    app!(
+        "Video",
+        "Flowblade",
+        "io.github.jliljebl.Flowblade.desktop",
+        "flowblade"
+    ),
+    app!("Video", "Haruna", "org.kde.haruna.desktop", "haruna"),
+    app!(
+        "Video",
+        "SimpleScreenRecorder",
+        "simplescreenrecorder.desktop",
+        "ssr"
+    ),
+    app!(
+        "Video",
+        "Subtitle Editor",
+        "org.kitone.subtitleeditor.desktop",
+        "subtitleeditor"
+    ),
+    app!("Video", "wf-recorder", "", "wf-recorder"),
+    app!(
+        "Office & documents",
+        "Papers",
+        "org.gnome.Papers.desktop",
+        "papers"
+    ),
+    app!("Office & documents", "Atril", "atril.desktop", "atril"),
+    app!(
+        "Office & documents",
+        "qpdfview",
+        "qpdfview.desktop",
+        "qpdfview"
+    ),
+    app!("Office & documents", "Sigil", "sigil.desktop", "sigil"),
+    app!("Office & documents", "Sioyek", "sioyek.desktop", "sioyek"),
+    app!("Office & documents", "Typst", "", "typst"),
+    app!(
+        "Office & documents",
+        "VisiData",
+        "visidata.desktop",
+        "visidata"
+    ),
+    app!(
+        "Notes & planning",
+        "Planify",
+        "io.github.alainm23.planify.desktop",
+        "planify"
+    ),
+    app!(
+        "Notes & planning",
+        "Merkuro Calendar",
+        "org.kde.merkuro.calendar.desktop",
+        "merkuro"
+    ),
+    app!(
+        "Notes & planning",
+        "Orage",
+        "org.xfce.orage.desktop",
+        "orage"
+    ),
+    app!(
+        "Notes & planning",
+        "Zanshin",
+        "org.kde.zanshin.desktop",
+        "zanshin"
+    ),
+    app!("Notes & planning", "Taskwarrior", "", "task"),
+    app!("Notes & planning", "Todoman", "", "todoman"),
+    app!("Finance", "Eqonomize!", "eqonomize.desktop", "eqonomize"),
+    app!("Finance", "Beancount", "", "beancount"),
+    app!("Finance", "hledger", "", "hledger"),
+    app!("Finance", "Ledger", "", "ledger"),
+    app!(
+        "News & podcasts",
+        "GNOME Feeds",
+        "org.gabmus.gfeeds.desktop",
+        "gfeeds"
+    ),
+    app!("News & podcasts", "Kasts", "org.kde.kasts.desktop", "kasts"),
+    app!("News & podcasts", "Newsboat", "", "newsboat"),
+    app!(
+        "News & podcasts",
+        "NewsFlash",
+        "io.gitlab.news_flash.NewsFlash.desktop",
+        "newsflash"
+    ),
+    app!(
+        "News & podcasts",
+        "Newsraft",
+        "newsraft.desktop",
+        "newsraft"
+    ),
+    app!(
+        "CAD & engineering",
+        "Dune 3D",
+        "org.dune3d.dune3d.desktop",
+        "dune3d"
+    ),
+    app!("CAD & engineering", "LeoCAD", "leocad.desktop", "leocad"),
+    app!("CAD & engineering", "ngspice", "", "ngspice"),
+    app!("Education", "GNU Typist", "", "gtypist"),
+    app!("Education", "Klavaro", "klavaro.desktop", "klavaro"),
+    app!("Network", "bmon", "", "bmon"),
+    app!("Network", "FreeRDP", "", "freerdp"),
+    app!("Network", "rdesktop", "", "rdesktop"),
+    app!("Network", "Vinagre", "vinagre.desktop", "vinagre"),
+    app!("Network", "netscanner", "", "netscanner"),
+    app!(
+        "Emulation",
+        "RetroArch",
+        "com.libretro.RetroArch.desktop",
+        "retroarch"
+    ),
+    app!(
+        "Emulation",
+        "Dolphin Emulator",
+        "dolphin-emu.desktop",
+        "dolphin-emu"
+    ),
+    app!(
+        "Emulation",
+        "DOSBox Staging",
+        "org.dosbox-staging.dosbox-staging.desktop",
+        "dosbox-staging"
+    ),
+    app!("Emulation", "DOSBox", "dosbox.desktop", "dosbox"),
+    app!("Emulation", "PPSSPP", "PPSSPPSDL.desktop", "ppsspp"),
+    app!("Emulation", "mGBA", "io.mgba.mGBA.desktop", "mgba-qt"),
+    app!(
+        "Emulation",
+        "VisualBoyAdvance-M",
+        "visualboyadvance-m.desktop",
+        "vba-m"
+    ),
+    app!(
+        "Emulation",
+        "melonDS",
+        "net.kuribo64.melonDS.desktop",
+        "melonDS"
+    ),
+    app!("Emulation", "DeSmuME", "", "desmume"),
+    app!("Emulation", "PCSX-Reloaded", "pcsxr.desktop", "pcsxr"),
+    app!("Emulation", "Snes9x", "snes9x-gtk.desktop", "snes9x-gtk"),
+    app!("Emulation", "higan", "higan.desktop", "higan"),
+    app!("Emulation", "FCEUX", "fceux.desktop", "fceux"),
+    app!(
+        "Emulation",
+        "Mupen64Plus",
+        "mupen64plus.desktop",
+        "mupen64plus"
+    ),
+    app!("Emulation", "Mednaffe", "mednaffe.desktop", "mednaffe"),
+    app!("Emulation", "MAME", "", "mame"),
+    app!(
+        "Emulation",
+        "ScummVM",
+        "org.scummvm.scummvm.desktop",
+        "scummvm"
+    ),
+    app!("Emulation", "FS-UAE", "fs-uae.desktop", "fs-uae"),
+    app!("Emulation", "Hatari", "hatari.desktop", "hatari"),
+    app!("Emulation", "VICE", "vice-org-x64sc.desktop", "vice"),
+    app!("Emulation", "Stella", "stella.desktop", "stella"),
+    app!("Emulation", "DGen", "", "dgen-sdl"),
+    app!("Emulation", "Bochs", "", "bochs"),
+    app!("Emulation", "EmulationStation", "", "EmulationStation"),
+    app!(
+        "Desktop & appearance",
+        "GNOME Tweaks",
+        "org.gnome.tweaks.desktop",
+        "gnome-tweaks"
+    ),
+    app!(
+        "Desktop & appearance",
+        "Extension Manager",
+        "com.mattjakeman.ExtensionManager.desktop",
+        "extension-manager"
+    ),
+    app!(
+        "Desktop & appearance",
+        "GNOME Shell Extensions",
+        "",
+        "gnome-shell-extensions"
+    ),
+    app!(
+        "Desktop & appearance",
+        "LXAppearance",
+        "lxappearance.desktop",
+        "lxappearance"
+    ),
+    app!(
+        "Desktop & appearance",
+        "nwg-look",
+        "nwg-look.desktop",
+        "nwg-look"
+    ),
+    app!(
+        "Desktop & appearance",
+        "Qt5 Configuration Tool",
+        "qt5ct.desktop",
+        "qt5ct"
+    ),
+    app!(
+        "Desktop & appearance",
+        "Qt6 Configuration Tool",
+        "qt6ct.desktop",
+        "qt6ct"
+    ),
+    app!(
+        "Desktop & appearance",
+        "Kvantum Manager",
+        "kvantummanager.desktop",
+        "kvantum"
+    ),
+    app!(
+        "Desktop & appearance",
+        "Font Manager",
+        "com.github.FontManager.FontManager.desktop",
+        "fontmanager"
+    ),
+    app!(
+        "Desktop & appearance",
+        "GNOME Fonts",
+        "org.gnome.font-viewer.desktop",
+        "gnome-font-viewer"
+    ),
+    app!(
+        "Desktop & appearance",
+        "Variety",
+        "variety.desktop",
+        "variety"
+    ),
+    app!(
+        "Desktop & appearance",
+        "Nitrogen",
+        "nitrogen.desktop",
+        "nitrogen"
+    ),
+    app!("Desktop & appearance", "Azote", "azote.desktop", "azote"),
+    app!("Desktop & appearance", "ARandR", "arandr.desktop", "arandr"),
+    app!(
+        "Desktop & appearance",
+        "wdisplays",
+        "network.cycles.wdisplays.desktop",
+        "wdisplays"
+    ),
+    app!(
+        "Desktop & appearance",
+        "Xfce Settings",
+        "xfce-settings-manager.desktop",
+        "xfce4-settings"
+    ),
+    app!(
+        "Desktop & appearance",
+        "LXQt Configuration Center",
+        "lxqt-config.desktop",
+        "lxqt-config"
+    ),
+    app!(
+        "Printing & scanning",
+        "Print Settings",
+        "system-config-printer.desktop",
+        "system-config-printer"
+    ),
+    app!(
+        "Printing & scanning",
+        "KDE Print Manager",
+        "org.kde.ConfigurePrinter.desktop",
+        "print-manager"
+    ),
+    app!("Printing & scanning", "CUPS", "cups.desktop", "cups"),
+    app!("Printing & scanning", "HPLIP", "", "hplip"),
+    app!("Printing & scanning", "Gutenprint", "", "gutenprint"),
+    app!(
+        "Printing & scanning",
+        "Skanlite",
+        "org.kde.skanlite.desktop",
+        "skanlite"
+    ),
+    app!(
+        "Printing & scanning",
+        "Skanpage",
+        "org.kde.skanpage.desktop",
+        "skanpage"
+    ),
+    app!("Printing & scanning", "XSane", "xsane.desktop", "xsane"),
+    app!(
+        "Printing & scanning",
+        "gscan2pdf",
+        "net.sourceforge.gscan2pdf.desktop",
+        "gscan2pdf"
+    ),
+    app!("Web", "Konqueror", "org.kde.konqueror.desktop", "konqueror"),
+    app!("Web", "Badwolf", "badwolf.desktop", "badwolf"),
+    app!("Web", "Luakit", "luakit.desktop", "luakit"),
+    app!("Web", "Vimb", "vimb.desktop", "vimb"),
+    app!("Web", "surf", "", "surf"),
+    app!("Web", "Nyxt", "nyxt.desktop", "nyxt"),
+    app!(
+        "Web",
+        "Tor Browser Launcher",
+        "org.torproject.torbrowser-launcher.desktop",
+        "torbrowser-launcher"
+    ),
+    app!("Web", "Kristall", "Kristall.desktop", "kristall"),
+    app!("Web", "Lynx", "", "lynx"),
+    app!("Web", "ELinks", "", "elinks"),
+    app!(
+        "Mail & communication",
+        "Balsa",
+        "org.desktop.Balsa.desktop",
+        "balsa"
+    ),
+    app!("Mail & communication", "aerc", "aerc.desktop", "aerc"),
+    app!("Mail & communication", "Alpine", "", "alpine"),
+    app!(
+        "Mail & communication",
+        "Himalaya",
+        "himalaya.desktop",
+        "himalaya"
+    ),
+    app!(
+        "Mail & communication",
+        "Fractal",
+        "org.gnome.Fractal.desktop",
+        "fractal"
+    ),
+    app!(
+        "Mail & communication",
+        "Tuba",
+        "dev.geopjr.Tuba.desktop",
+        "Tuba"
+    ),
+    app!(
+        "Mail & communication",
+        "Tokodon",
+        "org.kde.tokodon.desktop",
+        "tokodon"
+    ),
+    app!(
+        "Mail & communication",
+        "Mumble",
+        "info.mumble.Mumble.desktop",
+        "mumble"
+    ),
+    app!(
+        "Mail & communication",
+        "qTox",
+        "io.github.qtox.qTox.desktop",
+        "qtox"
+    ),
+    app!("Mail & communication", "Toxic", "toxic.desktop", "toxic"),
+    app!(
+        "Mail & communication",
+        "Chatterino",
+        "com.chatterino.chatterino.desktop",
+        "chatterino2"
+    ),
+    app!("Mail & communication", "Irssi", "", "irssi"),
+    app!("Mail & communication", "senpai", "", "senpai"),
+    app!("Mail & communication", "Profanity", "", "profanity"),
+    app!(
+        "Mail & communication",
+        "GNOME Contacts",
+        "org.gnome.Contacts.desktop",
+        "gnome-contacts"
+    ),
+    app!("News & podcasts", "Castero", "", "castero"),
+    app!("News & podcasts", "Canto", "", "canto-curses"),
+    app!(
+        "Office & documents",
+        "Xreader",
+        "xreader.desktop",
+        "xreader"
+    ),
+    app!("Office & documents", "MuPDF", "mupdf.desktop", "mupdf"),
+    app!(
+        "Office & documents",
+        "ePDFView",
+        "epdfview.desktop",
+        "epdfview"
+    ),
+    app!("Office & documents", "GNU GV", "", "gv"),
+    app!("Office & documents", "Katarakt", "", "katarakt"),
+    app!(
+        "Office & documents",
+        "FBReader",
+        "FBReader.desktop",
+        "fbreader"
+    ),
+    app!("Office & documents", "Calligra", "", "calligra"),
+    app!("Office & documents", "LyX", "lyx.desktop", "lyx"),
+    app!(
+        "Office & documents",
+        "Texmaker",
+        "texmaker.desktop",
+        "texmaker"
+    ),
+    app!("Office & documents", "Gummi", "gummi.desktop", "gummi"),
+    app!(
+        "Office & documents",
+        "Apostrophe",
+        "org.gnome.gitlab.somas.Apostrophe.desktop",
+        "apostrophe"
+    ),
+    app!("Office & documents", "sc-im", "", "sc-im"),
+    app!("Office & documents", "WordGrinder", "", "wordgrinder"),
+    app!("Office & documents", "epy", "", "epy"),
+    app!(
+        "Notes & planning",
+        "Endeavour",
+        "org.gnome.Todo.desktop",
+        "Endeavour"
+    ),
+    app!("Notes & planning", "zk", "", "zk"),
+    app!("Finance", "Electrum", "electrum.desktop", "electrum"),
+    app!("Finance", "hledger-ui", "", "hledger-ui"),
+    app!("Editors", "FeatherPad", "featherpad.desktop", "FeatherPad"),
+    app!("Editors", "Pluma", "pluma.desktop", "pluma"),
+    app!("Editors", "Notepadqq", "notepadqq.desktop", "notepadqq"),
+    app!(
+        "Editors",
+        "Code",
+        "io.elementary.code.desktop",
+        "io.elementary.code"
+    ),
+    app!(
+        "Editors",
+        "Sublime Text",
+        "sublime_text.desktop",
+        "sublime-text4"
+    ),
+    app!("Editors", "Neovide", "neovide.desktop", "neovide"),
+    app!("Editors", "Kakoune", "", "kakoune"),
+    app!("Editors", "JOE", "joe.desktop", "joe"),
+    app!("Editors", "mg", "", "mg"),
+    app!("Editors", "xed", "", "xed"),
+    app!(
+        "Graphics",
+        "KolourPaint",
+        "org.kde.kolourpaint.desktop",
+        "kolourpaint"
+    ),
+    app!("Graphics", "GPicView", "gpicview.desktop", "gpicview"),
+    app!("Graphics", "LXImage-Qt", "lximage-qt.desktop", "lximage-qt"),
+    app!("Graphics", "Eye of MATE", "eom.desktop", "eom"),
+    app!("Graphics", "swayimg", "swayimg.desktop", "swayimg"),
+    app!("Graphics", "pqiv", "pqiv.desktop", "pqiv"),
+    app!("Graphics", "qiv", "qiv.desktop", "qiv"),
+    app!("Graphics", "vimiv", "vimiv.desktop", "vimiv"),
+    app!("Graphics", "Phototonic", "phototonic.desktop", "phototonic"),
+    app!(
+        "Graphics",
+        "Converseen",
+        "net.fasterland.converseen.desktop",
+        "Converseen"
+    ),
+    app!(
+        "Graphics",
+        "Gcolor3",
+        "nl.hjdskes.gcolor3.desktop",
+        "gcolor3"
+    ),
+    app!("Graphics", "Gpick", "org.gpick.gpick.desktop", "gpick"),
+    app!("Graphics", "ksnip", "org.ksnip.ksnip.desktop", "ksnip"),
+    app!("Graphics", "Satty", "satty.desktop", "satty"),
+    app!("Graphics", "Swappy", "swappy.desktop", "swappy"),
+    app!("Graphics", "Potrace", "", "potrace"),
+    app!(
+        "Sound",
+        "GNOME Music",
+        "org.gnome.Music.desktop",
+        "gnome-music"
+    ),
+    app!(
+        "Sound",
+        "Sound Recorder",
+        "org.gnome.SoundRecorder.desktop",
+        "gnome-sound-recorder"
+    ),
+    app!("Sound", "Pragha", "pragha.desktop", "pragha"),
+    app!("Sound", "Sonata", "sonata.desktop", "sonata"),
+    app!("Sound", "Ymuse", "com.yktoo.ymuse.desktop", "ymuse"),
+    app!("Sound", "spotify-qt", "spotify-qt.desktop", "spotify-qt"),
+    app!("Sound", "Music Player Daemon", "", "mpd"),
+    app!("Sound", "ncmpcpp", "", "ncmpcpp"),
+    app!("Sound", "kew", "kew.desktop", "kew"),
+    app!("Sound", "musikcube", "musikcube.desktop", "musikcube"),
+    app!("Sound", "Tag Editor", "tageditor.desktop", "tageditor"),
+    app!("Sound", "Carla", "carla.desktop", "Carla"),
+    app!("Sound", "Guitarix", "guitarix.desktop", "guitarix2"),
+    app!("Sound", "amsynth", "amsynth.desktop", "amsynth"),
+    app!(
+        "Sound",
+        "ZynAddSubFX",
+        "zynaddsubfx-jack.desktop",
+        "zynaddsubfx"
+    ),
+    app!("Sound", "synthv1", "org.rncbc.synthv1.desktop", "synthv1"),
+    app!("Sound", "Geonkick", "geonkick.desktop", "geonkick"),
+    app!("Video", "Totem", "org.gnome.Totem.desktop", "totem"),
+    app!(
+        "Video",
+        "Showtime",
+        "org.gnome.Showtime.desktop",
+        "showtime"
+    ),
+    app!("Video", "Kaffeine", "org.kde.kaffeine.desktop", "kaffeine"),
+    app!(
+        "Video",
+        "MPC-QT",
+        "io.github.mpc_qt.mpc-qt.desktop",
+        "mpc-qt"
+    ),
+    app!("Video", "QMPlay2", "QMPlay2.desktop", "QMPlay2"),
+    app!(
+        "Video",
+        "PlasmaTube",
+        "org.kde.plasmatube.desktop",
+        "plasmatube"
+    ),
+    app!(
+        "Video",
+        "Avidemux",
+        "org.avidemux.Avidemux.desktop",
+        "avidemux"
+    ),
+    app!(
+        "Video",
+        "MKVToolNix",
+        "org.bunkus.mkvtoolnix-gui.desktop",
+        "mkvtoolnix-gui"
+    ),
+    app!(
+        "Video",
+        "GNOME Subtitles",
+        "org.gnome.GnomeSubtitles.desktop",
+        "gnome-subtitles"
+    ),
+    app!(
+        "Video",
+        "vokoscreenNG",
+        "vokoscreenNG.desktop",
+        "vokoscreenNG"
+    ),
+    app!("Video", "Peek", "com.uploadedlobster.peek.desktop", "peek"),
+    app!("Video", "GPU Screen Recorder", "", "gpu-screen-recorder"),
+    app!("Games", "Xonotic", "xonotic-glx.desktop", "xonotic"),
+    app!("Games", "OpenRA", "openra-ra.desktop", "openra"),
+    app!(
+        "Games",
+        "Endless Sky",
+        "io.github.endless_sky.endless_sky.desktop",
+        "endless-sky"
+    ),
+    app!("Games", "OpenMW", "org.openmw.launcher.desktop", "openmw"),
+    app!("Games", "Teeworlds", "teeworlds.desktop", "teeworlds"),
+    app!("Games", "Pingus", "pingus.desktop", "pingus"),
+    app!(
+        "Games",
+        "Chromium B.S.U.",
+        "chromium-bsu.desktop",
+        "chromium-bsu"
+    ),
+    app!("Games", "X-Moto", "xmoto.desktop", "xmoto"),
+    app!("Games", "Flare", "", "flare-game"),
+    app!(
+        "Games",
+        "The Powder Toy",
+        "powder.desktop",
+        "The-Powder-Toy"
+    ),
+    app!("Games", "Cataclysm: Dark Days Ahead", "", "Cataclysm-DDA"),
+    app!("Games", "Dungeon Crawl Stone Soup", "", "crawl"),
+    app!("Games", "NetHack", "", "nethack"),
+    app!(
+        "Games",
+        "Prism Launcher",
+        "org.prismlauncher.PrismLauncher.desktop",
+        "PrismLauncher"
+    ),
+    app!("Games", "KPatience", "org.kde.kpat.desktop", "kpat"),
+    app!("Games", "KMines", "org.kde.kmines.desktop", "kmines"),
+    app!(
+        "Games",
+        "GNOME 2048",
+        "org.gnome.TwentyFortyEight.desktop",
+        "gnome-2048"
+    ),
+    app!("Games", "Atomix", "atomix.desktop", "atomix"),
+    app!("Games", "Hitori", "org.gnome.Hitori.desktop", "hitori"),
+    app!("Games", "Reversi", "org.gnome.Reversi.desktop", "iagno"),
+    app!(
+        "Games",
+        "Klotski",
+        "org.gnome.Klotski.desktop",
+        "gnome-klotski"
+    ),
+    app!(
+        "Games",
+        "Lights Off",
+        "org.gnome.LightsOff.desktop",
+        "lightsoff"
+    ),
+    app!(
+        "Games",
+        "Nibbles",
+        "org.gnome.Nibbles.desktop",
+        "gnome-nibbles"
+    ),
+    app!(
+        "Games",
+        "Robots",
+        "org.gnome.Robots.desktop",
+        "gnome-robots"
+    ),
+    app!(
+        "Games",
+        "Swell Foop",
+        "org.gnome.SwellFoop.desktop",
+        "swell-foop"
+    ),
+    app!("Games", "Tali", "org.gnome.Tali.desktop", "tali"),
+    app!("Games", "GameMode", "", "gamemode"),
+    app!("Games", "MangoHud", "", "MangoHud"),
+    app!("Science & mathematics", "Xcas", "xcas.desktop", "giac"),
+    app!("Science & mathematics", "SageMath", "", "sagemath"),
+    app!("Science & mathematics", "Kig", "org.kde.kig.desktop", "kig"),
+    app!(
+        "Science & mathematics",
+        "KmPlot",
+        "org.kde.kmplot.desktop",
+        "kmplot"
+    ),
+    app!("Science & mathematics", "PyMOL", "pymol.desktop", "pymol"),
+    app!(
+        "Science & mathematics",
+        "Gpredict",
+        "gpredict.desktop",
+        "gpredict"
+    ),
+    app!(
+        "Science & mathematics",
+        "GNU Radio Companion",
+        "gnuradio-grc.desktop",
+        "gnuradio"
+    ),
+    app!("Science & mathematics", "GRASS GIS", "", "grass"),
+    app!("Science & mathematics", "Gmsh", "", "gmsh"),
+    app!(
+        "Science & mathematics",
+        "Galculator",
+        "galculator.desktop",
+        "galculator"
+    ),
+    app!(
+        "Science & mathematics",
+        "KCalc",
+        "org.kde.kcalc.desktop",
+        "kcalc"
+    ),
+    app!(
+        "CAD & engineering",
+        "LibreCAD",
+        "librecad.desktop",
+        "LibreCAD"
+    ),
+    app!(
+        "CAD & engineering",
+        "Horizon EDA",
+        "org.horizon_eda.HorizonEDA.desktop",
+        "horizon"
+    ),
+    app!(
+        "CAD & engineering",
+        "Fritzing",
+        "fritzing.desktop",
+        "Fritzing"
+    ),
+    app!(
+        "CAD & engineering",
+        "Freerouting",
+        "freerouting.desktop",
+        "freerouting"
+    ),
+    app!(
+        "CAD & engineering",
+        "PulseView",
+        "org.sigrok.PulseView.desktop",
+        "pulseview"
+    ),
+    app!("CAD & engineering", "sigrok-cli", "", "sigrok-cli"),
+    app!("CAD & engineering", "GTKWave", "gtkwave.desktop", "gtkwave"),
+    app!(
+        "CAD & engineering",
+        "Arduino IDE",
+        "arduino.desktop",
+        "arduino"
+    ),
+    app!("CAD & engineering", "OpenOCD", "", "openocd"),
+    app!("CAD & engineering", "probe-rs", "", "probe-rs"),
+    app!("Development", "Eclipse", "eclipse.desktop", "eclipse"),
+    app!("Development", "LiteIDE", "liteide.desktop", "liteide"),
+    app!("Development", "juCi++", "juci.desktop", "juCi++"),
+    app!("Development", "IDLE", "idle3.desktop", "idle-python3"),
+    app!("Development", "DBeaver", "dbeaver.desktop", "dbeaver"),
+    app!("Development", "Zeal", "org.zealdocs.zeal.desktop", "zeal"),
+    app!(
+        "Development",
+        "Sublime Merge",
+        "sublime_merge.desktop",
+        "sublime-merge"
+    ),
+    app!("Development", "GitUI", "", "gitui"),
+    app!("Development", "gitu", "", "gitu"),
+    app!("Development", "GitHub CLI", "", "github-cli"),
+    app!("Development", "GitLab CLI", "", "glab"),
+    app!("Development", "Valgrind", "", "valgrind"),
+    app!("Development", "Heaptrack", "", "heaptrack"),
+    app!(
+        "Development",
+        "Hotspot",
+        "com.kdab.hotspot.desktop",
+        "hotspot"
+    ),
+    app!("Development", "hyperfine", "", "hyperfine"),
+    app!("Development", "D-Spy", "org.gnome.dfeet.desktop", "d-feet"),
+    app!("Reverse engineering", "cgdb", "", "cgdb"),
+    app!(
+        "Reverse engineering",
+        "GDB (all architectures)",
+        "",
+        "gdb-multiarch"
+    ),
+    app!("Reverse engineering", "GEF", "", "gef"),
+    app!("Reverse engineering", "rr", "", "rr"),
+    app!(
+        "Reverse engineering",
+        "RenderDoc",
+        "renderdoc.desktop",
+        "renderdoc"
+    ),
+    app!("Reverse engineering", "bpftrace", "", "bpftrace"),
+    app!("Reverse engineering", "hyx", "", "hyx"),
+    app!("Reverse engineering", "tweak", "", "tweak"),
+    app!("Reverse engineering", "smali", "", "smali"),
+    app!("Reverse engineering", "xtruss", "", "xtruss"),
+    app!("Reverse engineering", "wev", "", "wev"),
+    app!(
+        "Virtualization & containers",
+        "GNOME Boxes",
+        "org.gnome.Boxes.desktop",
+        "gnome-boxes"
+    ),
+    app!(
+        "Virtualization & containers",
+        "VirtualBox",
+        "virtualbox.desktop",
+        "virtualbox-ose"
+    ),
+    app!("Virtualization & containers", "Incus", "", "incus"),
+    app!("Virtualization & containers", "LXD", "", "lxd"),
+    app!("Virtualization & containers", "LXC", "", "lxc"),
+    app!("Virtualization & containers", "Vagrant", "", "vagrant"),
+    app!(
+        "Virtualization & containers",
+        "Podman Compose",
+        "",
+        "podman-compose"
+    ),
+    app!(
+        "Virtualization & containers",
+        "Podman TUI",
+        "",
+        "podman-tui"
+    ),
+    app!(
+        "Virtualization & containers",
+        "lazydocker",
+        "",
+        "lazydocker"
+    ),
+    app!("Virtualization & containers", "ctop", "", "ctop"),
+    app!("Virtualization & containers", "dive", "", "dive"),
+    app!("Virtualization & containers", "kubectl", "", "kubectl"),
+    app!("Virtualization & containers", "k9s", "", "k9s"),
+    app!("Virtualization & containers", "minikube", "", "minikube"),
+    app!(
+        "Network",
+        "Nextcloud",
+        "com.nextcloud.desktopclient.nextcloud.desktop",
+        "nextcloud-client"
+    ),
+    app!(
+        "Network",
+        "NetworkManager Applet",
+        "nm-connection-editor.desktop",
+        "network-manager-applet"
+    ),
+    app!("Network", "WireGuard Tools", "", "wireguard-tools"),
+    app!("Network", "OpenVPN", "", "openvpn"),
+    app!("Network", "X2Go Client", "x2goclient.desktop", "x2goclient"),
+    app!("Network", "LinSSID", "linssid.desktop", "linssid"),
+    app!("Network", "croc", "", "croc"),
+    app!("Network", "Magic Wormhole", "", "magic-wormhole"),
+    app!("Network", "qrcp", "", "qrcp"),
+    app!("Network", "mtr", "", "mtr"),
+    app!("Network", "Trippy", "", "trippy"),
+    app!("Network", "nethogs", "", "nethogs"),
+    app!("Network", "iftop", "", "iftop"),
+    app!("Network", "bandwhich", "", "bandwhich"),
+    app!("Network", "bwm-ng", "", "bwm-ng"),
+    app!("Network", "Tor", "", "tor"),
+    app!("Network", "torsocks", "", "torsocks"),
+    app!(
+        "Security & privacy",
+        "BleachBit",
+        "org.bleachbit.BleachBit.desktop",
+        "bleachbit"
+    ),
+    app!("Security & privacy", "Gufw", "gufw.desktop", "gufw"),
+    app!(
+        "Security & privacy",
+        "Plasma Firewall",
+        "kcm_firewall.desktop",
+        "plasma-firewall"
+    ),
+    app!("Security & privacy", "Firejail", "", "firejail"),
+    app!("Security & privacy", "ClamAV", "", "clamav"),
+    app!("Security & privacy", "Lynis", "", "lynis"),
+    app!("Security & privacy", "Rootkit Hunter", "", "rkhunter"),
+    app!(
+        "Security & privacy",
+        "Nitrokey App",
+        "nitrokey-app.desktop",
+        "nitrokey-app"
+    ),
+    app!(
+        "Security & privacy",
+        "YubiKey Manager",
+        "",
+        "yubikey-manager"
+    ),
+    app!("Security & privacy", "rage", "", "rage"),
+    app!("Security & privacy", "Sequoia", "", "sequoia-sq"),
+    app!("Security & privacy", "gocryptfs", "", "gocryptfs"),
+    app!("Security & privacy", "CryFS", "", "cryfs"),
+    app!("Security & privacy", "Tomb", "", "tomb"),
+    app!("Security & privacy", "cotp", "", "cotp"),
+    app!("Security & privacy", "pwgen", "", "pwgen"),
+    app!("Security & privacy", "xkcdpass", "", "xkcdpass"),
+    app!(
+        "Security & privacy",
+        "John the Ripper",
+        "john.desktop",
+        "john"
+    ),
+    app!("Security & privacy", "hashcat", "", "hashcat"),
+    app!(
+        "Files & storage",
+        "Czkawka",
+        "com.github.qarmin.czkawka.desktop",
+        "czkawka"
+    ),
+    app!("Files & storage", "Xfe", "xfe.desktop", "xfe"),
+    app!("Files & storage", "qtfm", "qtfm.desktop", "qtfm"),
+    app!("Files & storage", "nnn", "nnn.desktop", "nnn"),
+    app!("Files & storage", "clifm", "clifm.desktop", "clifm"),
+    app!("Files & storage", "felix", "", "felix"),
+    app!("Files & storage", "broot", "", "broot"),
+    app!("Files & storage", "dua", "", "dua-cli"),
+    app!("Files & storage", "btdu", "", "btdu"),
+    app!("Files & storage", "fclones", "", "fclones"),
+    app!("Files & storage", "jdupes", "", "jdupes"),
+    app!("Files & storage", "GNU Parted", "", "parted"),
+    app!("Files & storage", "dragon", "", "dragon"),
+    app!("Terminals", "Ptyxis", "org.gnome.Ptyxis.desktop", "ptyxis"),
+    app!("Terminals", "Rio", "rio.desktop", "rio"),
+    app!(
+        "Terminals",
+        "Contour",
+        "org.contourterminal.Contour.desktop",
+        "contour"
+    ),
+    app!("Terminals", "Sakura", "sakura.desktop", "sakura"),
+    app!("Terminals", "ROXTerm", "roxterm.desktop", "roxterm"),
+    app!("Terminals", "Tilda", "tilda.desktop", "tilda"),
+    app!("Terminals", "mlterm", "", "mlterm"),
+    app!("Terminals", "st", "", "st"),
+    app!("Terminals", "Zellij", "zellij.desktop", "zellij"),
+    app!("Terminals", "Byobu", "", "byobu"),
+    app!("Terminals", "CuteCom", "", "cutecom"),
+    app!("Terminals", "Moserial", "moserial.desktop", "moserial"),
+    app!("Accessibility", "Fenrir", "", "fenrir"),
+    app!(
+        "Accessibility",
+        "Speech Dispatcher",
+        "",
+        "speech-dispatcher"
+    ),
+    app!("Accessibility", "Mimic", "", "mimic"),
+    app!(
+        "Utilities",
+        "GNOME Weather",
+        "org.gnome.Weather.desktop",
+        "gnome-weather"
+    ),
+    app!(
+        "Utilities",
+        "GNOME Usage",
+        "org.gnome.Usage.desktop",
+        "gnome-usage"
+    ),
+    app!(
+        "Utilities",
+        "KSystemLog",
+        "org.kde.ksystemlog.desktop",
+        "ksystemlog"
+    ),
+    app!("Utilities", "bottom", "", "bottom"),
+    app!("Utilities", "Glances", "", "glances"),
+    app!("Utilities", "NVTOP", "nvtop.desktop", "nvtop"),
+    app!(
+        "Utilities",
+        "CPU-X",
+        "io.github.thetumultuousunicornofdarkness.cpu-x.desktop",
+        "CPU-X"
+    ),
+    app!(
+        "Utilities",
+        "CoreCtrl",
+        "org.corectrl.CoreCtrl.desktop",
+        "corectrl"
+    ),
+    app!(
+        "Utilities",
+        "LACT",
+        "io.github.ilya_zlobintsev.LACT.desktop",
+        "LACT"
+    ),
+    app!(
+        "Utilities",
+        "GSmartControl",
+        "gsmartcontrol.desktop",
+        "gsmartcontrol"
+    ),
+    app!("Utilities", "fwupd", "", "fwupd"),
+    app!(
+        "Utilities",
+        "Piper",
+        "org.freedesktop.Piper.desktop",
+        "piper"
+    ),
+    app!("Utilities", "Solaar", "solaar.desktop", "Solaar"),
+    app!(
+        "Utilities",
+        "OpenRGB",
+        "org.openrgb.OpenRGB.desktop",
+        "openrgb"
+    ),
+    app!(
+        "Utilities",
+        "Character Map",
+        "gucharmap.desktop",
+        "gucharmap"
+    ),
+    app!(
+        "Utilities",
+        "KCharSelect",
+        "org.kde.kcharselect.desktop",
+        "kcharselect"
+    ),
+    app!(
+        "Utilities",
+        "CopyQ",
+        "com.github.hluk.copyq.desktop",
+        "CopyQ"
+    ),
+    app!(
+        "Utilities",
+        "Gramps",
+        "org.gramps_project.Gramps.desktop",
+        "gramps"
+    ),
 ];
 
 pub fn contains_package(name: &str) -> bool {
@@ -954,12 +2330,14 @@ mod tests {
         for app in CATALOG {
             assert!(CATEGORIES.contains(&app.category), "{}", app.name);
             assert!(names.insert(app.name), "duplicate app name: {}", app.name);
-            assert!(!app.desktop.is_empty(), "missing desktop id: {}", app.name);
-            assert!(
-                desktop_ids.insert(app.desktop),
-                "duplicate desktop id: {}",
-                app.desktop
-            );
+            if !app.desktop.is_empty() {
+                assert!(app.desktop.ends_with(".desktop"), "{}", app.name);
+                assert!(
+                    desktop_ids.insert(app.desktop),
+                    "duplicate desktop id: {}",
+                    app.desktop
+                );
+            }
             assert!(!app.packages.is_empty());
             for name in app.packages {
                 assert!(aliases.insert(name), "duplicate alias: {name}");

@@ -1,0 +1,28 @@
+{
+  "name": "Caerus with browser desktop (Void Linux)",
+  "image": "ghcr.io/void-linux/void-glibc-full:latest",
+  "hostRequirements": { "cpus": 4 },
+  "postCreateCommand": "sh .devcontainer/setup.sh --desktop",
+  "postStartCommand": "sh .devcontainer/desktop/start-desktop.sh",
+  "forwardPorts": [6080],
+  "portsAttributes": {
+    "6080": { "label": "Desktop (noVNC)", "onAutoForward": "openBrowser" }
+  },
+  "containerEnv": { "DISPLAY": ":1", "GSK_RENDERER": "cairo" },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "redhat.vscode-yaml",
+        "timonwong.shellcheck",
+        "github.vscode-github-actions"
+      ],
+      "settings": {
+        "rust-analyzer.server.path": "/usr/bin/rust-analyzer",
+        "rust-analyzer.check.command": "clippy"
+      }
+    }
+  },
+  "remoteUser": "root"
+}
