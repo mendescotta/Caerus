@@ -12,8 +12,6 @@ Discover currently lists 743 applications in 28 sections (on Void Linix):
 
 <img src="screenshots/discover.png" width="100%" alt="Discover catalog with its sections">
 
-More views: [package details in a narrow window](screenshots/package-details-narrow.png).
-
 ## Features
 
 - Packages, Updates and Discover views, with searchable transaction history
