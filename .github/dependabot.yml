@@ -1,10 +1,18 @@
 version: 2
+# Updates are grouped into one PR per ecosystem. Land them as a maintainer-authored
+# commit; GitHub's squash merge would keep the bot as the commit author.
 updates:
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: weekly
+    groups:
+      cargo:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

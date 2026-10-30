@@ -4,3 +4,4 @@ audit-report.json
 /temp
 /docs/superpowers/
 DEVNOTES.md
+__pycache__/

@@ -303,6 +303,7 @@ pub fn application_icon(package: &str) -> gtk::Image {
     if let Some(icon) = CATALOG
         .iter()
         .find(|app| app.packages.contains(&package))
+        .filter(|app| !app.desktop.is_empty())
         .and_then(|app| gio::DesktopAppInfo::new(app.desktop))
         .and_then(|app| app.icon())
     {

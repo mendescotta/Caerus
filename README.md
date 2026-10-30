@@ -21,7 +21,7 @@ More views: [Discover](screenshots/discover.png),
 - Dependency-aware previews before anything is applied; mixed changes are
   reviewed and applied one step at a time
 - Per-package progress, copyable logs and detailed history
-- Discover catalog of 254 applications in 19 sections, limited to what your
+- Discover catalog of 743 applications and tools in 28 sections, limited to what your
   enabled repositories provide (can be hidden)
 - Adaptive layout: sidebar, package table and inspector on desktop; bottom
   navigation and a separate details page in narrow windows
@@ -79,15 +79,20 @@ package to the world file.
 
 ## Development
 
+A ready-made Void Linux development environment, including one that shows the GTK
+interface in the browser, is available through [Codespaces](.devcontainer/README.md).
+Repository review settings and their schema validator are described in
+[CodeRabbit configuration](.github/coderabbit.md).
+
 ```sh
-cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo clippy -p caerus --all-targets --no-default-features --features apk,adwaita -- -D warnings
-cargo test -p caerus --no-default-features --features apk,adwaita
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+cargo clippy -p caerus --all-targets --no-default-features --features apk,adwaita --locked -- -D warnings
+cargo test -p caerus --no-default-features --features apk,adwaita --locked
 ```
 
-The GTK smoke test needs a display:
+The GTK smoke test needs a display (CI runs it under `xvfb-run`):
 `cargo test -p caerus -- --ignored --test-threads=1`. It uses an unprivileged
 helper fixture and never changes host packages. `scripts/debug-run.sh` runs a
 debug build with full logging and core dumps; `CAERUS_TRACE_STARTUP=1` logs
@@ -100,6 +105,13 @@ memory, and reports package versions and desktop filenames as JSON. Use
 `--output PATH` to save the report. Results apply to the host XBPS architecture;
 other architectures may provide a different set of packages. No packages are
 installed or repository configuration changed.
+
+Find more candidates with `python3 scripts/check-discover-void.py --discover --nonfree
+--output /tmp/discover-candidates.json`, then review the suggestions and verify selected
+names with `--desktop-files`. Use `--catalog --nonfree` to audit existing aliases.
+The search rules, verification evidence and coverage counts
+are documented in [Discover coverage](scripts/discover/README.md). Offline checker tests:
+`python3 scripts/test-check-discover-void.py`.
 
 ## License
 

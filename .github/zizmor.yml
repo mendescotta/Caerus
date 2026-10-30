@@ -1,0 +1,7 @@
+rules:
+  unpinned-images:
+    # Jobs run a full xbps-install -Su from Void's signed repositories first, so the
+    # rolling Void image is only a bootstrap; a pinned digest would just go stale.
+    ignore:
+      - ci.yml
+      - release.yml
