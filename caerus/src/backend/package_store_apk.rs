@@ -544,7 +544,10 @@ fn worker(rx: mpsc::Receiver<Cmd>, out: mpsc::Sender<ResultMsg>) {
                 let _ = t.send(info(&n, "--depends"));
             }
             Cmd::Rdeps(n, t) => {
-                let _ = t.send(info(&n, "--rdepends"));
+                let _ = t.send(
+                    installed_reverse_dependencies()
+                        .map(|mut graph| graph.remove(&n).unwrap_or_default()),
+                );
             }
             Cmd::Files(n, t) => {
                 let _ = t.send(info(&n, "--contents"));
@@ -559,13 +562,9 @@ fn worker(rx: mpsc::Receiver<Cmd>, out: mpsc::Sender<ResultMsg>) {
                 let _ = t.send(None);
             }
             Cmd::RdepsMany(ns, t) => {
-                let mut v = Vec::new();
-                for n in ns {
-                    if let Some(rows) = info(&n, "--rdepends") {
-                        v.extend(rows.into_iter().map(|r| (r, n.clone())));
-                    }
-                }
-                let _ = t.send(Some(v));
+                let _ = t.send(
+                    installed_reverse_dependencies().map(|graph| transitive_rdeps(&graph, &ns)),
+                );
             }
             Cmd::Preview(ops, t) => {
                 let _ = t.send(preview(&ops));
@@ -742,9 +741,170 @@ fn dependencies(
     )
 }
 
+fn installed_reverse_dependencies() -> Option<HashMap<String, Vec<String>>> {
+    let json = run(&[
+        "query",
+        "--installed",
+        "--fields",
+        "name,depends,provides",
+        "--format",
+        "json",
+        "*",
+    ])
+    .ok()?;
+    reverse_dependencies(&json)
+}
+
+/// Maps each installed package to the installed packages that need it, by name
+/// (`apk info --rdepends` prints versioned names). A dependency counts only when
+/// exactly one installed package satisfies it, by name or a `provides` entry:
+/// removing one of several providers breaks nothing. File-path dependencies
+/// (`/bin/sh`) and conflicts (`!foo`) have no package to point at and are skipped.
+fn reverse_dependencies(json: &str) -> Option<HashMap<String, Vec<String>>> {
+    #[derive(serde::Deserialize)]
+    struct Installed {
+        name: String,
+        #[serde(default)]
+        depends: Vec<String>,
+        #[serde(default)]
+        provides: Vec<String>,
+    }
+    fn constraint_name(constraint: &str) -> &str {
+        constraint
+            .split(['<', '>', '=', '~'])
+            .next()
+            .unwrap_or(constraint)
+    }
+    let rows: Vec<Installed> = serde_json::from_str(json).ok()?;
+    let mut providers: HashMap<&str, HashSet<&str>> = HashMap::new();
+    for row in &rows {
+        providers.entry(&row.name).or_default().insert(&row.name);
+        for provided in &row.provides {
+            providers
+                .entry(constraint_name(provided))
+                .or_default()
+                .insert(&row.name);
+        }
+    }
+    let mut graph: HashMap<String, Vec<String>> = HashMap::new();
+    for row in &rows {
+        for dep in &row.depends {
+            if dep.starts_with(['!', '/']) {
+                continue;
+            }
+            let Some(candidates) = providers.get(constraint_name(dep)) else {
+                continue;
+            };
+            let mut candidates = candidates.iter();
+            if let (Some(&provider), None) = (candidates.next(), candidates.next()) {
+                if provider != row.name {
+                    graph
+                        .entry(provider.to_owned())
+                        .or_default()
+                        .push(row.name.clone());
+                }
+            }
+        }
+    }
+    for dependents in graph.values_mut() {
+        dependents.sort_unstable();
+        dependents.dedup();
+    }
+    Some(graph)
+}
+
+/// Every installed package that directly or indirectly needs one of `roots`,
+/// paired with the package that pulled it in. Roots are never reported.
+fn transitive_rdeps(
+    graph: &HashMap<String, Vec<String>>,
+    roots: &[String],
+) -> Vec<(String, String)> {
+    let mut visited: HashSet<&str> = roots.iter().map(String::as_str).collect();
+    let mut frontier: Vec<&str> = roots.iter().map(String::as_str).collect();
+    let mut out = Vec::new();
+    while let Some(current) = frontier.pop() {
+        for dependent in graph.get(current).into_iter().flatten() {
+            if visited.insert(dependent) {
+                out.push((dependent.clone(), current.to_owned()));
+                frontier.push(dependent);
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod dependency_tests {
     use super::*;
+
+    const INSTALLED: &str = r#"[
+        {"name":"musl","provides":["so:libc.musl-x86_64.so.1=1"]},
+        {"name":"oniguruma","depends":["so:libc.musl-x86_64.so.1"],"provides":["so:libonig.so.5=5.4.0"]},
+        {"name":"jq","depends":["so:libc.musl-x86_64.so.1","so:libonig.so.5"]},
+        {"name":"jq-plugin","depends":["jq>=1.7","/bin/sh","!jq-legacy"]},
+        {"name":"busybox","depends":["so:libc.musl-x86_64.so.1"],"provides":["cmd:sh=1.37"]},
+        {"name":"dash","provides":["cmd:sh=0.5"]},
+        {"name":"script","depends":["cmd:sh"]}
+    ]"#;
+
+    #[test]
+    fn reverse_dependencies_use_names_and_sole_providers() {
+        let graph = reverse_dependencies(INSTALLED).unwrap();
+        assert_eq!(graph["oniguruma"], vec!["jq"]);
+        assert_eq!(graph["jq"], vec!["jq-plugin"]);
+        assert_eq!(graph["musl"], vec!["busybox", "jq", "oniguruma"]);
+        // Two installed packages provide cmd:sh, so removing either breaks nothing.
+        assert!(!graph.contains_key("busybox") && !graph.contains_key("dash"));
+        assert!(reverse_dependencies("not json").is_none());
+    }
+
+    #[test]
+    fn transitive_reverse_dependencies_follow_the_whole_chain() {
+        let graph = reverse_dependencies(INSTALLED).unwrap();
+        let mut walk = transitive_rdeps(&graph, &["oniguruma".to_owned()]);
+        walk.sort();
+        assert_eq!(
+            walk,
+            vec![
+                ("jq".to_owned(), "oniguruma".to_owned()),
+                ("jq-plugin".to_owned(), "jq".to_owned())
+            ]
+        );
+        // A root is never reported as its own dependent.
+        let walk = transitive_rdeps(&graph, &["oniguruma".to_owned(), "jq".to_owned()]);
+        assert_eq!(walk, vec![("jq-plugin".to_owned(), "jq".to_owned())]);
+    }
+
+    /// Every dependent we report must be one apk itself lists. apk may list more:
+    /// dependents through file paths or one of several installed providers.
+    #[test]
+    #[ignore = "needs an APK system; run with --ignored"]
+    fn reverse_dependencies_agree_with_apk_info_on_this_system() {
+        let graph = installed_reverse_dependencies().expect("apk query failed");
+        let (mut checked, mut apk_only) = (0, 0);
+        for (package, dependents) in &graph {
+            let listed: HashSet<String> = run(&["info", "--rdepends", package])
+                .unwrap()
+                .lines()
+                .skip(1)
+                .filter(|line| !line.trim().is_empty())
+                .map(|pkgver| {
+                    let mut parts = pkgver.trim().rsplitn(3, '-');
+                    parts.nth(2).unwrap_or(pkgver).to_owned()
+                })
+                .collect();
+            for dependent in dependents {
+                assert!(
+                    listed.contains(dependent),
+                    "{dependent} needs {package} by our graph, apk lists {listed:?}"
+                );
+            }
+            checked += dependents.len();
+            apk_only += listed.len().saturating_sub(dependents.len());
+        }
+        assert!(checked > 0, "no reverse dependencies found");
+        eprintln!("{checked} dependents confirmed by apk, {apk_only} listed only by apk");
+    }
 
     #[test]
     fn uninstalled_package_uses_repository_dependencies_after_empty_query() {
