@@ -905,6 +905,13 @@ fn preview(ops: &[PreviewOp]) -> Result<TransactionPreview, TransactionError> {
     if !output.status.success() {
         return Err(TransactionError::Other(text.trim().to_owned()));
     }
+    let blocked = blocked_removals(&text);
+    if verb == "del" && !blocked.is_empty() {
+        return Err(TransactionError::Other(format!(
+            "APK would keep these packages because installed packages or world entries still need them:\n{}",
+            blocked.join("\n")
+        )));
+    }
     let plan = parse_simulation(&text).ok_or_else(|| {
         TransactionError::Other(format!(
             "APK simulation returned an unrecognized transaction plan; refusing an incomplete preview. Output: {}",
@@ -1037,8 +1044,55 @@ fn parse_simulation(
     }
 }
 
+/// `apk del` exits successfully but only drops the world constraint when other
+/// packages or world entries still need a requested one; it lists them as
+/// `name: dependents`, wrapping dependents onto further, deeper-indented lines
+/// (which may themselves contain a colon, as in `cmd:git`).
+fn blocked_removals(output: &str) -> Vec<String> {
+    let mut rows: Vec<String> = Vec::new();
+    let mut row_indent = None;
+    for line in output.lines() {
+        let trimmed = line.trim_start();
+        let indent = line.len() - trimmed.len();
+        if line.contains("are not removed due to:") {
+            row_indent = Some(usize::MAX);
+        } else if let Some(first) = row_indent.filter(|_| indent > 0 && !trimmed.is_empty()) {
+            match rows.last_mut() {
+                Some(row) if indent > first => {
+                    row.push(' ');
+                    row.push_str(trimmed.trim_end());
+                }
+                _ => {
+                    row_indent = Some(indent);
+                    rows.push(trimmed.trim_end().to_owned());
+                }
+            }
+        } else {
+            row_indent = None;
+        }
+    }
+    rows
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reports_removals_apk_keeps_for_dependents() {
+        let output = "World updated, but the following packages are not removed due to:\n  musl: build-base rust\n        jq\n  oniguruma: jq\n  git: world\n       cmd:git\n\nOK: 9099 KiB in 18 packages\n";
+        assert_eq!(
+            super::blocked_removals(output),
+            vec![
+                "musl: build-base rust jq",
+                "oniguruma: jq",
+                "git: world cmd:git"
+            ]
+        );
+        assert!(super::blocked_removals(
+            "(1/2) Purging jq (1.8.2-r0)\n(2/2) Purging oniguruma (6.9.10-r0)\nOK: 8208 KiB in 16 packages\n"
+        )
+        .is_empty());
+    }
+
     #[test]
     fn apk_version_order() {
         use std::cmp::Ordering::{Equal, Greater, Less};
