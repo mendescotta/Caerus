@@ -19,6 +19,7 @@ Run the same checks as CI:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
+cargo clippy -p caerus --all-targets --no-default-features --features apk,adwaita --locked -- -D warnings
 cargo test -p caerus --no-default-features --features apk,adwaita --locked
 ```
 

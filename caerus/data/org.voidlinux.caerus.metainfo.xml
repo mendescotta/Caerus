@@ -18,7 +18,7 @@
       dependency and reverse-dependency impact checks; an Updates view and a
       Discover catalog of applications; full system upgrade, orphan removal, and
       package database verification; and repository management. An optional
-      build targets Chimera Linux and APK.
+      build targets Chimera and Alpine Linux through APK.
     </p>
   </description>
   <screenshots>

@@ -46,7 +46,6 @@ Exit status 0 means valid, 1 means invalid configuration, and 2 means the check
 could not run. Options can be checked against the
 [CodeRabbit configuration reference](https://docs.coderabbit.ai/reference/configuration).
 
-The configuration takes effect for CodeRabbit reviews once pushed to the
-repository and the CodeRabbit GitHub App has access to it. This change does not
-install the GitHub App or alter branch protection, repository permissions or
-required checks.
+The configuration takes effect once it is on the default branch and the
+CodeRabbit GitHub App has access to the repository. It does not install the
+app or change branch protection, repository permissions or required checks.

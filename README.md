@@ -7,7 +7,7 @@ A GTK4 package manager for [Void Linux](https://voidlinux.org/) (XBPS), [Chimera
 
 <img src="screenshots/main-window.png" width="100%" alt="Caerus main window">
 
-Discover currently lists 743 applications in 28 sections (on Void Linix):
+Discover currently lists 743 applications in 28 sections (on Void Linux):
 
 <img src="screenshots/discover.png" width="100%" alt="Discover catalog with its sections">
 
