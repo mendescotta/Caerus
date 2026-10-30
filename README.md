@@ -110,6 +110,12 @@ helper fixture and never changes host packages. `scripts/debug-run.sh` runs a
 debug build with full logging and core dumps; `CAERUS_TRACE_STARTUP=1` logs
 startup milestones.
 
+`scripts/test-apk-distros.sh` builds and exercises the APK backend in fresh
+Chimera and Alpine containers (podman): unit tests, the `apk query` calls,
+the helper protocol, `install.sh` and a GUI launch under a virtual display.
+Pass `ssh:HOST` to run the same checks on a disposable machine instead; that
+run changes its packages. Logs and screenshots go to `temp/apk-distros/`.
+
 To verify Discover candidates against Void's official binary repository, run
 `python3 scripts/check-discover-void.py --desktop-files PACKAGE...`.
 The checker ignores configured third-party repositories, fetches metadata in
