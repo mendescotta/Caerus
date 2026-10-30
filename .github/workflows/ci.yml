@@ -2,19 +2,38 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  build:
+  rust:
+    name: rust (${{ matrix.name }})
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/void-linux/void-linux:latest-full-x86_64
-
+      image: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      # The xbps and apk backends are mutually exclusive, so each is checked on its own.
+      matrix:
+        include:
+          - name: xbps
+            image: ghcr.io/void-linux/void-glibc-full:latest
+            args: --workspace
+          - name: xbps + adwaita
+            image: ghcr.io/void-linux/void-glibc-full:latest
+            args: --workspace --features caerus/adwaita
+          - name: apk + adwaita
+            image: ghcr.io/void-linux/void-glibc-full:latest
+            args: -p caerus --no-default-features --features apk,adwaita
     steps:
       - name: Install build dependencies
         run: |
@@ -23,36 +42,73 @@ jobs:
           xbps-install -Suy
           xbps-install -y base-devel libxbps-devel gtk4-devel libadwaita-devel pkg-config rust cargo git clang zstd
 
-      - uses: actions/checkout@v7
-
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          cache-on-failure: true
-
-      - name: Build
-        run: cargo build --verbose
-
-      # The xbps and apk backends are mutually exclusive, so each is tested on its own.
-      - name: Run tests
-        run: cargo test --workspace --locked --verbose
-
-      - name: Run tests with adwaita feature
-        run: cargo test --workspace --features caerus/adwaita --locked --verbose
-
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+          persist-credentials: false
 
       - name: Formatting
+        if: matrix.name == 'xbps'
         run: cargo fmt --all -- --check
 
-      - name: Build with adwaita feature
-        run: cargo build --verbose --features caerus/adwaita
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.name }}
+          cache-on-failure: true
 
-      - name: Clippy with adwaita feature
-        run: cargo clippy --workspace --all-targets --features caerus/adwaita -- -D warnings
+      - name: Clippy
+        run: cargo clippy ${{ matrix.args }} --all-targets --locked -- -D warnings
 
-      - name: Test APK backend
-        run: cargo test -p caerus --no-default-features --features apk,adwaita --locked --verbose
+      - name: Test
+        run: cargo test ${{ matrix.args }} --locked
 
-      - name: Clippy APK backend
-        run: cargo clippy -p caerus --all-targets --no-default-features --features apk,adwaita -- -D warnings
+      - name: GTK smoke test
+        if: matrix.name == 'xbps'
+        run: |
+          xbps-install -y xvfb-run xorg-server-xvfb dbus dejavu-fonts-ttf
+          GSK_RENDERER=cairo xvfb-run -a cargo test -p caerus --locked -- --ignored --test-threads=1
+
+  # JavaScript actions cannot run inside a musl container, so build there with docker.
+  musl:
+    name: rust (xbps musl)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Clippy and test
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src ghcr.io/void-linux/void-musl-full:latest sh -euc '
+            xbps-install -Sy
+            xbps-install -uy xbps
+            xbps-install -Suy
+            xbps-install -y base-devel libxbps-devel gtk4-devel libadwaita-devel pkg-config rust cargo git clang zstd
+            cargo clippy --workspace --all-targets --locked -- -D warnings
+            cargo test --workspace --locked
+          '
+
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: ShellCheck
+        run: shellcheck -S warning -x install.sh get-caerus.sh scripts/*.sh
+
+      - name: Script tests
+        run: |
+          for test in scripts/test-check-discover-void.py scripts/test-install-prefix.py \
+                      scripts/test-release-lookup.py scripts/test-user-install.py; do
+            echo "::group::$test"
+            python3 "$test"
+            echo "::endgroup::"
+          done
+
+      - name: CodeRabbit configuration
+        run: |
+          uv run scripts/test-check-coderabbit.py
+          uv run scripts/check-coderabbit.py

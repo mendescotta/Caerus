@@ -1,0 +1,3772 @@
+{
+  "repository": "https://repo-default.voidlinux.org/current",
+  "repositories": [
+    "https://repo-default.voidlinux.org/current",
+    "https://repo-default.voidlinux.org/current/nonfree"
+  ],
+  "architecture": "x86_64",
+  "mode": "catalog",
+  "scanned_packages": 739,
+  "checked_at": "2026-10-30T09:05:51.564376+00:00",
+  "architecture_override": null,
+  "machine": "x86_64",
+  "packages": {
+    "0ad": {
+      "version": "0.27.1_6",
+      "description": "Historically-based real-time strategy game",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "7zip": {
+      "version": "26.05_1",
+      "description": "File archiver with a high compression ratio",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "Aegisub": {
+      "version": "3.4.2_6",
+      "description": "Cross-platform advanced subtitle editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "Apktool": {
+      "version": "3.0.1_1",
+      "description": "Tool for reverse engineering Android apk files",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "CPU-X": {
+      "version": "5.1.0_4",
+      "description": "Free software that gathers information on CPU, motherboard and more",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "Carla": {
+      "version": "2.5.10_2",
+      "description": "Audio plugin host",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "Cataclysm-DDA": {
+      "version": "0.E_4",
+      "description": "Turn-based survival game set in a post-apocalyptic world",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "Converseen": {
+      "version": "0.15.2.8_1",
+      "description": "Free batch image processor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "CopyQ": {
+      "version": "13.0.0_4",
+      "description": "Clipboard manager with searchable and editable history",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "EmulationStation": {
+      "version": "2.9.4_1",
+      "description": "Flexible emulator front-end",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "Endeavour": {
+      "version": "43.0_4",
+      "description": "Task manager designed to perfectly fit the GNOME desktop",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "FeatherPad": {
+      "version": "1.6.4_1",
+      "description": "Lightweight Qt6 plain-text editor for Linux",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "Fritzing": {
+      "version": "0.9.3b_9",
+      "description": "Software for electronics prototyping",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ImageMagick": {
+      "version": "7.1.2.31_1",
+      "description": "Create, edit, compose, or convert bitmap images",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "Kooha": {
+      "version": "2.3.1_1",
+      "description": "Simple screen recorder with a minimal interface",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "LACT": {
+      "version": "0.10.1_2",
+      "description": "Linux AMDGPU Control Application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "LibreCAD": {
+      "version": "2.2.1.5_1",
+      "description": "2D Computer-aided design (CAD) software",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "MangoHud": {
+      "version": "0.8.4_1",
+      "description": "Vulkan and OpenGL overlay for monitoring FPS, temperatures and more",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "PrismLauncher": {
+      "version": "11.1.1_1",
+      "description": "Custom launcher for Minecraft",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "QMPlay2": {
+      "version": "26.08.02_1",
+      "description": "Video and audio player which can play most formats and codecs",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "R": {
+      "version": "4.6.1_1",
+      "description": "System for statistical computation and graphics",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "Signal-Desktop": {
+      "version": "8.32.0_1",
+      "description": "Signal Private Messenger for Linux",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "Solaar": {
+      "version": "1.1.20_1",
+      "description": "Linux device manager for a wide range of Logitech devices",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "The-Powder-Toy": {
+      "version": "96.2.350_1",
+      "description": "Falling sand physics sandbox, simulates air pressure, velocity & heat",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "Thunar": {
+      "version": "4.20.10_1",
+      "description": "Thunar File Manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "Tuba": {
+      "version": "0.11.1_1",
+      "description": "Browse the fediverse",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "UEFITool": {
+      "version": "A76_1",
+      "description": "UEFI firmware image viewer and editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "abiword": {
+      "version": "3.0.8_1",
+      "description": "Free word processing program similar to Microsoft(R) Word",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "aerc": {
+      "version": "0.22.0_2",
+      "description": "Terminal email client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "age": {
+      "version": "1.3.2_2",
+      "description": "Simple, modern and secure encryption tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "aisleriot": {
+      "version": "3.22.35_1",
+      "description": "GNOME solitaire card game",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "akregator": {
+      "version": "26.08.1_1",
+      "description": "KDE feed reader",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "alacritty": {
+      "version": "0.17.0_1",
+      "description": "Cross-platform, GPU-accelerated terminal emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "alpine": {
+      "version": "2.29.99_1",
+      "description": "Apache-licensed PINE mail user agent (with Chappa patches)",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "amberol": {
+      "version": "2026.1_1",
+      "description": "Small and simple sound and music player",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "amsynth": {
+      "version": "1.13.4_1",
+      "description": "Analogue Modeling SYNTHesizer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "angrysearch": {
+      "version": "1.0.4_2",
+      "description": "Instant file search",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "anjuta": {
+      "version": "3.34.0_7",
+      "description": "GNOME Integrated Development Environment",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "anki": {
+      "version": "26.09.3_1",
+      "description": "Spaced repetition flashcard program",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "apostrophe": {
+      "version": "2.6.3_7",
+      "description": "GTK based distraction free Markdown editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "arandr": {
+      "version": "0.1.11_4",
+      "description": "Graphical frontend for XRandR",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ardour": {
+      "version": "9.8_1",
+      "description": "Professional-grade digital audio workstation",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "arduino": {
+      "version": "1.8.19_3",
+      "description": "IDE for the arduino open-source electronics prototyping platform",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "aria2": {
+      "version": "1.37.0_1",
+      "description": "Lightweight multi-protocol/multi-source command-line download utility",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ark": {
+      "version": "26.08.1_1",
+      "description": "KDE Archiving Tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "asunder": {
+      "version": "3.0.2_1",
+      "description": "Graphical Audio CD ripper and encoder",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "atomix": {
+      "version": "44.0_1",
+      "description": "GNOME puzzle game where you build molecules",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "atril": {
+      "version": "1.28.3_1",
+      "description": "Simply a document viewer for MATE",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "audacious": {
+      "version": "4.6.2_1",
+      "description": "Lightweight, advanced audio player focused on audio quality (metapackage)",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "audacious-base": {
+      "version": "4.6.2_1",
+      "description": "Lightweight, advanced audio player focused on audio quality",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "audacity": {
+      "version": "3.7.8_2",
+      "description": "Graphical cross-platform audio editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "autorestic": {
+      "version": "1.8.3_2",
+      "description": "Config driven, easy backup cli for restic",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "avidemux": {
+      "version": "2.8.1_6",
+      "description": "Video editing and processing application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "azote": {
+      "version": "1.16.0_3",
+      "description": "Wallpaper & color manager for Sway, i3 and other WMs",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "backintime": {
+      "version": "1.5.4_2",
+      "description": "Simple backup tool for Linux",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "backintime-qt": {
+      "version": "1.5.4_2",
+      "description": "Simple backup tool for Linux - Qt GUI",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "badwolf": {
+      "version": "1.4.0_1",
+      "description": "Minimalist and privacy-oriented WebKitGTK+ browser",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "balsa": {
+      "version": "2.6.4_4",
+      "description": "Email client for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "bandwhich": {
+      "version": "0.23.1_1",
+      "description": "Terminal bandwidth utilization tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "baobab": {
+      "version": "48.0_1",
+      "description": "Graphical directory tree analyzer for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "beancount": {
+      "version": "2.3.6_5",
+      "description": "Double-entry accounting system based on plain text files",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "biew": {
+      "version": "6.1.0_4",
+      "description": "Console hex viewer/editor and disassembler",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "binwalk": {
+      "version": "3.1.0_1",
+      "description": "Easy tool for analyzing/reversing/extracting firmware images",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "bleachbit": {
+      "version": "6.0.4_1",
+      "description": "Deletes unneeded files to free disk space and maintain privacy",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "blender": {
+      "version": "5.0.0_1",
+      "description": "3D graphics creation suite",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "bmon": {
+      "version": "5.0_1",
+      "description": "Bandwidth monitor and rate estimator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "bochs": {
+      "version": "2.7_1",
+      "description": "Highly portable open source x86(_64) PC emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "bookworm": {
+      "version": "1.1.2_7",
+      "description": "Simple, focused eBook reader",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "boomerang": {
+      "version": "0.5.2_2",
+      "description": "General, open source machine code decompiler",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "borg": {
+      "version": "1.4.5_1",
+      "description": "Deduplicating backup program with compression and encryption",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "borgmatic": {
+      "version": "2.1.7_1",
+      "description": "Wrapper script for the Borg backup software",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "bottom": {
+      "version": "0.12.3_1",
+      "description": "Yet another cross-platform graphical process/system monitor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "bpftrace": {
+      "version": "0.27.1_1",
+      "description": "High-level tracing language for Linux eBPF",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "brasero": {
+      "version": "3.12.3_2",
+      "description": "Application to burn CD/DVD for the Gnome Desktop",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "broot": {
+      "version": "1.56.2_1",
+      "description": "Interactive directory tree view, fuzzy search, balanced BFS descent",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "btdu": {
+      "version": "0.6.1_2",
+      "description": "Sampling disk usage profiler for btrfs",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "btop": {
+      "version": "1.4.7_1",
+      "description": "Monitor of resources",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "btrbk": {
+      "version": "0.32.6_1",
+      "description": "Backup tool for btrfs subvolumes",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "buildah": {
+      "version": "1.45.1_1",
+      "description": "Dockerfile compatible OCI image building tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "bup": {
+      "version": "0.34_1",
+      "description": "Backup system based on the git packfile format",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "bwm-ng": {
+      "version": "0.6.3_1",
+      "description": "Console-based live network and disk io bandwidth monitor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "byobu": {
+      "version": "5.133_2",
+      "description": "Open source text-based window manager and terminal multiplexer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "caja": {
+      "version": "1.28.0_1",
+      "description": "MATE shell and file manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "calibre": {
+      "version": "9.14.0_2",
+      "description": "Ebook management application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "calligra": {
+      "version": "26.08.1_1",
+      "description": "Illustration application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "cantata": {
+      "version": "3.3.1_1",
+      "description": "Qt client for the music player daemon (MPD)",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "canto-curses": {
+      "version": "0.9.9_12",
+      "description": "Ncurses frontend for canto-next Atom/RSS feed reader",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "castero": {
+      "version": "0.9.5_4",
+      "description": "TUI podcast client for the terminal",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "celestia-glut": {
+      "version": "1.6.1_6",
+      "description": "Free space simulation using GLUT",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "celluloid": {
+      "version": "0.30_1",
+      "description": "Simple GTK+ frontend for mpv",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "cgdb": {
+      "version": "0.8.0_1",
+      "description": "Curses-based interface to the GNU Debugger",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "chatterino2": {
+      "version": "2.5.5_1",
+      "description": "Chat client for twitch.tv",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "cherrytree": {
+      "version": "1.7.2_1",
+      "description": "Hierarchial note taking application with syntax highlighting",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "chromium": {
+      "version": "156.0.8078.79_1",
+      "description": "Google's attempt at creating a safer, faster, and more stable browser",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "chromium-bsu": {
+      "version": "0.9.16.1_1",
+      "description": "Fast paced, arcade-style, top-scrolling space shooter",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "clamav": {
+      "version": "1.5.3_1",
+      "description": "Clam Anti-Virus scanner",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "clang": {
+      "version": "21_3",
+      "description": "LLVM meta package - clang",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "clapper": {
+      "version": "0.10.0_1",
+      "description": "Modern and user-friendly media player",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "claws-mail": {
+      "version": "4.4.0_1",
+      "description": "GTK+ based, user-friendly, lightweight, and fast email client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "clementine": {
+      "version": "1.4.1_4",
+      "description": "Modern music player and library organizer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "clifm": {
+      "version": "1.29_1",
+      "description": "Command Line Interface File Manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "cmake": {
+      "version": "4.2.2_3",
+      "description": "Cross-platform, open-source build system",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "cmus": {
+      "version": "2.12.0_2",
+      "description": "Small, fast and powerful console music player",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "codeblocks": {
+      "version": "25.03_3",
+      "description": "Free C, C++ and Fortran IDE",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "codelite": {
+      "version": "17.0.0_1",
+      "description": "Open-source, cross platform IDE for the C/C++ programming languages",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "contour": {
+      "version": "0.4.3.6442_3",
+      "description": "Modern C++ Terminal Emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "cool-retro-term": {
+      "version": "1.1.1_1",
+      "description": "Good looking terminal emulator which mimics the old cathode display",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "corectrl": {
+      "version": "1.5.2_6",
+      "description": "User-friendly hardware control application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "cotp": {
+      "version": "1.9.9_1",
+      "description": "Command line TOTP/HOTP authenticator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "crawl": {
+      "version": "0.34.1_1",
+      "description": "Dungeon Crawl Stone Soup roguelike adventure",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "croc": {
+      "version": "10.4.14_2",
+      "description": "Easily and securely send things from one computer to another",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "cryfs": {
+      "version": "1.0.3_2",
+      "description": "Cryptographic filesystem for the cloud",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "cryptsetup": {
+      "version": "2.8.8_1",
+      "description": "Setup virtual encryption devices under Linux dm-crypt",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ctop": {
+      "version": "1.0.0_10",
+      "description": "Command line/text based Linux Containers monitoring tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "cups": {
+      "version": "2.4.19_1",
+      "description": "Common Unix Printing System",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "cutecom": {
+      "version": "0.51.0_1",
+      "description": "Graphical serial terminal",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "cutter": {
+      "version": "2.3.4_6",
+      "description": "Free and open source reverse engineering platform powered by rizin",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "czkawka": {
+      "version": "12.0.2_1",
+      "description": "App to find duplicates, empty folders, similar images, etc",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "d-feet": {
+      "version": "0.3.16_6",
+      "description": "D-Bus debugger",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "darktable": {
+      "version": "5.6.0_1",
+      "description": "Virtual lighttable and darkroom for photographers",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "dbeaver": {
+      "version": "26.2.3_1",
+      "description": "Free Universal Database Tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "dconf-editor": {
+      "version": "45.0.1_1",
+      "description": "Low-level configuration system - GTK+ editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ddrescue": {
+      "version": "1.29.1_1",
+      "description": "Data recovery tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "deadbeef": {
+      "version": "1.10.3_1",
+      "description": "Ultimate Music Player for GNU/Linux",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "deja-dup": {
+      "version": "50.2_1",
+      "description": "Simple backup tool that uses duplicity as the backend",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "deluge": {
+      "version": "2.2.0_2",
+      "description": "Fully-featured cross-platform BitTorrent client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "desmume": {
+      "version": "0.9.13_1",
+      "description": "Nintendo DS emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "devhelp": {
+      "version": "43.0_1",
+      "description": "API documentation browser for GTK+ and GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "dgen-sdl": {
+      "version": "1.33_5",
+      "description": "Multi-platform Genesis/Mega Drive Emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "dhex": {
+      "version": "0.69_1",
+      "description": "Hex editor and diff tool using ncurses",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "digikam": {
+      "version": "9.1.0_3",
+      "description": "Advanced digital photo management application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "dillo": {
+      "version": "3.3.0_1",
+      "description": "Small and light graphical web browser",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "dino": {
+      "version": "0.5.1_2",
+      "description": "Modern XMPP (\"Jabber\") Chat Client using GTK/Vala",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "dive": {
+      "version": "0.13.1_2",
+      "description": "Container image exploration tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "docker": {
+      "version": "29.8.0_2",
+      "description": "Docker container runtime",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "docker-compose": {
+      "version": "5.5.1_1",
+      "description": "Tool to define and run multi-container Docker applications",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "dolphin": {
+      "version": "26.08.1_2",
+      "description": "KDE File manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "dolphin-emu": {
+      "version": "2609_1",
+      "description": "Gamecube / Wii / Triforce emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "dosbox": {
+      "version": "0.74pl3_2",
+      "description": "DOS x86 emulator with Tandy/Herc/CGA/EGA/VGA/SVGA graphics and sound",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "dosbox-staging": {
+      "version": "0.82.2_1",
+      "description": "DOS/x86 emulator focusing on ease of use",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "dragon": {
+      "version": "1.2.0_3",
+      "description": "Simple drag-and-drop source/sink for X and Wayland",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "dua-cli": {
+      "version": "2.44.0_1",
+      "description": "Tool to conveniently learn about the disk usage of directories",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "duf": {
+      "version": "0.9.1_2",
+      "description": "Disk Usage/Free Utility",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "dune3d": {
+      "version": "1.4.0_1",
+      "description": "Parametric 3D CAD application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "duplicity": {
+      "version": "3.0.3.1_3",
+      "description": "Encrypted bandwidth-efficient backup using the rsync algorithm",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "eartag": {
+      "version": "1.0.3_1",
+      "description": "Small and simple audio file tag editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "easyeffects": {
+      "version": "8.3.0_1",
+      "description": "Sound effects for systems using PipeWire",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "easytag": {
+      "version": "2.4.3_5",
+      "description": "GUI audio tag editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "eclipse": {
+      "version": "2026.09_1",
+      "description": "IDE for Java and other languages",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "edb-debugger": {
+      "version": "1.5.0_1",
+      "description": "Cross platform x86/x86-64 debugger",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "electrum": {
+      "version": "4.7.2_1",
+      "description": "Lightweight Bitcoin wallet",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "element-desktop": {
+      "version": "1.12.10_2",
+      "description": "Glossy Matrix collaboration client, desktop version",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "elinks": {
+      "version": "0.20.0_1",
+      "description": "Full-Featured Text WWW Browser",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "elisa": {
+      "version": "26.08.1_1",
+      "description": "Simple and flexible music player",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "emacs": {
+      "version": "31.1_1",
+      "description": "GNU Emacs editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "emacs-gtk3": {
+      "version": "31.1_1",
+      "description": "GNU Emacs editor - GTK+3 version",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "endless-sky": {
+      "version": "0.10.16_1",
+      "description": "Space exploring, trading, and combat game",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "engrampa": {
+      "version": "1.28.2_1",
+      "description": "Archive manipulator for MATE",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "eom": {
+      "version": "1.28.1_1",
+      "description": "MATE image viewer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "epdfview": {
+      "version": "0.1.8_12",
+      "description": "Lightweight PDF viewer using Poppler and GTK+",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "epiphany": {
+      "version": "48.5_1",
+      "description": "Intuitive GNOME web browser",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "epy": {
+      "version": "2023.6.11_6",
+      "description": "CLI ebook reader",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "eqonomize": {
+      "version": "1.5.12_3",
+      "description": "Personal accounting software, with focus on efficiency and ease of use",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "espeak-ng": {
+      "version": "1.52.0_1",
+      "description": "Text to Speech engine",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "evince": {
+      "version": "48.1_1",
+      "description": "GNOME Document viewer for multiple document formats",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "evolution": {
+      "version": "3.56.2_2",
+      "description": "Integrated mail, addressbook and calendaring for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "extension-manager": {
+      "version": "0.6.5_1",
+      "description": "Utility for browsing and installing GNOME Shell Extensions",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "falkon": {
+      "version": "26.08.2_1",
+      "description": "Cross-platform Qt Web Browser",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "fastfetch": {
+      "version": "2.70.0_1",
+      "description": "System information fetching tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "fbreader": {
+      "version": "0.99.4_5",
+      "description": "E-book reader",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "fceux": {
+      "version": "2.6.6_1",
+      "description": "All in one NES/Famicom Emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "fclones": {
+      "version": "0.35.0_1",
+      "description": "Efficient Duplicate File Finder written in Rust",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "feh": {
+      "version": "3.13.1_1",
+      "description": "Fast and light imlib2-based image viewer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "felix": {
+      "version": "2.16.1_1",
+      "description": "TUI file manager with vim-like key mapping",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "fenrir": {
+      "version": "2025.04.28_2",
+      "description": "User space console screen reader written in python3",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ffmpeg": {
+      "version": "4.4.8_1",
+      "description": "Decoding, encoding and streaming software (transitional dummy package)",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "file-roller": {
+      "version": "44.5_1",
+      "description": "GNOME Front-end to archiving programs like tar and zip",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "filelight": {
+      "version": "26.08.1_1",
+      "description": "Interactive map that helps visualize disk usage on your computer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "filezilla": {
+      "version": "3.69.3_2",
+      "description": "Fast and reliable FTP, FTPS and SFTP client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "firefox": {
+      "version": "159.0_1",
+      "description": "Mozilla Firefox web browser",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "firejail": {
+      "version": "0.9.80_1",
+      "description": "SUID security sandbox program",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "five-or-more": {
+      "version": "48.1_1",
+      "description": "GNOME align five or more objects game",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "flameshot": {
+      "version": "13.3.0_1",
+      "description": "Powerful yet simple to use screenshot software for GNU/Linux",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "flare-game": {
+      "version": "1.14_1",
+      "description": "Single-player 2D action RPG using the FLARE engine",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "flowblade": {
+      "version": "2.16.3_1",
+      "description": "Non-linear video editor for Linux",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "focuswriter": {
+      "version": "1.9.1_1",
+      "description": "Simple, distraction-free word processor with a hide-away interface",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "foliate": {
+      "version": "3.3.0_1",
+      "description": "Simple and modern GTK eBook reader",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "fontmanager": {
+      "version": "0.9.4_1",
+      "description": "Font-manager is a simple font management tool for GTK+ environments",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "foot": {
+      "version": "1.28.0_1",
+      "description": "Fast, lightweight and minimalistic Wayland terminal emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "fooyin": {
+      "version": "0.13.1_1",
+      "description": "Customisable music player",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "foremost": {
+      "version": "1.5.7_6",
+      "description": "Forensic program to recover lost files",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "four-in-a-row": {
+      "version": "3.38.1_1",
+      "description": "GNOME four in a row game",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "fractal": {
+      "version": "13_1",
+      "description": "Matrix Messaging Client for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "freecad": {
+      "version": "1.1.4_1",
+      "description": "General purpose 3D CAD modeler",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "freerdp": {
+      "version": "3.32.2_1",
+      "description": "Free RDP (Remote Desktop Protocol) client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "freerouting": {
+      "version": "1.5.0_1",
+      "description": "Advanced PCB autorouter",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "fs-uae": {
+      "version": "3.2.35_1",
+      "description": "FS-UAE Amiga Emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "fsarchiver": {
+      "version": "0.8.6_1",
+      "description": "Safe and flexible file-system backup and deployment tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "fsearch": {
+      "version": "0.3.2_1",
+      "description": "Fast file search utility based on GTK+3",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "fwupd": {
+      "version": "2.1.7_1",
+      "description": "Daemon to allow session software to update firmware",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gajim": {
+      "version": "2.6.0_1",
+      "description": "Full featured Jabber/XMPP client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "galculator": {
+      "version": "2.1.4_3",
+      "description": "GTK+ based scientific calculator (GTK+3)",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gamemode": {
+      "version": "1.8.2_1",
+      "description": "Optimise Linux system performance on demand",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gcc": {
+      "version": "14.2.1+20250405_4",
+      "description": "GNU Compiler Collection",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gcolor3": {
+      "version": "2.4.0_2",
+      "description": "Color selection dialog written in GTK+3",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gcompris-qt": {
+      "version": "26.2_1",
+      "description": "High quality educational software suite for children aged 2 to 10",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gdb": {
+      "version": "18.1_1",
+      "description": "GNU Debugger",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gdb-multiarch": {
+      "version": "18.1_1",
+      "description": "GNU Debugger - all architectures",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gdu": {
+      "version": "5.38.0_1",
+      "description": "Disk usage analyzer intended primarily for SSD disks",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "geany": {
+      "version": "2.1_1",
+      "description": "Fast and lightweight IDE",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "geary": {
+      "version": "46.0_4",
+      "description": "Lightweight email program for the GNOME desktop",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gedit": {
+      "version": "50.0_1",
+      "description": "Text editor for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "geeqie": {
+      "version": "3.3_1",
+      "description": "Lightweight GTK+ based image viewer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gef": {
+      "version": "2026.01_2",
+      "description": "GDB Enhanced Features for exploit devs & reversers",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "geonkick": {
+      "version": "2.9.1_1",
+      "description": "Free software percussion synthesizer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gfeeds": {
+      "version": "2.2.0_3",
+      "description": "RSS/Atom feed reader for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ghex": {
+      "version": "46.3_1",
+      "description": "Simple binary editor for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ghidra": {
+      "version": "12.1.4_1",
+      "description": "Software reverse engineering (SRE) framework",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ghostty": {
+      "version": "1.1.3_1",
+      "description": "Fast and feature-rich terminal emulator that uses GPU acceleration",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ghostwriter": {
+      "version": "26.08.2_1",
+      "description": "Distraction-free Markdown editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "giac": {
+      "version": "2.0.0.21_1",
+      "description": "Free computer algebra system",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gimp": {
+      "version": "3.2.6_1",
+      "description": "GNU image manipulation program",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "git-cola": {
+      "version": "4.19.0_1",
+      "description": "Highly caffeinated Git GUI",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gitg": {
+      "version": "44_6",
+      "description": "Git repository viewer for GTK+/GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "github-cli": {
+      "version": "2.103.3_1",
+      "description": "GitHub CLI tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gitu": {
+      "version": "0.43.0_1",
+      "description": "Git client inspired by Magit",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gitui": {
+      "version": "0.28.1_1",
+      "description": "Blazing fast terminal-ui for git",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "glab": {
+      "version": "1.107.0_2",
+      "description": "Command line tool bringing GitLab's features to your command line",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "glances": {
+      "version": "4.5.6_1",
+      "description": "Cross-platform curses-based monitoring tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gmsh": {
+      "version": "4.13.1_1",
+      "description": "Three-dimensional finite element mesh generator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-2048": {
+      "version": "50.2_1",
+      "description": "2048 clone for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-authenticator": {
+      "version": "4.5.0_1",
+      "description": "Two-factor authentication code generator for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-boxes": {
+      "version": "50.0_1",
+      "description": "GNOME application to access remote or virtual systems",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-builder": {
+      "version": "48.0_2",
+      "description": "IDE for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-calculator": {
+      "version": "50.0_1",
+      "description": "GNOME calculator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-calendar": {
+      "version": "50.0_1",
+      "description": "Calendar application designed to perfectly fit the GNOME desktop",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-characters": {
+      "version": "48.0_1",
+      "description": "Utility to find and insert unusual characters for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-chess": {
+      "version": "50.1_1",
+      "description": "GNOME chess user interface",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-clocks": {
+      "version": "50.0_1",
+      "description": "Clock application for the GNOME Desktop",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-connections": {
+      "version": "48.0_3",
+      "description": "Remote desktop client for the GNOME desktop environment",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-console": {
+      "version": "48.0.1_1",
+      "description": "Simple user-friendly terminal emulator for the GNOME desktop",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-contacts": {
+      "version": "50.0_1",
+      "description": "GNOME contacts manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-disk-utility": {
+      "version": "46.1_1",
+      "description": "GNOME libraries and applications for dealing with storage devices",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-font-viewer": {
+      "version": "50.0_1",
+      "description": "Font viewer for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-klotski": {
+      "version": "3.38.2_1",
+      "description": "GNOME puzzle game where you move blocks",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-mahjongg": {
+      "version": "51.1_1",
+      "description": "GNOME Mahjongg solitaire game",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-maps": {
+      "version": "50.5_1",
+      "description": "GNOME maps application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-mines": {
+      "version": "48.1_1",
+      "description": "GNOME puzzle game where you locate mines in the ocean",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-music": {
+      "version": "50.0_1",
+      "description": "GNOME music playing application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-nibbles": {
+      "version": "4.5.2_1",
+      "description": "GNOME snake eats diamonds game",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-robots": {
+      "version": "41.2_1",
+      "description": "GNOME classic robots game",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-secrets": {
+      "version": "13.0.1_1",
+      "description": "Keepass compatible password manager for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-shell-extensions": {
+      "version": "48.3_1",
+      "description": "Extensions for GNOME shell, including classic mode",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-sound-recorder": {
+      "version": "42.0_2",
+      "description": "GNOME sound recorder application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-subtitles": {
+      "version": "1.7.2_1",
+      "description": "Video subtitle editor for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-sudoku": {
+      "version": "49.2_1",
+      "description": "GNOME Sudoku Japanese logic game",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-system-monitor": {
+      "version": "48.1_1",
+      "description": "Process viewer and system resource monitor for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-terminal": {
+      "version": "3.56.2_1",
+      "description": "GNOME terminal emulator application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-tetravex": {
+      "version": "3.38.2_1",
+      "description": "GNOME puzzle game where you align pieces with numbers",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-text-editor": {
+      "version": "50.1_1",
+      "description": "Simple text editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-tweaks": {
+      "version": "49.0_1",
+      "description": "GNOME tool to customize advanced options",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-usage": {
+      "version": "48.0_1",
+      "description": "Nice way to view information about use of system resources",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnome-weather": {
+      "version": "48.0_1",
+      "description": "Access current weather conditions and forecasts for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnote": {
+      "version": "48.1_1",
+      "description": "GNOME note taking application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnucash": {
+      "version": "5.16_1",
+      "description": "Financial-accounting software",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnumeric": {
+      "version": "1.12.59_3",
+      "description": "GNOME Spreadsheet Program",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnupg": {
+      "version": "2.5.24_1",
+      "description": "GNU Privacy Guard (2.x)",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnuplot": {
+      "version": "6.0.5_1",
+      "description": "Command-line driven graphing utility",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gnuradio": {
+      "version": "3.10.12.0_6",
+      "description": "Framework for software defined radio",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "go": {
+      "version": "1.27.3_1",
+      "description": "Go Programming Language",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gocryptfs": {
+      "version": "2.6.1_2",
+      "description": "Encrypted overlay filesystem written in Go",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gopass": {
+      "version": "1.16.1_2",
+      "description": "Slightly more awesome standard unix password manager for teams",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gpa": {
+      "version": "0.11.1_2",
+      "description": "Graphical user interface for GnuPG",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gparted": {
+      "version": "1.8.1_1",
+      "description": "Gnome Partition Editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gpick": {
+      "version": "0.3_1",
+      "description": "Advanced color picker written in C++ using GTK+ toolkit",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gpicview": {
+      "version": "0.3.1_1",
+      "description": "Simple and Fast Image Viewer for X",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gpodder": {
+      "version": "3.11.5_2",
+      "description": "Podcast client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gpredict": {
+      "version": "2.6_1",
+      "description": "Real-time satellite tracking and orbit prediction application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gpu-screen-recorder": {
+      "version": "5.12.5_1",
+      "description": "Extremely fast screen recorder for Linux",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gramps": {
+      "version": "6.0.8_1",
+      "description": "Genealogy program",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "grass": {
+      "version": "8.5.0_1",
+      "description": "Geographic Resources Analysis Support System - GIS",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gscan2pdf": {
+      "version": "2.13.5_1",
+      "description": "GUI to produce PDFs or DjVus from scanned documents",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gsmartcontrol": {
+      "version": "2.0.2_1",
+      "description": "GUI to smartmontools",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gthumb": {
+      "version": "3.12.8.2_1",
+      "description": "Image viewer and browser for the GNOME Desktop",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gtkwave": {
+      "version": "3.3.121_1",
+      "description": "Fully featured GTK+ based wave viewer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gtypist": {
+      "version": "2.9.5_2",
+      "description": "Universal typing tutor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "guake": {
+      "version": "3.10_3",
+      "description": "Drop-down terminal for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gucharmap": {
+      "version": "16.0.1_1",
+      "description": "GNOME Unicode Charmap",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gufw": {
+      "version": "26.04_1",
+      "description": "GTK+ frontend for ufw",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "guitarix2": {
+      "version": "0.47.0_2",
+      "description": "Virtual guitar amplifier running on Jack Audio Connection Kit",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gummi": {
+      "version": "0.8.3_1",
+      "description": "Simple LaTeX editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gutenprint": {
+      "version": "5.3.4_1",
+      "description": "Top quality printer drivers for POSIX systems",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gv": {
+      "version": "3.7.4_5",
+      "description": "Postscript and PDF viewer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "gwenview": {
+      "version": "26.08.2_1",
+      "description": "Fast and easy to use image viewer by KDE",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "handbrake": {
+      "version": "1.11.2_1",
+      "description": "Multithreaded video transcoder",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "haruna": {
+      "version": "1.8.1_5",
+      "description": "Video player built with Qt/QML on top of libmpv",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "hashcat": {
+      "version": "7.1.2_1",
+      "description": "Advanced CPU-based password recovery utility",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "hatari": {
+      "version": "2.3.1_1",
+      "description": "Atari ST/STE/TT/Falcon emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "heaptrack": {
+      "version": "1.5.0_6",
+      "description": "Heap memory profiler for Linux",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "hedgewars": {
+      "version": "1.0.2_2",
+      "description": "Funny turn-based artillery game, featuring fighting Hedgehogs!",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "helix": {
+      "version": "25.07.1_1",
+      "description": "Post-modern modal text editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "helvum": {
+      "version": "0.6.2_1",
+      "description": "GTK patchbay for pipewire",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "hexchat": {
+      "version": "2.16.2_10",
+      "description": "GTK+ based IRC client successor of Xchat",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "hexer": {
+      "version": "1.0.7_1",
+      "description": "Multi-buffered hex editor for binary files, with a vi like interface",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "higan": {
+      "version": "110_3",
+      "description": "Multi-system emulator (SNES/Game Boy/Mega Drive/PC Engine/WonderSwan)",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "himalaya": {
+      "version": "1.1.0_1",
+      "description": "CLI email client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "hitori": {
+      "version": "44.0_1",
+      "description": "GNOME eponymous puzzle game",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "hledger": {
+      "version": "1.52.1_1",
+      "description": "Simple, precise, plain text accounting",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "hledger-ui": {
+      "version": "1.52.1_1",
+      "description": "Simple, precise, plain text accounting",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "homebank": {
+      "version": "5.8_1",
+      "description": "Free personal finance software",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "horizon": {
+      "version": "2.7.1_1",
+      "description": "Free EDA package",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "hotspot": {
+      "version": "1.6.0_1",
+      "description": "Linux perf GUI for performance analysis",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "hplip": {
+      "version": "3.25.8_2",
+      "description": "HP Linux Imaging and Printing",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "htop": {
+      "version": "3.5.3_1",
+      "description": "Interactive process viewer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "hugin": {
+      "version": "2025.0.1_1",
+      "description": "Easy to use panoramic imaging toolchain",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "hydrogen": {
+      "version": "1.0.2_2",
+      "description": "Advanced drum machine",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "hyperfine": {
+      "version": "1.20.0_1",
+      "description": "Command-line benchmarking tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "hyx": {
+      "version": "2026.01.11_1",
+      "description": "Minimalistic but powerful console hex editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "iagno": {
+      "version": "3.38.1_1",
+      "description": "GNOME Reversi (Othello) game",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "idle-python3": {
+      "version": "3.14.8_1",
+      "description": "Python programming language - IDE for Python3 using Tkinter",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "iftop": {
+      "version": "1.0pre4_3",
+      "description": "Top-like tool to display bandwidth usage on an interface",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "imhex": {
+      "version": "1.38.1_1",
+      "description": "Hex editor for reverse engineers and programmers",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "imv": {
+      "version": "5.0.1_3",
+      "description": "Image viewer for X11/Wayland",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "incus": {
+      "version": "7.5.1_1",
+      "description": "Powerful system container and virtual machine manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "inkscape": {
+      "version": "1.4.3_7",
+      "description": "Vector-based drawing program",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "io.elementary.code": {
+      "version": "8.2.0_1",
+      "description": "Code editor designed for elementary OS",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "irssi": {
+      "version": "1.4.5_4",
+      "description": "Secure and modular IRC client with text mode user interface",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "jadx": {
+      "version": "1.5.6_1",
+      "description": "Decompiler for Dalvik bytecode",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "jdupes": {
+      "version": "1.31.1_1",
+      "description": "Powerful duplicate file finder and an enhanced fork of fdupes",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "joe": {
+      "version": "4.8_1",
+      "description": "World-famous Wordstar like text editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "john": {
+      "version": "1.9.0_7",
+      "description": "John the Ripper password cracker (jumbo-1 patch included)",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "juCi++": {
+      "version": "1.7.2_14",
+      "description": "Lightweight IDE supporting the most recent C++ standards",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "k9s": {
+      "version": "0.51.0_2",
+      "description": "Terminal UI to interact with Kubernetes clusters",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kaddressbook": {
+      "version": "26.08.1_1",
+      "description": "KDE contact manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kaffeine": {
+      "version": "2.0.18_3",
+      "description": "KDE media player",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kakoune": {
+      "version": "2026.05.21_1",
+      "description": "Selection-based vim-like editor with less keystrokes",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kamoso": {
+      "version": "26.08.1_1",
+      "description": "Simple and friendly program to use your webcam recorder",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kasts": {
+      "version": "26.08.1_1",
+      "description": "Convergent podcast application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "katarakt": {
+      "version": "0.2_3",
+      "description": "Simple PDF viewer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kate": {
+      "version": "26.08.1_1",
+      "description": "KDE Text editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kcalc": {
+      "version": "26.08.1_1",
+      "description": "Simple and scientific calculator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kcharselect": {
+      "version": "26.08.1_1",
+      "description": "Character Selector",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kdeconnect": {
+      "version": "26.08.1_1",
+      "description": "Multi-platform app that allows your devices to communicate",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kdenlive": {
+      "version": "26.08.1_1",
+      "description": "Non-linear video editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kdevelop": {
+      "version": "26.08.1_1",
+      "description": "Integrated Development Environment for C/C++",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "keepassxc": {
+      "version": "2.8.0_1",
+      "description": "KeePassXC is a cross-platform port of “Keepass Password Safe”",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kew": {
+      "version": "4.3.8_1",
+      "description": "Command-line music player",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kfind": {
+      "version": "26.08.1_1",
+      "description": "Find files and folders",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kgpg": {
+      "version": "26.08.1_1",
+      "description": "Simple interface for GnuPG, a powerful encryption utility",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kicad": {
+      "version": "10.0.7_1",
+      "description": "Electronic schematic and PCB design software",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kid3": {
+      "version": "3.10.0_1",
+      "description": "MP3, Ogg/Vorbis and FLAC tag editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kig": {
+      "version": "26.08.1_1",
+      "description": "KDE education tool for interactive geometry",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kitty": {
+      "version": "0.48.2_2",
+      "description": "Modern, hackable, featureful, OpenGL based terminal emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "klavaro": {
+      "version": "3.14_1",
+      "description": "Touch typing tutor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kleopatra": {
+      "version": "26.08.1_1",
+      "description": "Certificate Manager and Unified Crypto GUI",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kmag": {
+      "version": "26.08.1_1",
+      "description": "Screen Magnifier",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kmail": {
+      "version": "26.08.1_1",
+      "description": "KDE Mail Client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kmines": {
+      "version": "26.08.1_1",
+      "description": "Classic Minesweeper game",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kmplot": {
+      "version": "26.08.1_1",
+      "description": "Mathematical Function Plotter",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kmymoney": {
+      "version": "5.2.2_3",
+      "description": "Personal finance manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kodi": {
+      "version": "21.3_3",
+      "description": "Software media player and entertainment hub for digital media",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kolourpaint": {
+      "version": "26.08.1_1",
+      "description": "Free, easy-to-use paint program for KDE",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "konqueror": {
+      "version": "26.08.1_1",
+      "description": "KDE File Manager & Web Browser",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "konsole": {
+      "version": "26.08.1_1",
+      "description": "KDE's Terminal Emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kopia": {
+      "version": "0.17.0_3",
+      "description": "Fast and secure backup tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "korganizer": {
+      "version": "26.08.1_1",
+      "description": "Calendar and scheduling Program",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kpat": {
+      "version": "26.08.1_1",
+      "description": "Relaxing card sorting game",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "krdc": {
+      "version": "26.08.1_1",
+      "description": "Remote Desktop Client supporting VNC and RDP",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "krename": {
+      "version": "5.0.2_4",
+      "description": "Powerful batch renamer for KDE",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kristall": {
+      "version": "0.4_2",
+      "description": "Small-Internet Browser",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "krita": {
+      "version": "6.0.3_1",
+      "description": "Painting and image editing program",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "krusader": {
+      "version": "2.9.0_2",
+      "description": "Twin-panel (commander-style) file manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ksnip": {
+      "version": "1.10.1_2",
+      "description": "Qt based cross-platform screenshot tool with annotation features",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kstars": {
+      "version": "3.7.9_1",
+      "description": "Open source, cross-platform Astronomy Software by KDE",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ksystemlog": {
+      "version": "26.08.1_1",
+      "description": "KDE System log viewer tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ktorrent": {
+      "version": "26.08.1_1",
+      "description": "BitTorrent client based on the KDE platform",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ktouch": {
+      "version": "26.08.1_1",
+      "description": "Learn and practive touch typing",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kturtle": {
+      "version": "26.08.1_1",
+      "description": "Educational Programming Environment",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kubectl": {
+      "version": "1.37.0_2",
+      "description": "Controls the Kubernetes cluster manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kup": {
+      "version": "0.10.0_2",
+      "description": "Kup is created to keep backups of personal files",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kvantum": {
+      "version": "1.1.8_1",
+      "description": "SVG-based theme engine for Qt5/Qt6, KDE and LXQt",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "kwrite": {
+      "version": "26.08.1_1",
+      "description": "KDE Text editor - kwrite",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "labplot": {
+      "version": "2.12.1_1",
+      "description": "Interactive graphing and analysis of scientific data",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lapce": {
+      "version": "0.4.5_1",
+      "description": "Lightning-fast and powerful code editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lazarus": {
+      "version": "2.2.0_1",
+      "description": "Delphi-like IDE for FreePascal",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lazydocker": {
+      "version": "0.25.2_2",
+      "description": "Simple terminal UI for docker and docker-compose, written in Go",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lazygit": {
+      "version": "0.66.2_1",
+      "description": "Simple terminal UI for git commands",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "leafpad": {
+      "version": "0.8.19_1",
+      "description": "GTK+ Simple text editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ledger": {
+      "version": "3.4.1_1",
+      "description": "Double-entry accounting system with a command-line reporting interface",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "leocad": {
+      "version": "23.03_1",
+      "description": "CAD program for creating virtual LEGO models",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lf": {
+      "version": "r42_2",
+      "description": "Terminal file manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "libreoffice": {
+      "version": "26.8.0.3_3",
+      "description": "Productivity suite",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "libreoffice-writer": {
+      "version": "26.8.0.3_3",
+      "description": "Productivity suite - Word processor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "liferea": {
+      "version": "1.16.5_1",
+      "description": "GTK news aggregator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lightsoff": {
+      "version": "50.0_1",
+      "description": "GNOME puzzlle game where you turn off lights",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "links": {
+      "version": "2.30_1",
+      "description": "Graphics and text mode web browser, released under GPL",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "linssid": {
+      "version": "3.6_7",
+      "description": "Graphical wireless AP scanner",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "liteide": {
+      "version": "37.4_2",
+      "description": "Simple, open source, cross-platform Go IDE",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lmms": {
+      "version": "1.2.2_5",
+      "description": "Cross-platform music production software",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lollypop": {
+      "version": "1.4.48_1",
+      "description": "Music player for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "loupe": {
+      "version": "51.0_1",
+      "description": "Simple image viewer for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ltrace": {
+      "version": "0.7.3.20160924_2",
+      "description": "Tracks runtime library calls in dynamically linked programs",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "luakit": {
+      "version": "2.4.0_1",
+      "description": "Fast, small, webkit based browser framework extensible by Lua",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "luanti": {
+      "version": "5.17.0_1",
+      "description": "Voxel game-creation platform with easy modding and game creation",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lutris": {
+      "version": "0.5.22_2",
+      "description": "Open gaming platform for managing games in a unified way",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lxappearance": {
+      "version": "0.6.4_2",
+      "description": "LXDE Theme Switcher",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lxc": {
+      "version": "7.0.0_1",
+      "description": "Linux Containers - utilities",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lxd": {
+      "version": "5.20_3",
+      "description": "Next generation system container manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lximage-qt": {
+      "version": "2.4.0_1",
+      "description": "LXQt image viewer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lxqt-archiver": {
+      "version": "1.4.0_1",
+      "description": "Simple & lightweight desktop-agnostic Qt file archiver",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lxqt-config": {
+      "version": "2.4.0_1",
+      "description": "LXQt System Settings",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lxterminal": {
+      "version": "0.4.1_1",
+      "description": "LXDE Terminal emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lynis": {
+      "version": "3.1.7_1",
+      "description": "System and security auditing tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lynx": {
+      "version": "2.9.3_1",
+      "description": "Text browser for the World Wide Web",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "lyx": {
+      "version": "2.3.7r1_1",
+      "description": "Document Processor WYSIWYM Editor & Latex frontend",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "magic-wormhole": {
+      "version": "0.24.0_1",
+      "description": "Get things from one computer to another, safely",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mame": {
+      "version": "0282_1",
+      "description": "Multiple Arcade Machine Emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "marble": {
+      "version": "26.08.1_1",
+      "description": "Virtual globe and world atlas",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mate-terminal": {
+      "version": "1.28.1_1",
+      "description": "MATE Terminal Emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "maxima": {
+      "version": "5.49.0_1",
+      "description": "Computer Algebra System",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mc": {
+      "version": "4.8.33_1",
+      "description": "User-friendly file manager and visual shell",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mednaffe": {
+      "version": "0.9.3_1",
+      "description": "Front-end (GUI) for mednafen emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "meld": {
+      "version": "3.24.1_1",
+      "description": "Visual diff and merge tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "melonDS": {
+      "version": "1.1_2",
+      "description": "Nintendo DS emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "merkuro": {
+      "version": "26.08.1_1",
+      "description": "Calendar application using Akonadi",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "meson": {
+      "version": "1.12.0_1",
+      "description": "Super fast build system",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mg": {
+      "version": "20260719_1",
+      "description": "Micro GNU/emacs",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mgba-qt": {
+      "version": "0.10.5_1",
+      "description": "Game Boy Advance emulator written in C - QT frontend",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "micro": {
+      "version": "2.0.15_2",
+      "description": "Modern and intuitive terminal-based text editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mimic": {
+      "version": "1.3.0.1_1",
+      "description": "Mycroft's lightweight Text-to-speech engine",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "minetest": {
+      "version": "5.17.0_1",
+      "description": "Voxel game-creation platform with easy modding and game creation - transitional dummy package",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "minikube": {
+      "version": "1.38.1_2",
+      "description": "Tool to make it easy to run Kubernetes locally",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mixxx": {
+      "version": "2.5.6_2",
+      "description": "Open source digital DJing software that allows mixing music",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mkvtoolnix-gui": {
+      "version": "103.0_1",
+      "description": "Create, alter and inspect Matroska videos - Qt GUI",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mlterm": {
+      "version": "3.9.5_1",
+      "description": "Multi Lingual TERMinal emulator for X",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "moserial": {
+      "version": "3.0.21_1",
+      "description": "Clean, friendly gtk-based serial terminal for the gnome desktop",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mousepad": {
+      "version": "0.7.0_1",
+      "description": "Simple text editor for Xfce based on Leafpad",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mpc-qt": {
+      "version": "26.07_1",
+      "description": "Clone of Media Player Classic reimplemented in Qt",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mpd": {
+      "version": "0.24.13_1",
+      "description": "Flexible, powerful, server-side application for playing music",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mpv": {
+      "version": "0.41.0_4",
+      "description": "Video player based on MPlayer/mplayer2",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mtpaint": {
+      "version": "3.50.11_1",
+      "description": "Simple GTK painting program",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mtr": {
+      "version": "0.96_1",
+      "description": "Combines the functionality of traceroute and ping into one tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mumble": {
+      "version": "1.5.939_1",
+      "description": "Open source, low-latency, high quality voice chat",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mupdf": {
+      "version": "1.27.0_1",
+      "description": "Lightweight PDF and XPS viewer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mupen64plus": {
+      "version": "2.6.0_1",
+      "description": "Nintendo64 Emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "musescore": {
+      "version": "3.6.2_3",
+      "description": "Create, play and print beautiful sheet music",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "musikcube": {
+      "version": "3.0.5_1",
+      "description": "Terminal-based music player in c++",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mutt": {
+      "version": "2.4.3_1",
+      "description": "Mutt Mail Client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "mypaint": {
+      "version": "2.0.1_10",
+      "description": "Graphics application for digital painters",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "nano": {
+      "version": "9.2_1",
+      "description": "GNU nano text editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "nautilus": {
+      "version": "50.2.2_1",
+      "description": "GNOME file manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ncdu": {
+      "version": "1.22_1",
+      "description": "NCurses Disk Usage utility",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ncmpcpp": {
+      "version": "0.10.1_5",
+      "description": "Ncurses mpd client inspired by ncmpc",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "nemo": {
+      "version": "6.6.4_1",
+      "description": "Cinnamon file manager (nautilus fork)",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "neomutt": {
+      "version": "20260616_1",
+      "description": "Mutt with misc fixes and feature patches",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "neovide": {
+      "version": "0.16.2_1",
+      "description": "No Nonsense Neovim Client in Rust",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "neovim": {
+      "version": "0.12.6_1",
+      "description": "Fork of Vim aiming to improve user experience, plugins and GUIs",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "nethack": {
+      "version": "5.0.0_2",
+      "description": "Exploring The Mazes of Menace",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "nethogs": {
+      "version": "0.8.8_1",
+      "description": "Small net top tool grouping bandwidth by process",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "netscanner": {
+      "version": "0.6.41_1",
+      "description": "Network scanner & diagnostic tool with modern TUI",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "network-manager-applet": {
+      "version": "1.36.0_1",
+      "description": "NetworkManager panel applet for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "neverball": {
+      "version": "1.6.0_5",
+      "description": "Puzzle/action game similar to Super Monkey Ball",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "newsboat": {
+      "version": "2.45_1",
+      "description": "RSS/Atom feed reader for the text console",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "newsflash": {
+      "version": "5.0.0_1",
+      "description": "RSS feed reader that supports various web based services",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "newsraft": {
+      "version": "0.38_1",
+      "description": "Feed reader with ncurses user interface",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "nextcloud-client": {
+      "version": "35.0.0_1",
+      "description": "NextCloud Desktop client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ngspice": {
+      "version": "44.2_1",
+      "description": "Mixed Mode Mixed Level Circuit Simulator based on Spice3F5",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "nheko": {
+      "version": "0.12.1_6",
+      "description": "Desktop client for Matrix using Qt and C++",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "nicotine+": {
+      "version": "3.3.11_1",
+      "description": "Graphical client for the Soulseek peer-to-peer network",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "nitrogen": {
+      "version": "1.6.1_4",
+      "description": "Background browser and setter for X with support for Xinerama",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "nitrokey-app": {
+      "version": "1.4.2_1",
+      "description": "Management application for Nitrokey tokens",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "nnn": {
+      "version": "5.3_2",
+      "description": "Missing terminal file browser for X",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "nomacs": {
+      "version": "3.17.2287_5",
+      "description": "Simple yet powerful Qt imageviewer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "notepadqq": {
+      "version": "1.4.8_1",
+      "description": "Text editor for developers",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "nsxiv": {
+      "version": "34_1",
+      "description": "Neo (or New or Not) Simple (or Small or Suckless) X Image Viewer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "nvtop": {
+      "version": "3.3.2_1",
+      "description": "GPUs process monitoring for AMD, Intel and NVIDIA",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "nwg-look": {
+      "version": "1.1.1_2",
+      "description": "GTK settings editor adapted to work in the wlroots environment",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "nyxt": {
+      "version": "3.11.8_2",
+      "description": "Keyboard-oriented, extensible web-browser",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "obs": {
+      "version": "32.2.2_1",
+      "description": "Open Broadcaster Software",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "octave": {
+      "version": "11.1.0_1",
+      "description": "High-level language, primarily intended for numerical computations",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "okteta": {
+      "version": "0.26.25_1",
+      "description": "Hexadecimal editor for binary files",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "okular": {
+      "version": "26.08.1_1",
+      "description": "KDE Document Viewer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "onboard": {
+      "version": "1.4.4+4_1",
+      "description": "Onscreen keyboard useful for everybody",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "openmw": {
+      "version": "0.51.0_1",
+      "description": "Open Implementation of Morrowind's Engine",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "openocd": {
+      "version": "0.12.0+1_1",
+      "description": "Open On-Chip Debugger",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "openra": {
+      "version": "20250330_1",
+      "description": "Open-source implementation of the Red Alert engine",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "openrgb": {
+      "version": "1.1_1",
+      "description": "Open source RGB lighting control",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "openscad": {
+      "version": "2021.01_11",
+      "description": "Solid 3D CAD modeller",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "openshot": {
+      "version": "3.3.0_1",
+      "description": "Open-source, non-linear video editor for Linux",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "openssh": {
+      "version": "10.6p1_2",
+      "description": "OpenSSH free Secure Shell (SSH) client and server implementation",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "openttd": {
+      "version": "15.3_1",
+      "description": "Open Source version of Transport Tycoon Deluxe",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "openvpn": {
+      "version": "2.7.5_1",
+      "description": "Easy-to-use, robust, and highly configurable VPN",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "orage": {
+      "version": "4.20.3_1",
+      "description": "Simple calendar application for Xfce",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "orca": {
+      "version": "48.6_2",
+      "description": "Screen reader for individuals who are blind or visually impaired",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "papers": {
+      "version": "51.0_1",
+      "description": "Document viewer for the GNOME desktop",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "parole": {
+      "version": "4.20.0_1",
+      "description": "Modern simple media player",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "parted": {
+      "version": "3.8_1",
+      "description": "GNU Parted disk partition resizing program",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "pass": {
+      "version": "1.7.4_3",
+      "description": "Stores, retrieves, generates, and synchronizes passwords securely",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "passwordsafe": {
+      "version": "1.16.0_3",
+      "description": "Simple & Secure Password Management",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "pavucontrol": {
+      "version": "6.2_1",
+      "description": "PulseAudio Volume Control",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "pcmanfm": {
+      "version": "1.4.0_1",
+      "description": "LXDE file manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "pcmanfm-qt": {
+      "version": "2.4.1_1",
+      "description": "Qt port of PCManFM",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "pcsxr": {
+      "version": "1.9.94_2",
+      "description": "Sony PlayStation (PSX) emulator based on the PCSX-df project",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "pdfarranger": {
+      "version": "1.12.1_2",
+      "description": "Simple application for PDF Merging, Rearranging, and Splitting",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "peek": {
+      "version": "1.5.1_3",
+      "description": "Simple animated GIF screen recorder with an easy to use interface",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "phototonic": {
+      "version": "3.2.0_1",
+      "description": "Lightweight image viewer and organizer for Qt",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "picard": {
+      "version": "3.0.2_1",
+      "description": "MusicBrainz's audio tagger",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "pidgin": {
+      "version": "2.14.14_1",
+      "description": "Multi-protocol instant messaging client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "pika-backup": {
+      "version": "0.8.3_1",
+      "description": "GNOME Frontend for BorgBackup",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "pingus": {
+      "version": "0.7.6_14",
+      "description": "Free Lemmings-like puzzle game",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "piper": {
+      "version": "0.8_3",
+      "description": "GTK application to configure gaming mice",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "planify": {
+      "version": "4.5.12_2",
+      "description": "Task manager with Todoist support designed for GNU/Linux",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "plasma-firewall": {
+      "version": "6.7.5_1",
+      "description": "Control Panel for ufw (Uncomplicated Firewall)",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "plasmatube": {
+      "version": "26.08.1_2",
+      "description": "Kirigami YouTube video player based on QtMultimedia and mpv",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "pluma": {
+      "version": "1.28.1_1",
+      "description": "Powerful text editor for MATE",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "podman": {
+      "version": "6.1.4_1",
+      "description": "Simple management tool for containers and images",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "podman-compose": {
+      "version": "1.6.0_1",
+      "description": "Script to run docker-compose.yml using podman",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "podman-tui": {
+      "version": "2.0.0_1",
+      "description": "Podman Terminal User Interface",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "polari": {
+      "version": "50.0_1",
+      "description": "GNOME IRC client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "potrace": {
+      "version": "1.16_2",
+      "description": "Transforming bitmaps into vector graphics",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ppsspp": {
+      "version": "1.20.4_2",
+      "description": "Fast and portable PSP emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "pqiv": {
+      "version": "2.13.3_1",
+      "description": "Powerful quick image viewer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "pragha": {
+      "version": "1.3.4_3",
+      "description": "Lightweight Music Player for GNU/Linux",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "print-manager": {
+      "version": "6.7.5_2",
+      "description": "Printing management for KDE Plasma",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "probe-rs": {
+      "version": "0.32.0_1",
+      "description": "Modern, embedded debugging toolkit, written in Rust",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "profanity": {
+      "version": "0.18.2_1",
+      "description": "Console based XMPP client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ptyxis": {
+      "version": "50.1_1",
+      "description": "Terminal for a container-oriented desktop",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "puddletag": {
+      "version": "2.5.0_1",
+      "description": "Powerful, simple, spreadsheet-like audio tag editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "pulseview": {
+      "version": "0.4.2_10",
+      "description": "Qt-based LA/scope/MSO GUI for sigrok",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "pwgen": {
+      "version": "2.08_2",
+      "description": "Password Generator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "pymol": {
+      "version": "2.5.0_10",
+      "description": "PyMOL molecular visualization system",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "python3": {
+      "version": "3.14.8_1",
+      "description": "Python programming language (3.14 series)",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qView": {
+      "version": "7.1_1",
+      "description": "Image viewer designed with minimalism and usability in mind",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qalculate-gtk": {
+      "version": "5.12.0_1",
+      "description": "Multi-purpose desktop calculator - GTK+ version",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qbittorrent": {
+      "version": "5.3.0_1",
+      "description": "Free software alternative to µtorrent",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qdirstat": {
+      "version": "1.9_1",
+      "description": "Qt-based directory statistics (KDirStat without any KDE)",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qemu": {
+      "version": "11.1.2_1",
+      "description": "Open source processor emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qgis": {
+      "version": "4.2.3_1",
+      "description": "Open Source Geographic Information System",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qimgv": {
+      "version": "1.0.2_5",
+      "description": "Cross-platform image viewer with webm support",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qiv": {
+      "version": "3.0.4_1",
+      "description": "Quick Image Viewer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qjackctl": {
+      "version": "1.0.6_1",
+      "description": "JACK Audio Connection Kit - Qt GUI Interface",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qmmp": {
+      "version": "2.4.2_1",
+      "description": "Audio player based on Qt",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qownnotes": {
+      "version": "26.10.5_1",
+      "description": "Plain-text file notepad and todo-list manager with markdown support",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qpdfview": {
+      "version": "0.5.0_1",
+      "description": "Tabbed document viewer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qpwgraph": {
+      "version": "1.0.4_1",
+      "description": "Graph manager for PipeWire",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qrcp": {
+      "version": "0.11.6_2",
+      "description": "Transfer files over wifi to mobile devices by scanning a QR code",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qt5-fsarchiver": {
+      "version": "1.8.6pl1_1",
+      "description": "Program to save/restore partitions, folders and MBR/GPT",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qt5ct": {
+      "version": "1.9_1",
+      "description": "Qt5 Configuration Tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qt6ct": {
+      "version": "0.11_4",
+      "description": "Qt6 Configuration Tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qtcreator": {
+      "version": "20.0.1_1",
+      "description": "Cross-platform IDE for Qt developers",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qterminal": {
+      "version": "2.4.0_1",
+      "description": "Lightweight terminal emulator written in Qt",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qtfm": {
+      "version": "6.2.1_1",
+      "description": "Lightweight file manager for Linux desktops based on pure Qt",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qtox": {
+      "version": "1.18.5_1",
+      "description": "QT-based TOX instant messenger client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qtractor": {
+      "version": "1.6.4_1",
+      "description": "Audio/MIDI multi-track sequencer application written in C++/Qt",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "quadrapassel": {
+      "version": "40.2_2",
+      "description": "GNOME classic falling-block game (Tetris)",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "quassel": {
+      "version": "0.14.0_1",
+      "description": "Modern, cross-platform, distributed graphical IRC client - standalone client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "quodlibet": {
+      "version": "4.7.1_1",
+      "description": "Cross-platform audio and music management program",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "qutebrowser": {
+      "version": "3.7.0_1",
+      "description": "Keyboard-focused browser with a minimal GUI",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "radare2": {
+      "version": "5.9.8_1",
+      "description": "Advanced command line debugger and hexadecimal editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "rage": {
+      "version": "0.12.1_1",
+      "description": "Simple, modern and secure encryption tool, written in Rust",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ranger": {
+      "version": "1.9.4_6",
+      "description": "File manager with an ncurses frontend written in Python",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "rawtherapee": {
+      "version": "5.12_2",
+      "description": "Free RAW converter and digital photo processing software",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "rclone": {
+      "version": "1.75.2_1",
+      "description": "Rsync for cloud storage",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "rdesktop": {
+      "version": "1.9.0_3",
+      "description": "Open source client for Windows Remote Desktop Services",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "rdiff-backup": {
+      "version": "2.2.6_4",
+      "description": "Local/remote mirroring and incremental backups",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "remmina": {
+      "version": "1.4.43_1",
+      "description": "Remote desktop client written in GTK+",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "renderdoc": {
+      "version": "1.45_1",
+      "description": "Stand-alone graphics debugging tool for Vulkan and OpenGL",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "restic": {
+      "version": "0.19.1_2",
+      "description": "Backup solution written in Go",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "retroarch": {
+      "version": "1.22.2_1",
+      "description": "Official reference frontend for the libretro API",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "rhythmbox": {
+      "version": "3.4.9_1",
+      "description": "GNOME integrated music management application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "rio": {
+      "version": "0.5.28_1",
+      "description": "Hardware-accelerated GPU terminal emulator powered by WebGPU",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ristretto": {
+      "version": "0.14.0_1",
+      "description": "Picture-viewer for the Xfce desktop environment",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "rizin": {
+      "version": "0.7.3_5",
+      "description": "UNIX-like reverse engineering framework and command-line toolset",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "rkhunter": {
+      "version": "1.4.6_3",
+      "description": "RootKit Hunter",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "rosegarden": {
+      "version": "26.06_1",
+      "description": "Music composition and editing environment",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "roxterm": {
+      "version": "3.18.2_1",
+      "description": "Highly configurable terminal emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "rr": {
+      "version": "5.9.0_2",
+      "description": "Nondeterministic debugger",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "rsnapshot": {
+      "version": "1.5.1_1",
+      "description": "Remote filesystem snapshot utility",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "rssguard": {
+      "version": "4.7.4_4",
+      "description": "Simple (yet powerful) Qt6 feed reader",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "rsync": {
+      "version": "3.5.1_1",
+      "description": "Remote fast incremental file transfer tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "rust": {
+      "version": "1.99.0_1",
+      "description": "Safe, concurrent, practical systems language",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "rxvt-unicode": {
+      "version": "9.31_6",
+      "description": "Terminal emulator supporting Xft fonts and Unicode",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "sagemath": {
+      "version": "10.9_1",
+      "description": "Open source mathematics software",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "sakura": {
+      "version": "3.8.9_1",
+      "description": "Simple but powerful libvte based terminal emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "sasm": {
+      "version": "3.15.0_1",
+      "description": "Crossplatform IDE for NASM, MASM, GAS and FASM assembly languages",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "satty": {
+      "version": "0.21.1_1",
+      "description": "Modern Screenshot Annotation",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "sc-im": {
+      "version": "0.8.5_1",
+      "description": "SpreadSheet Calculator (sc) Improvised",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "screen": {
+      "version": "5.0.2_1",
+      "description": "GNU screen manager with VT100/ANSI terminal emulation",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "scribus": {
+      "version": "1.6.6_5",
+      "description": "Open Source DTP (Desktop Publishing) application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "scummvm": {
+      "version": "2026.1.0_1",
+      "description": "Free implementation of LucasArts' SCUMM interpreter",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "seahorse": {
+      "version": "47.0.1_2",
+      "description": "GNOME application for managing encryption keys",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "senpai": {
+      "version": "0.5.0_2",
+      "description": "IRC client that works best with bouncers",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "sequoia-sq": {
+      "version": "1.3.1_4",
+      "description": "Command-line frontend for Sequoia, a new OpenPGP implementation",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "shortwave": {
+      "version": "5.1.0_1",
+      "description": "Listen to internet radio",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "shotcut": {
+      "version": "26.9.27_1",
+      "description": "Free, open source, cross-platform video editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "shotwell": {
+      "version": "0.32.13_1",
+      "description": "Open source photo manager for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "showtime": {
+      "version": "50.0_1",
+      "description": "Video player for GNOME",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "sigil": {
+      "version": "2.4.0_5",
+      "description": "Multi-platform EPUB ebook editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "sigrok-cli": {
+      "version": "0.7.2_3",
+      "description": "Provide the basic sigrok functionality from the command-line",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "simple-scan": {
+      "version": "49.1_1",
+      "description": "GTK Simple scanning utility",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "sioyek": {
+      "version": "2.0.0_12",
+      "description": "PDF viewer designed for reading research papers and technical books",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "skanlite": {
+      "version": "26.08.1_1",
+      "description": "Image Scanning Application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "skanpage": {
+      "version": "26.08.1_1",
+      "description": "Multi-page scanning application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "skopeo": {
+      "version": "1.24.1_1",
+      "description": "Utility for operations on container images and image repositories",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "sleuthkit": {
+      "version": "4.13.0_1",
+      "description": "File system and media management forensic analysis tools",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "smali": {
+      "version": "2.5.2_1",
+      "description": "Assembler/disassembler for Android's dex format",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "smplayer": {
+      "version": "26.8.29_1",
+      "description": "Complete front-end for mplayer and mpv",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "snapper": {
+      "version": "0.13.1_2",
+      "description": "Tool for Linux filesystem snapshot management",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "snapshot": {
+      "version": "51.0_1",
+      "description": "Take pictures and videos",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "snes9x-gtk": {
+      "version": "1.60_2",
+      "description": "SNES Emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "solvespace": {
+      "version": "3.1_1",
+      "description": "Parametric 2d/3d CAD",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "sonata": {
+      "version": "1.7.0_7",
+      "description": "Elegant GTK 3 client for the Music Player Daemon",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "sound-juicer": {
+      "version": "3.40.0_1",
+      "description": "CD ripping tool using GTK+ and GStreamer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "soundconverter": {
+      "version": "4.0.3_4",
+      "description": "Leading audio file converter for the GNOME Desktop",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "spacefm": {
+      "version": "1.0.6_2",
+      "description": "Multi-panel tabbed file manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "spectacle": {
+      "version": "6.7.5_2",
+      "description": "KDE screenshot capture utility",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "speech-dispatcher": {
+      "version": "0.12.1_1",
+      "description": "High-level device independent layer for speech synthesis interface",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "speedcrunch": {
+      "version": "0.12.0_2",
+      "description": "High-precision scientific calculator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "spotify-qt": {
+      "version": "4.0.4_1",
+      "description": "Lightweight Spotify client using Qt",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "sqlitebrowser": {
+      "version": "3.13.1_2",
+      "description": "Light GUI editor for SQLite databases",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ssr": {
+      "version": "0.4.4_3",
+      "description": "Simple Screen Recorder for programs and games",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "st": {
+      "version": "0.9.3_1",
+      "description": "Simple terminal implementation for X",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "stella": {
+      "version": "6.5.3_1",
+      "description": "Multi-platform Atari 2600 VCS Emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "stellarium": {
+      "version": "26.3_1",
+      "description": "Open Source Planetarium",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "strace": {
+      "version": "7.1_1",
+      "description": "System Call Tracer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "strawberry": {
+      "version": "1.2.31_1",
+      "description": "Audio player and music collection organizer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "subtitleeditor": {
+      "version": "0.56.2_1",
+      "description": "Subtitle Editor is a GTK+3 tool to edit subtitles",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "supertux2": {
+      "version": "0.7.0_2",
+      "description": "Side-scrolling platform game, milestone 2",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "supertuxkart": {
+      "version": "1.5_2",
+      "description": "Kart racing game featuring Tux and his friends",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "surf": {
+      "version": "2.1_2",
+      "description": "Simple web browser based on WebKit/GTK+",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "swappy": {
+      "version": "1.8.0_1",
+      "description": "Wayland native snapshot editing tool, inspired by Snappy on macOS",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "swayimg": {
+      "version": "5.6_1",
+      "description": "Image viewer for Sway/Wayland",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "swell-foop": {
+      "version": "48.1_1",
+      "description": "GNOME puzzle game where you remove similar objects",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "sylpheed": {
+      "version": "3.7.0_11",
+      "description": "GTK+ Lightweight and user-friendly e-mail client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "syncthing": {
+      "version": "2.1.7_1",
+      "description": "Open Source Continuous File Synchronization",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "syncthingtray": {
+      "version": "2.1.9_1",
+      "description": "Tray application for Syncthing",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "synthv1": {
+      "version": "1.4.3_1",
+      "description": "Old-school polyphonic synthesizer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "system-config-printer": {
+      "version": "1.5.18_5",
+      "description": "CUPS printer configuration tool and status applet",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "tageditor": {
+      "version": "3.9.11_1",
+      "description": "Tag editor for AAC, ID3, Vorbis, Opus, FLAC and Matroska",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "tali": {
+      "version": "40.9_1",
+      "description": "GNOME sort of poker game with dice",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "task": {
+      "version": "3.5.0_1",
+      "description": "Task Warrior command-line todo list manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "teeworlds": {
+      "version": "0.7.5_3",
+      "description": "Retro multiplayer shooter",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "telegram-desktop": {
+      "version": "7.0.4_4",
+      "description": "Telegram Desktop messaging app",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "tellico": {
+      "version": "4.1.3_1",
+      "description": "Collection manager for KDE",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "terminator": {
+      "version": "2.1.5_1",
+      "description": "Tiling terminal emulator application",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "terminology": {
+      "version": "1.13.0_1",
+      "description": "Enlightenment's terminal emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "testdisk": {
+      "version": "7.2_2",
+      "description": "Powerful free data recovery software",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "texmaker": {
+      "version": "6.0.2_1",
+      "description": "Free cross-platform LaTeX editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "texstudio": {
+      "version": "4.9.9_1",
+      "description": "Powerful Tex/LaTeX editor based on texmaker",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "thunderbird": {
+      "version": "140.8.1_1",
+      "description": "Standalone Mail/News reader",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "tig": {
+      "version": "2.6.1_1",
+      "description": "Text-mode interface for Git",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "tigervnc": {
+      "version": "1.16.2_1",
+      "description": "High performance, multi-platform VNC client and server",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "tilda": {
+      "version": "2.0.0_1",
+      "description": "GTK drop down terminal similar to guake",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "tilix": {
+      "version": "1.9.6_4",
+      "description": "Tiling terminal emulator for Linux",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "timeshift": {
+      "version": "25.12.4_1",
+      "description": "System restore tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "tmux": {
+      "version": "3.8_1",
+      "description": "Terminal Multiplexer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "todoman": {
+      "version": "4.7.0_2",
+      "description": "Simple, standards-based, cli todo (aka: task) manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "tokodon": {
+      "version": "26.08.1_1",
+      "description": "Mastodon client for Plasma",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "tomb": {
+      "version": "2.10_1",
+      "description": "Minimalistic commandline tool to manage encrypted volumes",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "tor": {
+      "version": "0.4.9.13_1",
+      "description": "Anonymizing overlay network",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "torbrowser-launcher": {
+      "version": "0.3.9_1",
+      "description": "Securely download, verify and run Tor Browser",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "torsocks": {
+      "version": "2.5.0_1",
+      "description": "Transparent socks proxy for use with tor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "totem": {
+      "version": "43.2_3",
+      "description": "GNOME integrated movie player based on Gstreamer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "toxic": {
+      "version": "0.16.2_1",
+      "description": "Ncurses-based Tox instant messenger client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "transmission-gtk": {
+      "version": "4.1.3_1",
+      "description": "Fast, easy and free BitTorrent client - GTK+ frontend",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "transmission-qt": {
+      "version": "4.1.3_1",
+      "description": "Fast, easy and free BitTorrent client - Qt frontend",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "trippy": {
+      "version": "0.13.0_1",
+      "description": "Tool to assist with analysis of networking issues",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "tuxpaint": {
+      "version": "0.9.35_1",
+      "description": "Free, award-winning drawing program for children ages 3 to 12",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "tweak": {
+      "version": "3.02_2",
+      "description": "Efficient hex editor supporting insert and delete",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "typst": {
+      "version": "0.15.1_1",
+      "description": "Markup-based typesetting system that is powerful and easy to learn",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ufw": {
+      "version": "0.36.2_5",
+      "description": "Uncomplicated Firewall",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "unison": {
+      "version": "2.54.0_1",
+      "description": "File-synchronization tool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "valgrind": {
+      "version": "3.25.1_1",
+      "description": "Tool for finding memory management bugs in programs",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "variety": {
+      "version": "0.9.1_1",
+      "description": "Changes the wallpaper on a regular interval",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "vba-m": {
+      "version": "2.2.3_2",
+      "description": "Gameboy Advance Emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "vice": {
+      "version": "3.9_1",
+      "description": "Emulator for C64, C128, CBM-II, PET, VIC20, Plus4 and C16",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "viewnior": {
+      "version": "1.8_2",
+      "description": "Elegant Image Viewer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "vifm": {
+      "version": "0.14.4_1",
+      "description": "File manager with curses interface and Vim-like environment",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "vim": {
+      "version": "9.2.1031_1",
+      "description": "Vim editor (vi clone)",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "vimb": {
+      "version": "4.0.0_1",
+      "description": "Fast and lightweight web browser based on WebKit/GTK+",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "vimiv": {
+      "version": "0.9.1_10",
+      "description": "Image viewer with vim-like keybindings",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "vinagre": {
+      "version": "3.22.0_3",
+      "description": "VNC client for the GNOME desktop",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "virt-manager": {
+      "version": "5.1.0_2",
+      "description": "User interface for managing virtual machines",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "virt-viewer": {
+      "version": "11.0_1",
+      "description": "Tool for displaying the graphical console of a virtual machine",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "virtualbox-ose": {
+      "version": "7.2.22_1",
+      "description": "General-purpose full virtualizer for x86 hardware",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "visidata": {
+      "version": "3.3_1",
+      "description": "Terminal spreadsheet multitool",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "vlc": {
+      "version": "3.0.24_1",
+      "description": "Cross-platform multimedia player",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "vokoscreenNG": {
+      "version": "4.10.0_1",
+      "description": "Easy to use screencast creator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "vscode": {
+      "version": "1.100.3_1",
+      "description": "Microsoft Code for Linux",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "w3m": {
+      "version": "0.5.6_1",
+      "description": "Text-based Web browser and pager (with Debian patches)",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "warzone2100": {
+      "version": "4.7.0_2",
+      "description": "3D realtime strategy game on a future Earth",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "waydroid": {
+      "version": "1.6.3_1",
+      "description": "Container-based approach to boot a full Android system",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "wdisplays": {
+      "version": "1.1.3_1",
+      "description": "GUI display configurator for wlroots compositors",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "weechat": {
+      "version": "4.10.1_1",
+      "description": "Fast, light and extensible IRC client",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "wesnoth": {
+      "version": "1.18.5_5",
+      "description": "Turn-based fantasy strategy game",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "wev": {
+      "version": "1.0.0_2",
+      "description": "Tool for debugging events on a Wayland, analagous to the X11 tool xev",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "wezterm": {
+      "version": "20240203_2",
+      "description": "GPU-accelerated cross-platform terminal emulator and multiplexer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "wf-recorder": {
+      "version": "0.6.0_1",
+      "description": "Screen recorder for wlroots-based compositors",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "wget": {
+      "version": "1.25.0_1",
+      "description": "GNU wget download utility",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "wireguard-tools": {
+      "version": "1.0.20260223_1",
+      "description": "Fast, modern, secure VPN tunnel - userland tools",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "wireshark": {
+      "version": "4.6.8_1",
+      "description": "Network protocol analyzer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "wordgrinder": {
+      "version": "0.8_1",
+      "description": "Terminal-based word processor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "wvkbd": {
+      "version": "0.19.4_1",
+      "description": "On-screen keyboard for wlroots",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "wxMaxima": {
+      "version": "20.02.4_3",
+      "description": "Cross-platform GUI for the computer algebra system Maxima",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "x2goclient": {
+      "version": "4.1.2.3_1",
+      "description": "Graphical Qt5 client for X2Go",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "xarchiver": {
+      "version": "0.5.4.26_1",
+      "description": "Lightweight desktop independent archive manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "xed": {
+      "version": "0.9.1_2",
+      "description": "X11's standard text editor",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "xfburn": {
+      "version": "0.8.0_1",
+      "description": "CD-burner application for the Xfce Desktop Environment",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "xfce4-settings": {
+      "version": "4.20.4_1",
+      "description": "Xfce settings manager",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "xfce4-terminal": {
+      "version": "1.2.0_1",
+      "description": "Modern terminal emulator primarly for the Xfce desktop environment",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "xfe": {
+      "version": "2.1.7_1",
+      "description": "Lightweight file manager for X",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "xkcdpass": {
+      "version": "1.19.9_3",
+      "description": "Generate secure multiword passwords/passphrases, inspired by XKCD",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "xmoto": {
+      "version": "0.6.1_3",
+      "description": "2D motocross platform game",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "xonotic": {
+      "version": "0.8.6_4",
+      "description": "Free, fast-paced crossplatform first-person shooter",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "xournalpp": {
+      "version": "1.3.4_1",
+      "description": "Handwriting Notetaking software with PDF annotation support",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "xreader": {
+      "version": "4.6.9_1",
+      "description": "Document viewer capable of displaying formats like PDF and Postscript",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "xsane": {
+      "version": "0.999_7",
+      "description": "GTK-based X11 frontend for SANE",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "xterm": {
+      "version": "412_1",
+      "description": "X Terminal Emulator",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "xtruss": {
+      "version": "20260410.f723509_1",
+      "description": "Easy-to-use X protocol tracing program",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "yakuake": {
+      "version": "26.08.1_1",
+      "description": "Drop-down terminal emulator based on KDE konsole technology",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "yazi": {
+      "version": "26.9.1_1",
+      "description": "Blazing fast terminal file manager, based on async I/O",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "ymuse": {
+      "version": "0.22_3",
+      "description": "GTK client for Music Player Daemon, written in Go",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "yt-dlp": {
+      "version": "2026.10.26_1",
+      "description": "CLI program to download videos from YouTube and other sites",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "yubikey-manager": {
+      "version": "5.9.2_1",
+      "description": "Library and CLI tools to configure YubiKey",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "zanshin": {
+      "version": "26.08.1_1",
+      "description": "To-do management application based on Akonadi",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "zathura": {
+      "version": "2026.10.4_1",
+      "description": "Highly customizable and functional document viewer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "zeal": {
+      "version": "0.9.1_1",
+      "description": "Simple offline API documentation browser",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "zellij": {
+      "version": "0.45.1_1",
+      "description": "Terminal workspace with batteries included",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "zim": {
+      "version": "0.77.2_1",
+      "description": "Desktop wiki",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "zk": {
+      "version": "0.15.6_2",
+      "description": "Plain text note-taking assistant",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "zulucrypt-gui": {
+      "version": "6.0.0_2",
+      "description": "Frontend to cryptsetup and Veracrypt for harddrive and file encryption - GUI tools",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "zynaddsubfx": {
+      "version": "3.0.6_1",
+      "description": "Open Source software synthesizer",
+      "repository": "https://repo-default.voidlinux.org/current"
+    },
+    "intellij-idea-community-edition": {
+      "version": "2025.2.2_2",
+      "description": "Java integrated development environment by JetBrains",
+      "repository": "https://repo-default.voidlinux.org/current/nonfree"
+    },
+    "nmap": {
+      "version": "7.99_1",
+      "description": "Utility for network discovery and security auditing",
+      "repository": "https://repo-default.voidlinux.org/current/nonfree"
+    },
+    "pycharm-community": {
+      "version": "2025.1.1.1_2",
+      "description": "Python integrated development environment",
+      "repository": "https://repo-default.voidlinux.org/current/nonfree"
+    },
+    "steam": {
+      "version": "1.0.0.87_1",
+      "description": "Digital distribution client bootstrap package - Valve's steam client",
+      "repository": "https://repo-default.voidlinux.org/current/nonfree"
+    },
+    "sublime-merge": {
+      "version": "2132_1",
+      "description": "New Git client, from the makers of Sublime Text",
+      "repository": "https://repo-default.voidlinux.org/current/nonfree"
+    },
+    "sublime-text4": {
+      "version": "4215_3",
+      "description": "Sophisticated text editor for code, markup and prose",
+      "repository": "https://repo-default.voidlinux.org/current/nonfree"
+    },
+    "vagrant": {
+      "version": "2.4.9_2",
+      "description": "Tool for building and distributing development environments",
+      "repository": "https://repo-default.voidlinux.org/current/nonfree"
+    }
+  },
+  "missing": [
+    "FreeCAD",
+    "HandBrake",
+    "celestia",
+    "code-oss",
+    "geogebra",
+    "kalzium",
+    "keepass",
+    "kgeography",
+    "parley",
+    "pinta",
+    "pitivi",
+    "supertux",
+    "tuxmath",
+    "vscodium",
+    "warpinator",
+    "wxmaxima"
+  ],
+  "unavailable_apps": [
+    "Pinta",
+    "Pitivi",
+    "Tux Math",
+    "KGeography",
+    "Kalzium",
+    "Parley",
+    "GeoGebra",
+    "VSCodium",
+    "Warpinator",
+    "KeePass"
+  ],
+  "available_apps": 733,
+  "catalog_apps": 743,
+  "available_by_category": {
+    "Web": 20,
+    "Mail & communication": 34,
+    "Office & documents": 37,
+    "Notes & planning": 14,
+    "Editors": 23,
+    "Graphics": 34,
+    "Photography": 6,
+    "Sound": 52,
+    "Video": 34,
+    "Games": 48,
+    "Education": 8,
+    "Science & mathematics": 23,
+    "CAD & engineering": 17,
+    "Development": 43,
+    "Reverse engineering": 31,
+    "Network": 39,
+    "Files & storage": 50,
+    "Utilities": 30,
+    "Terminals": 34,
+    "Printing & scanning": 10,
+    "Security & privacy": 34,
+    "Backup & recovery": 20,
+    "News & podcasts": 11,
+    "Finance": 9,
+    "Virtualization & containers": 23,
+    "Accessibility": 8,
+    "Emulation": 24,
+    "Desktop & appearance": 17
+  }
+}

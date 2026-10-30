@@ -1,0 +1,29 @@
+{
+  "exclude_name": "(^lib|-(devel|dbg|doc|docs|data|common|lang|locale|i18n|libs|headers|static|tools-libs|terminfo|shell-integration|patterns|plugin-sdk)$|^(perl|ruby|python3|go|rust|lua[0-9]*)-)",
+  "exclude_description": "\\b(transitional|library|libraries|bindings|plugin|plugins|extension|extensions)\\b",
+  "categories": {
+    "Backup & recovery": "\\b(backup|backups|restore|recovery|snapshot|deduplicat|rsync|borg|restic)\\b",
+    "Security & privacy": "\\b(password|passwords|encrypt|encryption|cryptographic|openpgp|privacy|firewall|authenticator|steganography)\\b",
+    "Reverse engineering": "\\b(disassembl[a-z]*|decompil[a-z]*|reverse engineering|binary analysis|hex editor|hexadecimal editor|debugger|debugging|tracing|forensic[a-z]*)\\b",
+    "Virtualization & containers": "\\b(virtualization|virtualisation|virtual machine|virtual machines|hypervisor|container|containers|processor emulator)\\b",
+    "Terminals": "\\b(terminal emulator|terminal multiplexer|serial terminal|drop-down terminal)\\b",
+    "Files & storage": "\\b(file manager|file managers|disk usage|disk partition|partition editor|file search|file synchronization|file synchronisation|file archiver|archive manager|duplicate file)\\b",
+    "Development": "\\b(IDE|integrated development|git client|database browser|database manager|API client|code editor)\\b",
+    "Network": "\\b(remote desktop|VNC client|torrent client|FTP client|network scanner|packet analyzer|packet analyser|bandwidth monitor|network monitor)\\b",
+    "Graphics": "\\b(image viewer|image editor|vector graphics|raster graphics|pixel art|painting program|animation editor|3D model)\\b",
+    "Photography": "\\b(photo manager|photo management|photograph[a-z]*|raw image|panorama)\\b",
+    "Sound": "\\b(audio player|music player|audio editor|music production|audio workstation|synthesizer|synthesiser|drum machine|MIDI sequencer|tag editor)\\b",
+    "Video": "\\b(video editor|video player|media player|screen recorder|video converter|subtitle editor)\\b",
+    "Office & documents": "\\b(PDF viewer|PDF editor|document viewer|word processor|spreadsheet|ebook|e-book|typesetting)\\b",
+    "Notes & planning": "\\b(note taking|note-taking|todo|to-do|task manager|personal wiki|calendar application)\\b",
+    "Finance": "\\b(personal finance|accounting|bookkeeping|budgeting|cryptocurrency wallet)\\b",
+    "News & podcasts": "\\b(feed reader|RSS reader|podcast|news aggregator)\\b",
+    "CAD & engineering": "\\b(CAD|CAM|PCB|circuit simulator|3D printing|slicer|logic analyzer)\\b",
+    "Science & mathematics": "\\b(scientific plotting|computer algebra|numerical computation|planetarium|astronomy|geographic information|statistical computing)\\b",
+    "Education": "\\b(flashcard|flashcards|educational|typing tutor|language learning)\\b",
+    "Accessibility": "\\b(screen reader|screen magnifier|on-screen keyboard|onscreen keyboard|speech synthesizer|text.to.speech)\\b",
+    "Emulation": "\\b(game.*emulator|emulator.*game|Nintendo|PlayStation|Game Boy|DOS.*emulator|emulator.*DOS|arcade machine emulator|emulator front-end)\\b",
+    "Desktop & appearance": "\\b(desktop customi[sz]|GTK.*theme.*(config|custom)|Qt.*(config|custom)|theme manager|desktop tweak|GNOME.*tweak)\\b",
+    "Printing & scanning": "\\b(scanner|scanning|printer configuration|printer management|printing system)\\b"
+  }
+}
