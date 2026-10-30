@@ -8,7 +8,7 @@ an optional APK backend for [Chimera Linux](https://chimera-linux.org/) and
 
 <img src="screenshots/main-window.png" width="100%" alt="Caerus main window">
 
-Discover browses 743 applications and tools in 28 sections:
+Discover currently lists 743 applications in 28 sections (on Void Linix):
 
 <img src="screenshots/discover.png" width="100%" alt="Discover catalog with its sections">
 
