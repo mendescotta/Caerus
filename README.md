@@ -2,9 +2,8 @@
 
 # Caerus
 
-A GTK4 package manager for [Void Linux](https://voidlinux.org/) (XBPS), with
-an optional APK backend for [Chimera Linux](https://chimera-linux.org/) and
-[Alpine Linux](https://alpinelinux.org/) 3.23 or newer.
+A GTK4 package manager for [Void Linux](https://voidlinux.org/) (XBPS), [Chimera Linux](https://chimera-linux.org/) (APK) and
+[Alpine Linux](https://alpinelinux.org/) 3.23+ (APK).
 
 <img src="screenshots/main-window.png" width="100%" alt="Caerus main window">
 
