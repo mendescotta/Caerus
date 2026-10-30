@@ -1079,37 +1079,26 @@ fn preview(ops: &[PreviewOp]) -> Result<TransactionPreview, TransactionError> {
         ))
     })?;
     let mut p = TransactionPreview::default();
+    let (available, installed) = plan_records(
+        run,
+        &plan
+            .iter()
+            .map(|(name, _, _)| name.as_str())
+            .collect::<Vec<_>>(),
+    )
+    .map_err(|error| {
+        TransactionError::Other(format!("could not look up APK package sizes: {error}"))
+    })?;
     for (name, version, action) in plan {
-        let query = run(&[
-            "query",
-            "--fields",
-            "name,version,file-size,installed-size",
-            "--format",
-            "json",
-            &name,
-        ]);
-        let record = query.ok().and_then(|json| {
-            records(&json)
-                .ok()?
-                .into_iter()
-                .find(|row| row.name == name && row.version == version)
-        });
-        let previous_record = run(&[
-            "query",
-            "--installed",
-            "--fields",
-            "name,version,installed-size",
-            "--format",
-            "json",
-            &name,
-        ])
-        .ok()
-        .and_then(|json| records(&json).ok()?.into_iter().find(|r| r.name == name));
-        let previous_version = previous_record.as_ref().map(|row| row.version.clone());
+        let record = available
+            .iter()
+            .find(|row| row.name == name && row.version == version);
+        let previous_record = installed.get(&name);
+        let previous_version = previous_record.map(|row| row.version.clone());
         let installed_size = if action == TransAction::Remove {
-            previous_record.as_ref().map_or(0, |row| row.installed_size)
+            previous_record.map_or(0, |row| row.installed_size)
         } else {
-            record.as_ref().map_or(0, |row| row.installed_size)
+            record.map_or(0, |row| row.installed_size)
         };
         let item = TransactionPreviewItem {
             requested: (full_upgrade && action != TransAction::Install)
@@ -1122,7 +1111,7 @@ fn preview(ops: &[PreviewOp]) -> Result<TransactionPreview, TransactionError> {
             download_size: if action == TransAction::Remove {
                 0
             } else {
-                record.as_ref().map_or(0, |row| row.file_size)
+                record.map_or(0, |row| row.file_size)
             },
         };
         match action {
@@ -1136,7 +1125,7 @@ fn preview(ops: &[PreviewOp]) -> Result<TransactionPreview, TransactionError> {
                 p.update_pkgs += 1;
                 p.download_pkgs += 1;
                 p.total_download_size = p.total_download_size.saturating_add(item.download_size);
-                if let (Some(new), Some(old)) = (&record, &previous_record) {
+                if let (Some(new), Some(old)) = (record, previous_record) {
                     p.total_installed_size = p
                         .total_installed_size
                         .saturating_add(new.installed_size.saturating_sub(old.installed_size));
@@ -1154,13 +1143,41 @@ fn preview(ops: &[PreviewOp]) -> Result<TransactionPreview, TransactionError> {
         if action == TransAction::Remove || record.is_some() {
             p.disk_size_change += crate::backend::transaction_preview::installed_delta(
                 action,
-                previous_record.as_ref().map(|row| row.installed_size),
+                previous_record.map(|row| row.installed_size),
                 item.installed_size,
             );
         }
         p.items.push(item);
     }
     Ok(p)
+}
+
+/// Sizes for every package in a preview plan: available versions and the
+/// installed ones, each in a single `apk query` (names apk does not know are
+/// skipped, not errors), so previewing a full upgrade costs two calls in total.
+/// A failed query or unreadable output is an error, not a plan without sizes.
+fn plan_records(
+    mut query: impl FnMut(&[&str]) -> Result<String, String>,
+    names: &[&str],
+) -> Result<(Vec<ApkRecord>, HashMap<String, ApkRecord>), String> {
+    if names.is_empty() {
+        return Ok((Vec::new(), HashMap::new()));
+    }
+    let mut fetch = |installed: bool, fields: &str| {
+        let mut args = vec!["query"];
+        if installed {
+            args.push("--installed");
+        }
+        args.extend(["--fields", fields, "--format", "json"]);
+        args.extend(names);
+        records(&query(&args)?)
+    };
+    let available = fetch(false, "name,version,file-size,installed-size")?;
+    let installed = fetch(true, "name,version,installed-size")?
+        .into_iter()
+        .map(|row| (row.name.clone(), row))
+        .collect();
+    Ok((available, installed))
 }
 
 fn parse_simulation(
@@ -1329,6 +1346,64 @@ mod tests {
         assert!(!safe("/tmp/foo.apk"));
         assert!(!safe("foo.apk"));
         assert!(safe("foo+bar"));
+    }
+
+    #[test]
+    #[ignore = "needs an APK system with `gimp` not installed; run with --ignored"]
+    fn install_preview_reports_sizes_for_every_package_on_this_system() {
+        let started = std::time::Instant::now();
+        let preview = preview(&[PreviewOp::Install("gimp".into())]).expect("preview failed");
+        let installs: Vec<_> = preview
+            .items
+            .iter()
+            .filter(|item| item.action == crate::backend::transaction_preview::TransAction::Install)
+            .collect();
+        assert!(installs.len() > 10, "expected many new packages");
+        for item in &installs {
+            assert!(item.download_size > 0, "{} has no size", item.pkgname);
+        }
+        eprintln!(
+            "previewed {} packages in {:?}",
+            preview.items.len(),
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn preview_sizes_take_two_queries_whatever_the_plan_size() {
+        let mut calls = Vec::new();
+        let (available, installed) = plan_records(
+            |args| {
+                calls.push(args.join(" "));
+                Ok(if args.contains(&"--installed") {
+                    r#"[{"name":"app","version":"1-r0","installed-size":10}]"#.into()
+                } else {
+                    r#"[{"name":"app","version":"2-r0","file-size":5},{"name":"dep","version":"1-r0"}]"#.into()
+                })
+            },
+            &["app", "dep", "gone"],
+        )
+        .unwrap();
+        assert_eq!(calls.len(), 2);
+        assert!(calls.iter().all(|call| call.ends_with("json app dep gone")));
+        assert_eq!(available.len(), 2);
+        assert_eq!(available[0].file_size, 5);
+        assert_eq!(installed["app"].installed_size, 10);
+        assert!(!installed.contains_key("dep"));
+
+        let mut called = false;
+        let (available, installed) = plan_records(
+            |_| {
+                called = true;
+                Ok("[]".into())
+            },
+            &[],
+        )
+        .unwrap();
+        assert!(!called && available.is_empty() && installed.is_empty());
+
+        assert!(plan_records(|_| Err("apk failed".into()), &["app"]).is_err());
+        assert!(plan_records(|_| Ok("not json".into()), &["app"]).is_err());
     }
 
     #[test]
