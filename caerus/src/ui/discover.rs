@@ -1,6 +1,6 @@
 //! Store-style discovery: section tiles, recommendations, search and an
 //! application page, all backed by the locally available packages.
-use super::catalog::{available_apps, category_style, CatalogApp, CATEGORIES, FEATURED};
+use super::catalog::{category_style, discovered_apps, DiscoverApp, CATEGORIES, FEATURED};
 use crate::backend::package::{pkg_format_size, Package, PkgMark, PkgState};
 use crate::backend::package_store::PackageStore;
 use crate::ui::{deps_confirm, remove_confirm};
@@ -44,7 +44,7 @@ struct Inner {
     category_grid: gtk::FlowBox,
     app: AppPage,
     empty: gtk::Label,
-    available: RefCell<Vec<(&'static CatalogApp, Package)>>,
+    available: RefCell<Vec<(DiscoverApp, Package)>>,
     current_app: RefCell<Option<String>>,
     app_return: Cell<&'static str>,
     dirty: Cell<bool>,
@@ -128,7 +128,7 @@ fn symbolic_or_fallback(name: &str) -> &str {
 
 /// The application's own icon when the theme has one; otherwise a tinted
 /// tile with its section's symbol, so uninstalled apps still read as distinct.
-fn app_icon(app: &CatalogApp, package: &str, size: i32) -> gtk::Widget {
+fn app_icon(app: &DiscoverApp, package: &str, size: i32) -> gtk::Widget {
     let image = super::workflows::application_icon(package);
     let themed = image.gicon().is_some()
         || image
@@ -426,10 +426,7 @@ impl Discover {
     }
 
     pub fn set_packages(&self, packages: &[Package]) {
-        *self.inner.available.borrow_mut() = available_apps(packages)
-            .into_iter()
-            .map(|(app, pkg)| (app, pkg.clone()))
-            .collect();
+        *self.inner.available.borrow_mut() = discovered_apps(packages);
         crate::startup::trace(format_args!(
             "Discover inventory indexed: {} available applications",
             self.inner.available.borrow().len()
@@ -595,7 +592,7 @@ fn render_home(inner: &Rc<Inner>) {
         }
         inner.categories.insert(&category_tile(inner, category), -1);
     }
-    let mut picks: Vec<&(&CatalogApp, Package)> = FEATURED
+    let mut picks: Vec<&(DiscoverApp, Package)> = FEATURED
         .iter()
         .filter_map(|name| available.iter().find(|(app, _)| app.name == *name))
         .collect();
@@ -686,7 +683,7 @@ fn category_tile(inner: &Rc<Inner>, category: &'static str) -> gtk::Button {
 
 fn app_card(
     inner: &Rc<Inner>,
-    app: &'static CatalogApp,
+    app: &DiscoverApp,
     pkg: &Package,
     from: &'static str,
 ) -> gtk::Button {
@@ -697,7 +694,7 @@ fn app_card(
     let text = gtk::Box::new(gtk::Orientation::Vertical, 2);
     text.set_valign(gtk::Align::Center);
     text.set_hexpand(true);
-    let name = gtk::Label::new(Some(app.name));
+    let name = gtk::Label::new(Some(&app.name));
     name.set_xalign(0.0);
     name.set_ellipsize(gtk::pango::EllipsizeMode::End);
     name.add_css_class("heading");
@@ -725,7 +722,7 @@ fn app_card(
     button.set_child(Some(&content));
     button.add_css_class("app-card");
     button.set_tooltip_text(Some(&format!("{} · {}", pkg.name, pkg.short_desc)));
-    button.update_property(&[gtk::accessible::Property::Label(app.name)]);
+    button.update_property(&[gtk::accessible::Property::Label(&app.name)]);
     let weak = Rc::downgrade(inner);
     let package = pkg.name.clone();
     button.connect_clicked(move |_| {
@@ -736,14 +733,14 @@ fn app_card(
     button
 }
 
-fn result_row(inner: &Rc<Inner>, app: &'static CatalogApp, pkg: &Package) -> gtk::ListBoxRow {
+fn result_row(inner: &Rc<Inner>, app: &DiscoverApp, pkg: &Package) -> gtk::ListBoxRow {
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 14);
     content.add_css_class("result-row");
     content.append(&app_icon(app, &pkg.name, 44));
     let text = gtk::Box::new(gtk::Orientation::Vertical, 1);
     text.set_hexpand(true);
     text.set_valign(gtk::Align::Center);
-    let name = gtk::Label::new(Some(app.name));
+    let name = gtk::Label::new(Some(&app.name));
     name.set_xalign(0.0);
     name.add_css_class("heading");
     text.append(&name);
@@ -764,7 +761,7 @@ fn result_row(inner: &Rc<Inner>, app: &'static CatalogApp, pkg: &Package) -> gtk
     let row = gtk::ListBoxRow::new();
     row.set_child(Some(&content));
     row.set_activatable(true);
-    row.update_property(&[gtk::accessible::Property::Label(app.name)]);
+    row.update_property(&[gtk::accessible::Property::Label(&app.name)]);
     let weak = Rc::downgrade(inner);
     let package = pkg.name.clone();
     let gesture = gtk::GestureClick::new();
@@ -873,7 +870,7 @@ fn fill_app_page(inner: &Rc<Inner>, package: &str) {
         page.icon.remove(&child);
     }
     page.icon.append(&app_icon(app, &pkg.name, 96));
-    page.name.set_text(app.name);
+    page.name.set_text(&app.name);
     page.package.set_text(&pkg.name);
     for class in ["chip-ok", "chip-warn", "chip-err", "chip-accent"] {
         page.chip.remove_css_class(class);
@@ -998,7 +995,7 @@ fn refresh_marks(inner: &Rc<Inner>) {
 
 /// Copies current states and marks into the catalog entries; true if any changed.
 fn apply_states(
-    available: &mut [(&'static CatalogApp, Package)],
+    available: &mut [(DiscoverApp, Package)],
     states: &HashMap<String, (PkgState, PkgMark)>,
 ) -> bool {
     let mut changed = false;
@@ -1084,7 +1081,7 @@ mod tests {
 
     #[test]
     fn mark_refresh_reports_only_real_changes() {
-        let app = &crate::ui::catalog::CATALOG[0];
+        let app = DiscoverApp::from(&crate::ui::catalog::CATALOG[0]);
         let mut available = vec![(
             app,
             Package {

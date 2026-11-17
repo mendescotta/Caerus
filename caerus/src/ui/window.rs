@@ -2409,13 +2409,8 @@ fn refresh_workflow_packages(state: &Rc<WindowState>) {
     let list = state.store.list();
     let mut packages: Vec<_> = (0..list.n_items())
         .filter_map(|i| {
-            crate::backend::package_store::package_obj_at(&list, i).and_then(|object| {
-                let package = object.pkg();
-                (package.state == PkgState::Upgradable
-                    || package.is_held_back()
-                    || crate::ui::catalog::contains_package(&package.name))
-                .then(|| package.clone())
-            })
+            crate::backend::package_store::package_obj_at(&list, i)
+                .map(|object| object.pkg().clone())
         })
         .collect();
     packages.sort_by(|a, b| a.name.cmp(&b.name));

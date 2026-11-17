@@ -41,6 +41,7 @@ pub const CATEGORIES: &[&str] = &[
     "Desktop & appearance",
     "Printing & scanning",
     "Utilities",
+    "Uncategorized",
 ];
 
 /// Front-page recommendations, by catalog name, shown in this order when available.
@@ -2297,9 +2298,222 @@ pub fn available_apps(packages: &[Package]) -> Vec<(&'static CatalogApp, &Packag
         .collect()
 }
 
+/// A display entry can come from the curated index or from repository metadata.
+pub struct DiscoverApp {
+    pub category: &'static str,
+    pub name: String,
+    pub desktop: &'static str,
+}
+
+impl From<&CatalogApp> for DiscoverApp {
+    fn from(app: &CatalogApp) -> Self {
+        Self {
+            category: app.category,
+            name: app.name.to_owned(),
+            desktop: app.desktop,
+        }
+    }
+}
+
+/// Category phrases for repository classification; more than one match is ambiguous.
+const CLASSIFY_RULES: &[(&str, &[&str])] = &[
+    ("Web", &["web browser"]),
+    (
+        "Mail & communication",
+        &["email client", "mail client", "chat client"],
+    ),
+    (
+        "News & podcasts",
+        &["rss reader", "feed reader", "podcast player"],
+    ),
+    (
+        "Office & documents",
+        &[
+            "pdf viewer",
+            "document viewer",
+            "word processor",
+            "spreadsheet editor",
+        ],
+    ),
+    (
+        "Notes & planning",
+        &[
+            "note taking application",
+            "task manager",
+            "calendar application",
+        ],
+    ),
+    (
+        "Graphics",
+        &["image viewer", "image editor", "vector graphics editor"],
+    ),
+    ("Sound", &["audio player", "music player", "audio editor"]),
+    (
+        "Video",
+        &["video player", "video editor", "screen recorder"],
+    ),
+    (
+        "Development",
+        &["code editor", "git client", "database browser"],
+    ),
+    (
+        "Network",
+        &[
+            "network scanner",
+            "network monitor",
+            "torrent client",
+            "remote desktop client",
+        ],
+    ),
+    ("Backup & recovery", &["backup application", "backup tool"]),
+    (
+        "Files & storage",
+        &["file manager", "file archiver", "partition editor"],
+    ),
+    ("Terminals", &["terminal emulator", "terminal multiplexer"]),
+    (
+        "Printing & scanning",
+        &[
+            "document scanner",
+            "document scanning application",
+            "printer configuration",
+        ],
+    ),
+];
+
+/// Classify only explicit descriptions of end-user software. These phrases are
+/// intentionally specific: package metadata alone cannot prove eligibility.
+fn classify(pkg: &Package) -> Option<&'static str> {
+    let name = pkg.name.to_ascii_lowercase();
+    let words: Vec<_> = pkg
+        .short_desc
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect();
+    let desc = format!(" {} ", words.join(" "));
+    let has = |phrase: &str| desc.contains(&format!(" {phrase} "));
+    if name.starts_with("lib")
+        || [
+            "-devel", "-dev", "-dbg", "-doc", "-docs", "-data", "-common", "-locale", "-plugin",
+            "-libs", "-static",
+        ]
+        .iter()
+        .any(|suffix| name.ends_with(suffix))
+        || ["python3-", "perl-", "ruby-", "rust-", "go-"]
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+        || [
+            "library",
+            "libraries",
+            "bindings",
+            "plugin",
+            "plugins",
+            "extension",
+            "extensions",
+            "development files",
+            "debug symbols",
+            "transitional package",
+        ]
+        .iter()
+        .any(|term| has(term))
+    {
+        return None;
+    }
+    let mut matches = CLASSIFY_RULES
+        .iter()
+        .filter(|(_, terms)| terms.iter().any(|term| has(term)))
+        .map(|(category, _)| *category);
+    match (matches.next(), matches.next()) {
+        (Some(category), None) => Some(category),
+        (Some(_), Some(_)) => Some("Uncategorized"),
+        (None, _)
+            if [
+                "desktop application",
+                "graphical application",
+                "gui application",
+            ]
+            .iter()
+            .any(|term| has(term)) =>
+        {
+            Some("Uncategorized")
+        }
+        _ => None,
+    }
+}
+
+pub fn discovered_apps(packages: &[Package]) -> Vec<(DiscoverApp, Package)> {
+    let mut result: Vec<_> = available_apps(packages)
+        .into_iter()
+        .map(|(app, pkg)| (DiscoverApp::from(app), pkg.clone()))
+        .collect();
+    for pkg in packages {
+        if pkg.version_available.is_none() || contains_package(&pkg.name) {
+            continue;
+        }
+        if let Some(category) = classify(pkg) {
+            result.push((
+                DiscoverApp {
+                    category,
+                    name: pkg.name.clone(),
+                    desktop: "",
+                },
+                pkg.clone(),
+            ));
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn repository_candidates_are_conservative_and_do_not_duplicate_aliases() {
+        let package = |name: &str, desc: &str| Package {
+            name: name.into(),
+            short_desc: desc.into(),
+            version_available: Some("1".into()),
+            ..Package::default()
+        };
+        let packages = vec![
+            package("firefox", "web browser"),
+            package("libreoffice", "office suite"),
+            package("libreoffice-writer", "word processor"),
+            package("new-network", "A network scanner application"),
+            package("new-document", "A document scanner application"),
+            package("new-ambiguous", "A network scanner and document scanner"),
+            package("new-gui", "A graphical application for making things"),
+            package("new-plugin", "A plugin for a web browser"),
+            package("libexample", "A web browser library"),
+            Package {
+                version_available: None,
+                ..package("old-browser", "web browser")
+            },
+        ];
+        let found = discovered_apps(&packages);
+        let category = |name: &str| {
+            found
+                .iter()
+                .find(|(_, pkg)| pkg.name == name)
+                .map(|(app, _)| app.category)
+        };
+        assert_eq!(category("new-network"), Some("Network"));
+        assert_eq!(category("new-document"), Some("Printing & scanning"));
+        assert_eq!(category("new-ambiguous"), Some("Uncategorized"));
+        assert_eq!(category("new-gui"), Some("Uncategorized"));
+        assert_eq!(category("new-plugin"), None);
+        assert_eq!(category("libexample"), None);
+        assert_eq!(category("old-browser"), None);
+        assert_eq!(category("libreoffice-writer"), None);
+        assert_eq!(
+            found
+                .iter()
+                .filter(|(_, pkg)| pkg.name == "firefox")
+                .count(),
+            1
+        );
+    }
     #[test]
     fn catalog_aliases_resolve_only_once_in_preferred_order() {
         let package = |name: &str| Package {
@@ -2344,7 +2558,9 @@ mod tests {
             }
         }
         for section in CATEGORIES {
-            assert!(CATALOG.iter().any(|app| &app.category == section));
+            assert!(
+                *section == "Uncategorized" || CATALOG.iter().any(|app| &app.category == section)
+            );
         }
         for name in FEATURED {
             assert!(
