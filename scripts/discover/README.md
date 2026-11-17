@@ -1,10 +1,11 @@
 # Discover coverage and maintenance
 
-Discover resolves a curated catalog against packages available from the user's
-enabled repositories. It does not infer categories from every repository package.
-Consequently, an available application stays invisible until a catalog entry (with
-the correct, case-sensitive package name) covers it. Category membership was also
-inconsistent: several backup and password applications were filed under Utilities.
+Discover resolves the curated catalog against enabled repositories and also classifies
+additional available packages using conservative name and description rules in
+`caerus/src/ui/catalog.rs`. Ambiguous or unclassified plausible applications appear
+in Uncategorized. Metadata is incomplete, so these rules can miss applications or
+make mistakes; the Packages view remains the complete inventory. The audit below
+records the curated catalog coverage at the time of the Void repository review.
 
 ## Current coverage, 2026-10-30
 

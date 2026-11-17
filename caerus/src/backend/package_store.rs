@@ -472,8 +472,16 @@ pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
     unsafe { xbps_sys::xbps_cmpver(ca.as_ptr(), cb.as_ptr()) }.cmp(&0)
 }
 
+// libxbps cleanup treats lock_fd >= 0 as an owned database lock descriptor.
+// A zeroed read-only handle otherwise closes stdin (or a watcher reusing fd 0).
+fn new_xbps_handle() -> xbps_sys::xbps_handle {
+    let mut handle: xbps_sys::xbps_handle = unsafe { std::mem::zeroed() };
+    handle.lock_fd = -1;
+    handle
+}
+
 fn worker_main(cmd_rx: mpsc::Receiver<Cmd>, result_tx: mpsc::Sender<LoadResult>) {
-    let mut xh: xbps_sys::xbps_handle = unsafe { std::mem::zeroed() };
+    let mut xh = new_xbps_handle();
     let mut inited = false;
 
     while let Ok(cmd) = cmd_rx.recv() {
@@ -754,7 +762,7 @@ fn do_reload(xh: &mut xbps_sys::xbps_handle, inited: &mut bool) -> LoadResult {
             xbps_sys::xbps_rpool_release(xh);
             xbps_sys::xbps_end(xh);
         }
-        *xh = std::mem::zeroed();
+        *xh = new_xbps_handle();
         let r = xbps_sys::xbps_init(xh);
         if r != 0 {
             *inited = false;
@@ -1115,7 +1123,7 @@ unsafe fn read_string_array(dict: xbps_sys::xbps_dictionary_t, key: &str) -> Vec
 
 fn preview_transaction(ops: &[PreviewOp]) -> Result<TransactionPreview, TransactionError> {
     unsafe {
-        let mut xh: xbps_sys::xbps_handle = std::mem::zeroed();
+        let mut xh = new_xbps_handle();
         let r = xbps_sys::xbps_init(&mut xh);
         if r != 0 {
             return Err(TransactionError::Other(format!(
@@ -1320,6 +1328,49 @@ fn preview_enqueue_succeeded(op: &PreviewOp, code: c_int) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Run in a child: a regression must never close the test runner's stdin.
+    #[test]
+    fn read_only_handles_preserve_stdin_and_inotify() {
+        const CHILD: &str = "CAERUS_TEST_XBPS_FDS";
+        if std::env::var_os(CHILD).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "backend::package_store::tests::read_only_handles_preserve_stdin_and_inotify",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .stdin(std::process::Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success());
+            return;
+        }
+        unsafe {
+            assert!(libc::fcntl(0, libc::F_GETFD) >= 0);
+            for _ in 0..3 {
+                let mut handle = new_xbps_handle();
+                assert_eq!(xbps_sys::xbps_init(&mut handle), 0);
+                xbps_sys::xbps_end(&mut handle);
+                assert!(libc::fcntl(0, libc::F_GETFD) >= 0, "XBPS closed stdin");
+            }
+            let watcher = libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC);
+            assert!(watcher >= 0);
+            assert_eq!(libc::dup2(watcher, 0), 0);
+            if watcher != 0 {
+                libc::close(watcher);
+            }
+            for _ in 0..3 {
+                let _ = preview_transaction(&[]);
+                let path = cstr("/tmp");
+                assert!(
+                    libc::inotify_add_watch(0, path.as_ptr(), libc::IN_CREATE) >= 0,
+                    "transaction preview closed the inotify descriptor"
+                );
+            }
+        }
+    }
 
     #[test]
     fn version_comparison_is_numeric_not_lexicographic() {

@@ -355,6 +355,16 @@ mod tests {
         assert!(pages.upgrade.is_sensitive());
         assert_eq!(pages.discovery.available_count(), 2);
         pages.discovery.smoke_test_sections_and_search();
+        let mut with_discovered = packages.clone();
+        with_discovered.push(Package {
+            short_desc: "A graphical application for drawing diagrams".into(),
+            ..package("unlisted-diagram", PkgState::NotInstalled)
+        });
+        pages.refresh_packages(&with_discovered);
+        assert_eq!(pages.discovery.available_count(), 3);
+        assert!(pages.discovery.show_for_test("", "unlisted-diagram"));
+        pages.refresh_packages(&packages);
+        assert!(!pages.discovery.show_for_test("", "unlisted-diagram"));
         pages.updates_button.set_active(true);
         assert_eq!(pages.stack.visible_child_name().as_deref(), Some("updates"));
         let opened = Rc::new(RefCell::new(String::new()));
