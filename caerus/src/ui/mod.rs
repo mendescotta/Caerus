@@ -11,7 +11,12 @@ pub mod history_dialog;
 pub mod package_list;
 pub mod remove_confirm;
 pub mod repo_manager;
+pub mod theme;
+#[cfg(not(feature = "adwaita"))]
+pub mod toast;
+pub mod updates_page;
 pub mod vkpurge_dialog;
+pub mod widgets;
 pub mod window;
 
 pub mod catalog;

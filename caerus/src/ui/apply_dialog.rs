@@ -1,6 +1,7 @@
 use crate::backend::progress::{self, Event};
 use crate::backend::transaction::{DisconnectReason, Transaction};
 use crate::ui::dialog_util::modal_window;
+use crate::ui::widgets::{set_pill, status_pill, PillKind};
 use gtk::prelude::*;
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashSet};
@@ -38,9 +39,153 @@ impl ResultState {
         }
     }
 }
+impl ResultState {
+    fn pill(self) -> (&'static str, PillKind) {
+        match self {
+            Self::Pending => ("Pending", PillKind::Neutral),
+            Self::Working => ("Working", PillKind::Accent),
+            Self::Completed => ("Completed", PillKind::Done),
+            Self::Interrupted => ("Failed", PillKind::Failed),
+            Self::NotProcessed => ("Not processed", PillKind::Warn),
+        }
+    }
+}
+
+/// One package line: its name and version, and a status pill.
 struct PackageRow {
-    label: gtk::Label,
+    widget: gtk::Box,
+    name: gtk::Label,
+    pill: gtk::Label,
     state: ResultState,
+}
+
+impl PackageRow {
+    fn new(name: &str) -> Self {
+        let widget = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        widget.add_css_class("urow");
+        let label = gtk::Label::new(Some(name));
+        label.set_xalign(0.0);
+        label.set_hexpand(true);
+        label.set_wrap(true);
+        let (text, kind) = ResultState::Pending.pill();
+        let pill = status_pill(text, kind);
+        widget.append(&label);
+        widget.append(&pill);
+        Self {
+            widget,
+            name: label,
+            pill,
+            state: ResultState::Pending,
+        }
+    }
+
+    /// A stage reported while the command runs.
+    fn show(&self, name: &str, version: &str, stage: &str) {
+        self.name.set_text(&format!("{name} {version}"));
+        let kind = if self.state == ResultState::Completed {
+            PillKind::Done
+        } else {
+            PillKind::Accent
+        };
+        set_pill(&self.pill, stage, kind);
+        self.name
+            .update_property(&[gtk::accessible::Property::Label(&format!(
+                "{name}, {stage}"
+            ))]);
+    }
+
+    /// The settled result once the command is over.
+    fn show_final(&self, name: &str) {
+        let (text, kind) = self.state.pill();
+        set_pill(&self.pill, text, kind);
+        self.name
+            .update_property(&[gtk::accessible::Property::Label(&format!(
+                "{name}, {}",
+                self.state.label()
+            ))]);
+    }
+}
+
+/// The phases shown as chips in the overall card, in order.
+fn phase_plan(commands: &[String]) -> Vec<&'static str> {
+    let verbs: Vec<&str> = commands
+        .iter()
+        .map(|c| c.split_once(' ').map_or(c.as_str(), |(verb, _)| verb))
+        .collect();
+    let installs = |v: &&str| {
+        matches!(
+            *v,
+            "INSTALL" | "INSTALL_FORCE" | "UPDATE" | "UPGRADE" | "REINSTALL"
+        )
+    };
+    if verbs.iter().any(installs) {
+        vec!["Download", "Install"]
+    } else if !verbs.is_empty()
+        && verbs
+            .iter()
+            .all(|v| matches!(*v, "REMOVE" | "REMOVE_FORCE" | "PURGE" | "PURGE_FORCE"))
+    {
+        vec!["Remove"]
+    } else if !verbs.is_empty() && verbs.iter().all(|v| *v == "SYNC") {
+        vec!["Refresh"]
+    } else if !verbs.is_empty() && verbs.iter().all(|v| *v == "DOWNLOAD") {
+        vec!["Download"]
+    } else {
+        vec!["Run"]
+    }
+}
+
+/// Which chip a reported stage belongs to.
+fn phase_for_stage(stage: &str, plan: &[&str]) -> usize {
+    let wanted = match stage {
+        "Downloading" | "Verifying" | "Checking" => "Download",
+        "Removing" | "Purging" => "Remove",
+        _ => "Install",
+    };
+    plan.iter()
+        .position(|p| *p == wanted)
+        .unwrap_or(plan.len().saturating_sub(1))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ChipState {
+    Idle,
+    Active,
+    Done,
+    Failed,
+}
+
+fn phase_chip_state(index: usize, current: usize) -> ChipState {
+    match index.cmp(&current) {
+        std::cmp::Ordering::Less => ChipState::Done,
+        std::cmp::Ordering::Equal => ChipState::Active,
+        std::cmp::Ordering::Greater => ChipState::Idle,
+    }
+}
+
+/// After the command ends: success completes every phase, a failure marks the
+/// phase it stopped in.
+fn final_chip_state(index: usize, current: usize, success: bool) -> ChipState {
+    if success {
+        ChipState::Done
+    } else {
+        match phase_chip_state(index, current) {
+            ChipState::Active => ChipState::Failed,
+            other => other,
+        }
+    }
+}
+
+fn set_phase_chip(chip: &gtk::Label, state: ChipState) {
+    for class in ["active", "done", "err"] {
+        chip.remove_css_class(class);
+    }
+    match state {
+        ChipState::Idle => {}
+        ChipState::Active => chip.add_css_class("active"),
+        ChipState::Done => chip.add_css_class("done"),
+        ChipState::Failed => chip.add_css_class("err"),
+    }
 }
 
 fn requested_names(commands: &[String]) -> Vec<String> {
@@ -77,38 +222,54 @@ fn run_inner(
     done_cb: impl Fn(bool) + 'static,
     done_after_close: bool,
 ) {
-    let (dlg, outer) = modal_window(title, parent, true, (620, 420), 12);
+    let (dlg, outer) = modal_window(title, parent, true, (620, -1), 12);
+    // Overall card: what is happening, how far along, and which phase.
+    let plan = phase_plan(commands);
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    card.add_css_class("overall-card");
+    card.add_css_class("card");
+    let top = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     let status = gtk::Label::new(Some("Waiting for authorization…"));
     status.set_xalign(0.0);
+    status.set_hexpand(true);
     status.set_wrap(true);
     status.add_css_class("heading");
-    outer.append(&status);
+    status.add_css_class("overall-title");
+    let pct = gtk::Label::new(None);
+    pct.add_css_class("overall-pct");
+    top.append(&status);
+    top.append(&pct);
+    card.append(&top);
     let phase = gtk::Label::new(Some("Preparing transaction"));
     phase.set_xalign(0.0);
     phase.set_wrap(true);
-    outer.append(&phase);
+    phase.add_css_class("dim-label");
+    phase.add_css_class("overall-meta");
+    card.append(&phase);
     let progress = gtk::ProgressBar::new();
-    progress.set_show_text(true);
-    progress.set_text(Some(
-        "Package dependencies are included as they are processed",
-    ));
-    outer.append(&progress);
+    progress.add_css_class("overall-bar");
+    card.append(&progress);
+    let chips_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let chips: Vec<gtk::Label> = plan
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            let chip = gtk::Label::new(Some(&format!("{} · {name}", i + 1)));
+            chip.add_css_class("phase-chip");
+            chips_box.append(&chip);
+            chip
+        })
+        .collect();
+    card.append(&chips_box);
+    outer.append(&card);
+    let phase_index = Rc::new(Cell::new(0usize));
     let rows_box = gtk::ListBox::new();
     rows_box.set_selection_mode(gtk::SelectionMode::None);
     let rows: Rc<RefCell<BTreeMap<String, PackageRow>>> = Rc::new(RefCell::new(BTreeMap::new()));
     for name in requested_names(commands) {
-        let label = gtk::Label::new(Some(&format!("{name} · Pending")));
-        label.set_xalign(0.0);
-        label.set_margin_top(4);
-        label.set_margin_bottom(4);
-        rows_box.append(&label);
-        rows.borrow_mut().insert(
-            name,
-            PackageRow {
-                label,
-                state: ResultState::Pending,
-            },
-        );
+        let row = PackageRow::new(&name);
+        rows_box.append(&row.widget);
+        rows.borrow_mut().insert(name, row);
     }
     let scroll = gtk::ScrolledWindow::new();
     scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
@@ -118,13 +279,12 @@ fn run_inner(
     scroll.set_visible(!rows.borrow().is_empty());
     scroll.set_child(Some(&rows_box));
     outer.append(&scroll);
-    let expander = gtk::Expander::new(Some("Transaction log"));
-    expander.set_expanded(true);
-    expander.set_vexpand(true);
-    expander.set_valign(gtk::Align::Fill);
+    // The raw output is behind a toggle; the card is the default view.
     let log_scroll = gtk::ScrolledWindow::new();
+    log_scroll.set_widget_name("transaction-log");
     log_scroll.set_min_content_height(180);
     log_scroll.set_vexpand(true);
+    log_scroll.set_visible(false);
     let text = gtk::TextView::new();
     text.set_editable(false);
     text.set_cursor_visible(false);
@@ -133,13 +293,26 @@ fn run_inner(
     text.set_monospace(true);
     text.set_wrap_mode(gtk::WrapMode::WordChar);
     log_scroll.set_child(Some(&text));
-    expander.set_child(Some(&log_scroll));
-    outer.append(&expander);
+    outer.append(&log_scroll);
     let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    actions.set_halign(gtk::Align::End);
+    let toggle_output = gtk::ToggleButton::with_label("Show output");
+    toggle_output.set_halign(gtk::Align::Start);
+    toggle_output.set_hexpand(true);
+    {
+        let log_scroll = log_scroll.clone();
+        toggle_output.connect_toggled(move |button| {
+            log_scroll.set_visible(button.is_active());
+            button.set_label(if button.is_active() {
+                "Hide output"
+            } else {
+                "Show output"
+            });
+        });
+    }
     let copy = gtk::Button::with_label("Copy log");
     let close = gtk::Button::with_label("Close");
     close.set_sensitive(false);
+    actions.append(&toggle_output);
     actions.append(&copy);
     actions.append(&close);
     outer.append(&actions);
@@ -152,20 +325,53 @@ fn run_inner(
     {
         let busy = busy.clone();
         let progress = progress.clone();
+        let rows = rows.clone();
         glib::source::timeout_add_local(std::time::Duration::from_millis(100), move || {
             if !busy.get() {
                 return glib::ControlFlow::Break;
             }
-            progress.pulse();
+            // Package rows give a real fraction; until then show activity.
+            if rows.borrow().is_empty() {
+                progress.pulse();
+            }
             glib::ControlFlow::Continue
         });
     }
+    let refresh_overall: Rc<dyn Fn()> = {
+        let rows = rows.clone();
+        let progress = progress.clone();
+        let pct = pct.clone();
+        let chips = chips.clone();
+        let phase_index = phase_index.clone();
+        Rc::new(move || {
+            let (total, done) = {
+                let rows = rows.borrow();
+                (
+                    rows.len(),
+                    rows.values()
+                        .filter(|row| row.state == ResultState::Completed)
+                        .count(),
+                )
+            };
+            if total > 0 {
+                let fraction = done as f64 / total as f64;
+                progress.set_fraction(fraction);
+                pct.set_text(&format!("{}%", (fraction * 100.0).round()));
+            }
+            for (i, chip) in chips.iter().enumerate() {
+                set_phase_chip(chip, phase_chip_state(i, phase_index.get()));
+            }
+        })
+    };
     let active = Rc::new(RefCell::new(HashSet::<String>::new()));
     let apply_event: Rc<dyn Fn(Event)> = {
         let rows = rows.clone();
         let active = active.clone();
         let phase = phase.clone();
         let status = status.clone();
+        let refresh_overall = refresh_overall.clone();
+        let phase_index = phase_index.clone();
+        let plan = plan.clone();
         Rc::new(move |event| {
             debug_assert!(Event::parse(&event.encode()).is_some());
             match event {
@@ -188,49 +394,42 @@ fn run_inner(
                 Event::Phase(stage) => {
                     phase.set_text(&stage);
                     phase.update_property(&[gtk::accessible::Property::Description(&stage)]);
+                    phase_index.set(phase_for_stage(&stage, &plan).max(phase_index.get()));
                 }
                 Event::Package {
                     name,
                     version,
                     stage,
                 } => {
-                    let mut rows = rows.borrow_mut();
-                    let row = rows.entry(name.clone()).or_insert_with(|| {
-                        let label = gtk::Label::new(None);
-                        label.set_xalign(0.0);
-                        label.set_wrap(true);
-                        label.set_margin_top(4);
-                        label.set_margin_bottom(4);
-                        rows_box.append(&label);
-                        scroll.set_visible(true);
-                        PackageRow {
-                            label,
-                            state: ResultState::Pending,
-                        }
-                    });
-                    row.state = if stage == "Completed" {
-                        ResultState::Completed
-                    } else {
-                        ResultState::Working
-                    };
-                    row.label.set_text(&format!("{name} {version} · {stage}"));
-                    row.label
-                        .update_property(&[gtk::accessible::Property::Label(&format!(
-                            "{name}, {stage}"
-                        ))]);
+                    {
+                        let mut rows = rows.borrow_mut();
+                        let row = rows.entry(name.clone()).or_insert_with(|| {
+                            let row = PackageRow::new(&name);
+                            rows_box.append(&row.widget);
+                            scroll.set_visible(true);
+                            row
+                        });
+                        row.state = if stage == "Completed" {
+                            ResultState::Completed
+                        } else {
+                            ResultState::Working
+                        };
+                        row.show(&name, &version, &stage);
+                    }
                     active.borrow_mut().insert(name);
                     phase.set_text(&stage);
+                    phase_index.set(phase_for_stage(&stage, &plan).max(phase_index.get()));
                 }
                 Event::Finished(success) => {
                     for name in active.borrow().iter() {
                         if let Some(row) = rows.borrow_mut().get_mut(name) {
                             row.state = row.state.finish(success);
-                            row.label
-                                .set_text(&format!("{name} · {}", row.state.label()));
+                            row.show_final(name);
                         }
                     }
                 }
             }
+            refresh_overall();
         })
     };
     let log_id = {
@@ -309,16 +508,32 @@ fn run_inner(
         let mut details = changes.clone().unwrap_or_default();
         for (name, row) in rows.borrow_mut().iter_mut() {
             row.state = row.state.finish(success);
-            row.label
-                .set_text(&format!("{name} · {}", row.state.label()));
+            row.show_final(name);
             details.push_str(&format!("\n{name} · {}", row.state.label()));
         }
-        progress.set_fraction(if success { 1.0 } else { 0.0 });
-        progress.set_text(Some(if success {
+        refresh_overall();
+        let completed = rows
+            .borrow()
+            .values()
+            .filter(|row| row.state == ResultState::Completed)
+            .count();
+        if success {
+            progress.set_fraction(1.0);
+            pct.set_text("100%");
+            card.add_css_class("overall-ok");
+        } else if completed > 0 {
+            card.add_css_class("overall-warn");
+        } else {
+            card.add_css_class("overall-err");
+        }
+        for (i, chip) in chips.iter().enumerate() {
+            set_phase_chip(chip, final_chip_state(i, phase_index.get(), success));
+        }
+        phase.set_text(if success {
             "Completed"
         } else {
-            "Stopped — review results and log"
-        }));
+            "Stopped — review the results and the output"
+        });
         let message = if success {
             "Finished successfully."
         } else if auth_failed.get() {
@@ -331,7 +546,7 @@ fn run_inner(
         close.set_sensitive(true);
         close.grab_focus();
         if !success {
-            expander.set_expanded(true);
+            toggle_output.set_active(true);
         }
         if changes.is_some() {
             crate::backend::history::record_detailed(
@@ -407,10 +622,11 @@ pub fn smoke_test_transaction_history() {
                 "package results must not reserve blank space"
             );
         }
-        if let Some(expander) = widget.downcast_ref::<gtk::Expander>() {
+        if widget.widget_name() == "transaction-log" {
             assert!(
-                expander.is_expanded(),
-                "transaction output should be visible"
+                widget.is_visible() && widget.height() >= 150,
+                "a failed transaction must show its output ({} high)",
+                widget.height()
             );
         }
         let mut child = widget.first_child();
@@ -471,6 +687,13 @@ done
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     let context = glib::MainContext::default();
     while finished.get().is_none() && std::time::Instant::now() < deadline {
+        while context.pending() {
+            context.iteration(false);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    // Let the dialog re-measure after the failure revealed its output.
+    for _ in 0..30 {
         while context.pending() {
             context.iteration(false);
         }
@@ -557,6 +780,37 @@ mod tests {
         );
         assert!(requested_names(&["INSTALL".into()]).is_empty());
     }
+    #[test]
+    fn phase_plan_follows_the_command_verbs() {
+        let plan =
+            |cmds: &[&str]| phase_plan(&cmds.iter().map(|c| (*c).to_string()).collect::<Vec<_>>());
+        assert_eq!(plan(&["INSTALL foo"]), ["Download", "Install"]);
+        assert_eq!(plan(&["UPGRADE"]), ["Download", "Install"]);
+        assert_eq!(plan(&["REMOVE foo", "PURGE bar"]), ["Remove"]);
+        assert_eq!(plan(&["SYNC"]), ["Refresh"]);
+        assert_eq!(plan(&["DOWNLOAD foo"]), ["Download"]);
+        assert_eq!(plan(&["CLEANCACHE"]), ["Run"]);
+        assert_eq!(plan(&[]), ["Run"]);
+    }
+
+    #[test]
+    fn stages_map_to_phases_and_chips_progress() {
+        let plan = ["Download", "Install"];
+        assert_eq!(phase_for_stage("Downloading", &plan), 0);
+        assert_eq!(phase_for_stage("Verifying", &plan), 0);
+        assert_eq!(phase_for_stage("Installing", &plan), 1);
+        assert_eq!(phase_for_stage("Removing", &plan), 1);
+        assert_eq!(phase_for_stage("Removing", &["Remove"]), 0);
+        assert_eq!(phase_for_stage("Configuring", &["Run"]), 0);
+        assert_eq!(phase_chip_state(0, 1), ChipState::Done);
+        assert_eq!(phase_chip_state(1, 1), ChipState::Active);
+        assert_eq!(phase_chip_state(2, 1), ChipState::Idle);
+        assert_eq!(final_chip_state(1, 1, true), ChipState::Done);
+        assert_eq!(final_chip_state(1, 1, false), ChipState::Failed);
+        assert_eq!(final_chip_state(0, 1, false), ChipState::Done);
+        assert_eq!(final_chip_state(2, 1, false), ChipState::Idle);
+    }
+
     #[test]
     fn success_completes_every_unfinished_row() {
         assert_eq!(ResultState::Pending.finish(true), ResultState::Completed);

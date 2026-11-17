@@ -26,6 +26,7 @@ struct Inner {
     widget: gtk::Box,
     store: PackageStore,
     current_pkgname: RefCell<Option<String>>,
+    selection_generation: Cell<u64>,
 
     icon: gtk::Image,
     name: gtk::Label,
@@ -586,6 +587,7 @@ impl DetailPane {
             widget,
             store,
             current_pkgname: RefCell::new(None),
+            selection_generation: Cell::new(0),
             icon: icon_image,
             name,
             version,
@@ -981,15 +983,15 @@ fn clear_list(lb: &gtk::ListBox) {
     }
 }
 
-fn populate_dep_list(
-    lb: &gtk::ListBox,
-    items: Option<Vec<String>>,
-    snapshot: &HashMap<String, PackageObject>,
-) {
+fn populate_dep_list(lb: &gtk::ListBox, items: Option<Vec<String>>, store: &PackageStore) {
     clear_list(lb);
-    let Some(items) = items else { return };
+    let Some(items) = items.filter(|items| !items.is_empty()) else {
+        return;
+    };
+    let names = items.iter().cloned().collect();
+    let snapshot = store.snapshot_objects_for(&names);
     for name in items {
-        lb.append(&dependency_row(&name, snapshot));
+        lb.append(&dependency_row(&name, &snapshot));
     }
 }
 
@@ -1181,10 +1183,11 @@ fn wire_files_expander(inner: &Rc<Inner>) {
         let Some(name) = inner.current_pkgname.borrow().clone() else {
             return;
         };
+        let generation = inner.selection_generation.get();
         let inner2 = inner.clone();
         let name_for_call = name.clone();
         inner.store.get_files_async(&name_for_call, move |files| {
-            if inner2.current_pkgname.borrow().as_deref() == Some(name.as_str()) {
+            if metadata_is_current(&inner2, generation) {
                 populate_files(&inner2, files);
             }
         });
@@ -1261,7 +1264,54 @@ fn set_header_chips(inner: &Inner, pkg: &Package) {
     }
 }
 
+fn apply_extra_info(inner: &Rc<Inner>, generation: u64, extra: Option<PackageExtraInfo>) {
+    if !metadata_is_current(inner, generation) {
+        return;
+    }
+
+    if let Some(extra) = &extra {
+        if extra.download_size > 0 {
+            inner.download_size.set(extra.download_size);
+        }
+    }
+    rebuild_size_install(inner, extra.as_ref());
+    rebuild_source(inner, extra.as_ref());
+
+    let auto_flag = extra.as_ref().filter(|e| e.has_automatic_install);
+    inner.automark_overlay.set_visible(auto_flag.is_some());
+    if let Some(flag) = auto_flag {
+        inner.current_automatic.set(Some(flag.automatic_install));
+        set_dot_state(&inner.automark_dot, flag.automatic_install);
+        let action = if flag.automatic_install {
+            "Mark as manually installed"
+        } else {
+            "Mark as dependency"
+        };
+        inner
+            .btn_automark
+            .update_property(&[gtk::accessible::Property::Label(action)]);
+        inner
+            .btn_automark
+            .set_tooltip_text(Some(if flag.automatic_install {
+                "Mark as Manually Installed — won't be offered for orphan cleanup"
+            } else {
+                "Mark as Automatically Installed — eligible for orphan cleanup \
+                             if nothing ends up needing it"
+            }));
+    } else {
+        inner.current_automatic.set(None);
+    }
+
+    populate_provides_conflicts(inner, extra.as_ref());
+}
+
+fn metadata_is_current(inner: &Inner, generation: u64) -> bool {
+    inner.selection_generation.get() == generation
+}
+
 fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
+    let generation = inner.selection_generation.get().wrapping_add(1);
+    inner.selection_generation.set(generation);
     *inner.current_pkgname.borrow_mut() = pkg.map(|p| p.name.clone());
 
     inner.files_expander.set_expanded(false);
@@ -1329,49 +1379,11 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
 
     {
         let inner = inner.clone();
-        let name = pkg.name.clone();
         inner
             .store
             .clone()
             .get_extra_info_async(&pkg.name, move |extra| {
-                if inner.current_pkgname.borrow().as_deref() != Some(name.as_str()) {
-                    return;
-                }
-
-                if let Some(extra) = &extra {
-                    if extra.download_size > 0 {
-                        inner.download_size.set(extra.download_size);
-                    }
-                }
-                rebuild_size_install(&inner, extra.as_ref());
-                rebuild_source(&inner, extra.as_ref());
-
-                let auto_flag = extra.as_ref().filter(|e| e.has_automatic_install);
-                inner.automark_overlay.set_visible(auto_flag.is_some());
-                if let Some(flag) = auto_flag {
-                    inner.current_automatic.set(Some(flag.automatic_install));
-                    set_dot_state(&inner.automark_dot, flag.automatic_install);
-                    let action = if flag.automatic_install {
-                        "Mark as manually installed"
-                    } else {
-                        "Mark as dependency"
-                    };
-                    inner
-                        .btn_automark
-                        .update_property(&[gtk::accessible::Property::Label(action)]);
-                    inner
-                        .btn_automark
-                        .set_tooltip_text(Some(if flag.automatic_install {
-                            "Mark as Manually Installed — won't be offered for orphan cleanup"
-                        } else {
-                            "Mark as Automatically Installed — eligible for orphan cleanup \
-                             if nothing ends up needing it"
-                        }));
-                } else {
-                    inner.current_automatic.set(None);
-                }
-
-                populate_provides_conflicts(&inner, extra.as_ref());
+                apply_extra_info(&inner, generation, extra);
             });
     }
 
@@ -1385,30 +1397,63 @@ fn show_package_impl(inner: &Rc<Inner>, pkg: Option<&Package>) {
     clear_list(&inner.rdeps_list);
     {
         let inner2 = inner.clone();
-        let name = pkg.name.clone();
         inner.store.get_deps_async(&pkg.name, move |deps| {
-            if inner2.current_pkgname.borrow().as_deref() == Some(name.as_str()) {
+            if metadata_is_current(&inner2, generation) {
                 let count = deps.as_ref().map_or(0, Vec::len);
                 set_card_visible(&inner2.deps_card, count > 0);
                 set_count(&inner2.deps_pill, (count > 0).then_some(count));
-                let snapshot = inner2.store.snapshot_objects();
-                populate_dep_list(&inner2.deps_list, deps, &snapshot);
+                populate_dep_list(&inner2.deps_list, deps, &inner2.store);
             }
         });
     }
     {
         let inner2 = inner.clone();
-        let name = pkg.name.clone();
         inner.store.get_rdeps_async(&pkg.name, move |rdeps| {
-            if inner2.current_pkgname.borrow().as_deref() == Some(name.as_str()) {
+            if metadata_is_current(&inner2, generation) {
                 let count = rdeps.as_ref().map_or(0, Vec::len);
                 set_card_visible(&inner2.rdeps_card, count > 0);
                 set_count(&inner2.rdeps_pill, (count > 0).then_some(count));
-                let snapshot = inner2.store.snapshot_objects();
-                populate_dep_list(&inner2.rdeps_list, rdeps, &snapshot);
+                populate_dep_list(&inner2.rdeps_list, rdeps, &inner2.store);
             }
         });
     }
 
     update_action_buttons(inner, Some(pkg));
+}
+
+/// Inject replies in the order a delayed worker can deliver them after A/B/A.
+#[cfg(test)]
+pub fn smoke_test_metadata_replies() {
+    let pane = DetailPane::new(PackageStore::new());
+    let pkg = |name: &str| Package {
+        name: name.into(),
+        download_size: 42,
+        ..Package::default()
+    };
+    pane.show_package(Some(&pkg("first")));
+    let old = pane.inner.selection_generation.get();
+    pane.show_package(Some(&pkg("second")));
+    pane.show_package(Some(&pkg("first")));
+    let current = pane.inner.selection_generation.get();
+    let reply = |size| {
+        Some(PackageExtraInfo {
+            download_size: size,
+            ..PackageExtraInfo::default()
+        })
+    };
+    apply_extra_info(&pane.inner, current, reply(84));
+    assert_eq!(pane.inner.download_size.get(), 84);
+    apply_extra_info(&pane.inner, old, reply(999));
+    assert_eq!(
+        pane.inner.download_size.get(),
+        84,
+        "an old reply for the same name must not overwrite the new view"
+    );
+    pane.show_package(None);
+    apply_extra_info(&pane.inner, current, reply(999));
+    assert_eq!(
+        pane.inner.download_size.get(),
+        84,
+        "clearing selection invalidates pending replies"
+    );
 }

@@ -284,6 +284,14 @@ pub fn show(
     filter_scroll.set_vexpand(true);
     let filter_lb = gtk::ListBox::new();
     filter_lb.set_selection_mode(gtk::SelectionMode::Single);
+    filter_lb.set_placeholder(Some(
+        crate::ui::widgets::EmptyState::new(
+            "view-list-symbolic",
+            "No custom filters yet",
+            "Add one below to hide or show matching packages.",
+        )
+        .widget(),
+    ));
     filter_scroll.set_child(Some(&filter_lb));
     left.append(&filter_scroll);
 

@@ -7,6 +7,8 @@ use crate::ui::apply_dialog;
 use crate::ui::detail_pane::DetailPane;
 use crate::ui::filter_sidebar::FilterSidebar;
 use crate::ui::package_list::PackageList;
+use crate::ui::theme::{self, BuiltinTheme, ColorScheme};
+use crate::ui::updates_page::UpgradeRequest;
 use gio::prelude::*;
 use gtk::prelude::*;
 use std::cell::{Cell, RefCell};
@@ -52,6 +54,8 @@ struct WindowState {
 
     #[cfg(feature = "adwaita")]
     toast_overlay: adw::ToastOverlay,
+    #[cfg(not(feature = "adwaita"))]
+    toasts: crate::ui::toast::ToastHost,
 
     selected_pkg: RefCell<Option<Package>>,
 
@@ -59,6 +63,8 @@ struct WindowState {
 
     search_name_only_default: std::cell::Cell<bool>,
     auto_close_on_success: std::cell::Cell<bool>,
+    color_scheme: Cell<ColorScheme>,
+    theme: Cell<BuiltinTheme>,
     action_busy: Cell<bool>,
     /// A repository SYNC is in flight. Marks stay editable, but nothing may
     /// preview or run a transaction against the index it is about to replace.
@@ -77,6 +83,8 @@ struct WindowGeometry {
     stale_repos_visible: bool,
     auto_close_on_success: bool,
     discovery_visible: bool,
+    color_scheme: ColorScheme,
+    theme: BuiltinTheme,
 }
 
 const SECTION_KEYS: [&str; 4] = ["filters", "repositories", "maintenance", "tools"];
@@ -95,6 +103,8 @@ impl Default for WindowGeometry {
             stale_repos_visible: true,
             auto_close_on_success: false,
             discovery_visible: true,
+            color_scheme: ColorScheme::System,
+            theme: BuiltinTheme::System,
         }
     }
 }
@@ -135,12 +145,32 @@ impl WindowGeometry {
         let Ok(contents) = std::fs::read_to_string(&path) else {
             return geometry;
         };
+        geometry.apply_contents(&contents);
+        geometry
+    }
+
+    /// Parse `key=value` lines over the current values. Unknown keys and
+    /// unparsable values are skipped, so old and new files both load.
+    fn apply_contents(&mut self, contents: &str) {
+        let geometry = self;
         for line in contents.lines() {
             let Some((key, value)) = line.split_once('=') else {
                 continue;
             };
             let key = key.trim();
             let value = value.trim();
+            if key == "color_scheme" {
+                if let Some(scheme) = ColorScheme::parse(value) {
+                    geometry.color_scheme = scheme;
+                }
+                continue;
+            }
+            if key == "theme" {
+                if let Some(theme) = BuiltinTheme::parse(value) {
+                    geometry.theme = theme;
+                }
+                continue;
+            }
             if key == "discovery_visible" {
                 if let Ok(b) = value.parse::<i32>() {
                     geometry.discovery_visible = b != 0;
@@ -206,16 +236,9 @@ impl WindowGeometry {
                 _ => {}
             }
         }
-        geometry
     }
 
-    fn save(&self) {
-        let Some(path) = state_file_path() else {
-            return;
-        };
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
+    fn contents(&self) -> String {
         let mut contents = format!(
             "width={}\nheight={}\nsync_at_launch={}\nsearch_name_only_default={}\nauto_close_on_success={}\n",
             self.width,
@@ -241,7 +264,22 @@ impl WindowGeometry {
             i32::from(self.status_bar_visible),
             i32::from(self.stale_repos_visible)
         ));
-        let _ = std::fs::write(&path, contents);
+        contents.push_str(&format!(
+            "color_scheme={}\ntheme={}\n",
+            self.color_scheme.key(),
+            self.theme.key()
+        ));
+        contents
+    }
+
+    fn save(&self) {
+        let Some(path) = state_file_path() else {
+            return;
+        };
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&path, self.contents());
     }
 }
 
@@ -262,6 +300,8 @@ fn build_window_state(
     window.set_default_size(geometry.width, geometry.height);
 
     install_css(&window);
+    theme::apply(geometry.color_scheme, geometry.theme);
+    theme::style_toplevel(&window);
     ensure_icon_theme_fallback(&window);
 
     let header = gtk::HeaderBar::new();
@@ -441,7 +481,9 @@ fn build_window_state(
         window.set_child(Some(&toast_overlay));
     }
     #[cfg(not(feature = "adwaita"))]
-    window.set_child(Some(&root_box));
+    let toasts = crate::ui::toast::ToastHost::new(&root_box);
+    #[cfg(not(feature = "adwaita"))]
+    window.set_child(Some(toasts.widget()));
 
     let state = Rc::new(WindowState {
         window: window.clone(),
@@ -480,10 +522,14 @@ fn build_window_state(
         status_label,
         #[cfg(feature = "adwaita")]
         toast_overlay,
+        #[cfg(not(feature = "adwaita"))]
+        toasts,
         selected_pkg: RefCell::new(None),
         sync_at_launch: std::cell::Cell::new(geometry.sync_at_launch),
         search_name_only_default: std::cell::Cell::new(geometry.search_name_only_default),
         auto_close_on_success: std::cell::Cell::new(geometry.auto_close_on_success),
+        color_scheme: Cell::new(geometry.color_scheme),
+        theme: Cell::new(geometry.theme),
         action_busy: Cell::new(false),
         syncing: Cell::new(false),
     });
@@ -704,6 +750,22 @@ fn switch_row(label: &str, accel: Option<&str>) -> (gtk::Box, gtk::Switch) {
     (row, switch)
 }
 
+fn dropdown_row(label: &str, dropdown: &gtk::DropDown) -> gtk::Box {
+    dropdown.update_property(&[gtk::accessible::Property::Label(label)]);
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    row.set_margin_start(8);
+    row.set_margin_end(8);
+    row.set_margin_top(3);
+    row.set_margin_bottom(3);
+    let l = gtk::Label::new(Some(label));
+    l.set_xalign(0.0);
+    l.set_hexpand(true);
+    row.append(&l);
+    dropdown.set_valign(gtk::Align::Center);
+    row.append(dropdown);
+    row
+}
+
 fn toggle_package_filters(state: &Rc<WindowState>) {
     state.workflows.stack.set_visible_child_name("packages");
     if !state.narrow.get() {
@@ -886,6 +948,48 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
         });
     }
     settings.append(&auto_close_row);
+
+    settings.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    let appearance = gtk::Label::new(Some("Appearance"));
+    appearance.add_css_class("section-header");
+    appearance.set_xalign(0.0);
+    appearance.set_margin_start(8);
+    settings.append(&appearance);
+    if theme::BUILTIN_THEME_SUPPORTED {
+        let labels: Vec<&str> = BuiltinTheme::ALL.iter().map(|t| t.label()).collect();
+        let dropdown = gtk::DropDown::from_strings(&labels);
+        dropdown.set_selected(state.theme.get().index());
+        dropdown.set_tooltip_text(Some(
+            "System keeps the desktop's GTK theme. Caerus replaces it with a built-in \
+             green theme.",
+        ));
+        {
+            let state = state.clone();
+            dropdown.connect_selected_notify(move |dd| {
+                state.theme.set(BuiltinTheme::from_index(dd.selected()));
+                theme::apply(state.color_scheme.get(), state.theme.get());
+            });
+        }
+        settings.append(&dropdown_row("Theme", &dropdown));
+    }
+    {
+        let labels: Vec<&str> = ColorScheme::ALL.iter().map(|s| s.label()).collect();
+        let dropdown = gtk::DropDown::from_strings(&labels);
+        dropdown.set_selected(state.color_scheme.get().index());
+        dropdown.set_tooltip_text(Some(
+            "System follows the desktop's light or dark preference.",
+        ));
+        {
+            let state = state.clone();
+            dropdown.connect_selected_notify(move |dd| {
+                state
+                    .color_scheme
+                    .set(ColorScheme::from_index(dd.selected()));
+                theme::apply(state.color_scheme.get(), state.theme.get());
+            });
+        }
+        settings.append(&dropdown_row("Color scheme", &dropdown));
+    }
     stack.add_named(&settings, Some("settings"));
 
     let shortcuts = gtk::Box::new(gtk::Orientation::Vertical, 2);
@@ -1455,6 +1559,8 @@ fn wire_up(state: &Rc<WindowState>) {
                 stale_repos_visible: state.sidebar.show_stale_repositories(),
                 auto_close_on_success: state.auto_close_on_success.get(),
                 discovery_visible: state.workflows.discover_button.get_visible(),
+                color_scheme: state.color_scheme.get(),
+                theme: state.theme.get(),
             }
             .save();
             state.session.shutdown();
@@ -1982,6 +2088,27 @@ fn on_full_upgrade_clicked(state: &Rc<WindowState>) {
     );
 }
 
+/// A subset from the Updates page. Selection maps onto package marks, so the
+/// pending-changes review and the dependency-aware preview apply unchanged:
+/// the upgrade marks become exactly the chosen packages (other marks stay).
+fn on_upgrade_selected(state: &Rc<WindowState>, names: &[String]) {
+    if actions_blocked(state) || names.is_empty() {
+        return;
+    }
+    let chosen: std::collections::HashSet<String> = names.iter().cloned().collect();
+    let stale: std::collections::HashSet<String> = state
+        .store
+        .marked_names(PkgMark::Upgrade)
+        .into_iter()
+        .filter(|name| !chosen.contains(name))
+        .collect();
+    state.store.set_marks(&stale, PkgMark::None);
+    state.store.set_marks(&chosen, PkgMark::Upgrade);
+    state.detail_pane.refresh_actions();
+    update_status_bar(state);
+    show_pending_changes(state);
+}
+
 fn preview_full_upgrade(state: &Rc<WindowState>) {
     let upgrades = state.store.upgradable_names();
     let held_note = held_back_note(&state.store.held_back_names());
@@ -2204,11 +2331,7 @@ fn show_toast(state: &Rc<WindowState>, msg: &str) {
     }
     #[cfg(not(feature = "adwaita"))]
     {
-        state.status_label.set_text(msg);
-        let state = state.clone();
-        glib::source::timeout_add_local_once(std::time::Duration::from_secs(6), move || {
-            update_status_bar(&state);
-        });
+        state.toasts.show(msg);
     }
 }
 
@@ -2496,9 +2619,14 @@ fn wire_workflows(state: &Rc<WindowState>) {
     }
     {
         let weak = Rc::downgrade(state);
-        state.workflows.upgrade.connect_clicked(move |_| {
-            if let Some(state) = weak.upgrade() {
-                on_full_upgrade_clicked(&state);
+        state.workflows.connect_upgrade(move |request| {
+            let Some(state) = weak.upgrade() else {
+                return;
+            };
+            match request {
+                // Everything included: today's full system upgrade and review.
+                UpgradeRequest::All => on_full_upgrade_clicked(&state),
+                UpgradeRequest::Selected(names) => on_upgrade_selected(&state, &names),
             }
         });
     }
@@ -2911,8 +3039,25 @@ pub fn smoke_test_compact_layout() {
         state.detail_pane.widget().get_visible(),
         "the detail pane follows its toggle, as in 0.7"
     );
+    // Rapid selection changes queue metadata replies while rows are recycled.
+    for _ in 0..100 {
+        for name in ["firefox", "firefox-esr", "firefox-esr-i18n-de"] {
+            assert!(state.pkg_list.select_package_by_name(name));
+            while glib::MainContext::default().pending() {
+                glib::MainContext::default().iteration(false);
+            }
+        }
+    }
     assert!(state.pkg_list.select_package_by_name("firefox"));
     settle();
+    assert_eq!(
+        state
+            .selected_pkg
+            .borrow()
+            .as_ref()
+            .map(|pkg| pkg.name.as_str()),
+        Some("firefox")
+    );
     assert!(state.pending_bar.is_visible());
     assert!(state.btn_apply.is_sensitive());
     assert_eq!(state.pkg_list.visible_counts().0, 7);
@@ -3296,6 +3441,34 @@ mod tests {
         let steps = apply_steps(vec![], vec![], vec!["remove-me".into()], vec![]);
         assert_eq!(steps.len(), 1);
         assert_eq!(steps.front().unwrap().command, "REMOVE remove-me");
+    }
+
+    #[test]
+    fn appearance_settings_parse_save_and_keep_old_files_loading() {
+        let mut old = WindowGeometry::default();
+        old.apply_contents("width=900\nheight=700\nsync_at_launch=1\n");
+        assert_eq!(old.width, 900);
+        assert!(old.sync_at_launch);
+        assert_eq!(old.color_scheme, ColorScheme::System);
+        assert_eq!(old.theme, BuiltinTheme::System);
+
+        let mut current = WindowGeometry::default();
+        current.apply_contents("color_scheme=dark\ntheme=caerus\nwidth=1000\n");
+        assert_eq!(current.color_scheme, ColorScheme::Dark);
+        assert_eq!(current.theme, BuiltinTheme::Caerus);
+        assert_eq!(current.width, 1000);
+
+        let mut bad = WindowGeometry::default();
+        bad.apply_contents("color_scheme=purple\ntheme=\nunknown=1\n=\nnoequals\n");
+        assert_eq!(bad.color_scheme, ColorScheme::System);
+        assert_eq!(bad.theme, BuiltinTheme::System);
+
+        let mut round = WindowGeometry::default();
+        round.apply_contents(&current.contents());
+        assert_eq!(round.color_scheme, ColorScheme::Dark);
+        assert_eq!(round.theme, BuiltinTheme::Caerus);
+        assert_eq!(round.width, 1000);
+        assert!(current.contents().contains("color_scheme=dark\n"));
     }
 
     #[test]

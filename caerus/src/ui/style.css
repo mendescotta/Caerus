@@ -13,9 +13,10 @@
   background: alpha(currentColor, 0.13); }
 /* Keep small status text readable even when a theme supplies dark semantic
    colors for buttons; use those colors for the tint instead of the text. */
-.chip-ok   { color: @theme_fg_color; background: alpha(@success_color, 0.18); }
-.chip-warn { color: @theme_fg_color; background: alpha(@warning_color, 0.18); }
-.chip-err  { color: @theme_fg_color; background: alpha(@error_color, 0.18); }
+.chip-ok,   .pkg-status.done   { color: @theme_fg_color; background: alpha(@success_color, 0.18); }
+.chip-warn, .pkg-status.warn   { color: @theme_fg_color; background: alpha(@warning_color, 0.18); }
+.chip-err,  .pkg-status.failed { color: @theme_fg_color; background: alpha(@error_color, 0.18); }
+.pkg-status.held, .pkg-status.neutral { color: @theme_fg_color; background: alpha(@theme_fg_color, 0.13); }
 .count-pill {
   border-radius: 99px; padding: 0px 8px;
   font-size: 0.78em;
@@ -130,7 +131,7 @@ paned > separator { background: @borders; }
   border-radius: 12px; padding: 14px 10px;
   background: alpha(@theme_fg_color, 0.06); }
 .info-tile-icon { color: @accent_color; }
-.chip-accent { color: @theme_fg_color; background: alpha(@accent_color, 0.18); }
+.chip-accent, .pkg-status.accent { color: @theme_fg_color; background: alpha(@accent_color, 0.18); }
 
 .category-icon.accent-blue   { color: #3584e4; }
 .category-icon.accent-teal   { color: #2190a4; }
@@ -150,3 +151,49 @@ paned > separator { background: @borders; }
 .app-icon-tile.accent-pink   { background: linear-gradient(to bottom, #f08fc0, #c64f8e); }
 .app-icon-tile.accent-purple { background: linear-gradient(to bottom, #c061cb, #813d9c); }
 .app-icon-tile.accent-slate  { background: linear-gradient(to bottom, #9aa9b8, #5e6c7a); }
+
+/* Task pages (Updates, Discover): spacing lives in CSS so a theme can change it. */
+.page-body { margin: 20px 32px; }
+.page-heading { font-weight: 800; }
+.empty-state { padding: 32px 24px; }
+.empty-state-icon { opacity: 0.55; }
+.update-chips { border-spacing: 8px; }
+.update-chip { border-radius: 99px; padding: 4px 14px; font-weight: 600; }
+.update-chip:checked { background: alpha(@theme_fg_color, 0.11); color: @theme_fg_color; }
+.updates-card { padding: 0; }
+.updates-card-title { padding: 14px 16px 2px; }
+.updates-card-sub { padding: 0 16px 10px; }
+.updates-list { background: transparent; }
+.updates-list > row { padding: 0; background: transparent; }
+.updates-list > row:not(:first-child) { border-top: 1px solid @borders; }
+.update-row { padding: 10px 16px; }
+.update-held { opacity: 0.6; }
+.update-versions { font-size: 0.9em; }
+.action-bar { padding: 10px 16px; }
+
+/* Transaction progress card (apply dialog). */
+.overall-card { padding: 14px 16px; }
+.overall-title { font-size: 1.05em; }
+.overall-pct { font-size: 1.6em; font-weight: 800; color: @accent_color; }
+.overall-ok .overall-pct { color: @success_color; }
+.overall-warn .overall-pct { color: @warning_color; }
+.overall-err .overall-pct { color: @error_color; }
+.phase-chip {
+  border-radius: 99px; padding: 2px 12px;
+  font-size: 0.85em;
+  background: alpha(@theme_fg_color, 0.08); }
+.phase-chip.active { background: alpha(@accent_color, 0.22); font-weight: 600; }
+.phase-chip.done { background: alpha(@success_color, 0.18); }
+.phase-chip.err { background: alpha(@error_color, 0.18); }
+.urow { padding: 4px 4px; }
+
+/* Toasts (plain GTK build; libadwaita has its own). */
+.toast-area { margin: 0 24px 44px; }
+.toast-card {
+  padding: 8px 8px 8px 16px;
+  border-radius: 12px;
+  background: @theme_bg_color;
+  color: @theme_fg_color;
+  border: 1px solid @borders;
+  box-shadow: 0 4px 16px alpha(black, 0.3); }
+.toast-card.toast-err { border-color: alpha(@error_color, 0.7); }

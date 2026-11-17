@@ -15,6 +15,7 @@ pub fn modal_window(
     let dlg = gtk::Window::new();
     dlg.set_title(Some(title));
     dlg.add_css_class("utility-dialog");
+    crate::ui::theme::style_toplevel(&dlg);
     if let Some(p) = parent {
         dlg.set_transient_for(Some(p));
     }
