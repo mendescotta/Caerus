@@ -168,9 +168,14 @@ pub fn status_pill(text: &str, kind: PillKind) -> gtk::Label {
 }
 
 pub fn set_pill(pill: &gtk::Label, text: &str, kind: PillKind) {
-    for other in PillKind::ALL {
-        pill.remove_css_class(other.class());
+    // Rows update their pill text on every progress event but usually keep
+    // the same kind (e.g. repeated "Accent" stages); skip the CSS churn
+    // unless the kind actually changed.
+    if !pill.has_css_class(kind.class()) {
+        for other in PillKind::ALL {
+            pill.remove_css_class(other.class());
+        }
+        pill.add_css_class(kind.class());
     }
-    pill.add_css_class(kind.class());
     pill.set_text(text);
 }

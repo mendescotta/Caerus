@@ -159,41 +159,47 @@ impl WindowGeometry {
             };
             let key = key.trim();
             let value = value.trim();
-            if key == "color_scheme" {
-                if let Some(scheme) = ColorScheme::parse(value) {
-                    geometry.color_scheme = scheme;
+            match key {
+                "color_scheme" => {
+                    if let Some(scheme) = ColorScheme::parse(value) {
+                        geometry.color_scheme = scheme;
+                    }
+                    continue;
                 }
-                continue;
-            }
-            if key == "theme" {
-                if let Some(theme) = BuiltinTheme::parse(value) {
-                    geometry.theme = theme;
+                "theme" => {
+                    if let Some(theme) = BuiltinTheme::parse(value) {
+                        geometry.theme = theme;
+                    }
+                    continue;
                 }
-                continue;
-            }
-            if key == "discovery_visible" {
-                if let Ok(b) = value.parse::<i32>() {
-                    geometry.discovery_visible = b != 0;
+                "discovery_visible"
+                | "sync_at_launch"
+                | "search_name_only_default"
+                | "auto_close_on_success" => {
+                    if let Ok(b) = value.parse::<i32>().map(|b| b != 0) {
+                        match key {
+                            "discovery_visible" => geometry.discovery_visible = b,
+                            "sync_at_launch" => geometry.sync_at_launch = b,
+                            "search_name_only_default" => geometry.search_name_only_default = b,
+                            "auto_close_on_success" => geometry.auto_close_on_success = b,
+                            _ => unreachable!(),
+                        }
+                    }
+                    continue;
                 }
-                continue;
-            }
-            if key == "sync_at_launch" {
-                if let Ok(b) = value.parse::<i32>() {
-                    geometry.sync_at_launch = b != 0;
+                "width" | "height" => {
+                    if let Ok(n) = value.parse::<i32>() {
+                        if n > 0 {
+                            match key {
+                                "width" => geometry.width = n,
+                                "height" => geometry.height = n,
+                                _ => unreachable!(),
+                            }
+                        }
+                    }
+                    continue;
                 }
-                continue;
-            }
-            if key == "search_name_only_default" {
-                if let Ok(b) = value.parse::<i32>() {
-                    geometry.search_name_only_default = b != 0;
-                }
-                continue;
-            }
-            if key == "auto_close_on_success" {
-                if let Ok(b) = value.parse::<i32>() {
-                    geometry.auto_close_on_success = b != 0;
-                }
-                continue;
+                _ => {}
             }
             if let Ok(b) = value.parse::<i32>().map(|b| b != 0) {
                 if let Some(name) = key.strip_prefix("expanded_") {
@@ -208,32 +214,12 @@ impl WindowGeometry {
                         continue;
                     }
                     match name {
-                        "detail_pane" => {
-                            geometry.detail_pane_visible = b;
-                            continue;
-                        }
-                        "status_bar" => {
-                            geometry.status_bar_visible = b;
-                            continue;
-                        }
-                        "stale_repos" => {
-                            geometry.stale_repos_visible = b;
-                            continue;
-                        }
+                        "detail_pane" => geometry.detail_pane_visible = b,
+                        "status_bar" => geometry.status_bar_visible = b,
+                        "stale_repos" => geometry.stale_repos_visible = b,
                         _ => {}
                     }
                 }
-            }
-            let Ok(n) = value.parse::<i32>() else {
-                continue;
-            };
-            if n <= 0 {
-                continue;
-            }
-            match key {
-                "width" => geometry.width = n,
-                "height" => geometry.height = n,
-                _ => {}
             }
         }
     }
@@ -750,6 +736,23 @@ fn switch_row(label: &str, accel: Option<&str>) -> (gtk::Box, gtk::Switch) {
     (row, switch)
 }
 
+/// A settings row backed by a `gtk::DropDown` over a small enumerable choice
+/// (color scheme, theme): the caller supplies the option labels, the
+/// currently-selected index, and what to do when a new index is picked.
+fn appearance_dropdown(
+    label: &str,
+    tooltip: &str,
+    labels: &[&str],
+    selected: u32,
+    on_change: impl Fn(u32) + 'static,
+) -> gtk::Box {
+    let dropdown = gtk::DropDown::from_strings(labels);
+    dropdown.set_selected(selected);
+    dropdown.set_tooltip_text(Some(tooltip));
+    dropdown.connect_selected_notify(move |dd| on_change(dd.selected()));
+    dropdown_row(label, &dropdown)
+}
+
 fn dropdown_row(label: &str, dropdown: &gtk::DropDown) -> gtk::Box {
     dropdown.update_property(&[gtk::accessible::Property::Label(label)]);
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
@@ -957,38 +960,32 @@ fn populate_menu_popover(state: &Rc<WindowState>) {
     settings.append(&appearance);
     if theme::BUILTIN_THEME_SUPPORTED {
         let labels: Vec<&str> = BuiltinTheme::ALL.iter().map(|t| t.label()).collect();
-        let dropdown = gtk::DropDown::from_strings(&labels);
-        dropdown.set_selected(state.theme.get().index());
-        dropdown.set_tooltip_text(Some(
+        let state = state.clone();
+        settings.append(&appearance_dropdown(
+            "Theme",
             "System keeps the desktop's GTK theme. Caerus replaces it with a built-in \
              green theme.",
-        ));
-        {
-            let state = state.clone();
-            dropdown.connect_selected_notify(move |dd| {
-                state.theme.set(BuiltinTheme::from_index(dd.selected()));
+            &labels,
+            state.theme.get().index(),
+            move |index| {
+                state.theme.set(BuiltinTheme::from_index(index));
                 theme::apply(state.color_scheme.get(), state.theme.get());
-            });
-        }
-        settings.append(&dropdown_row("Theme", &dropdown));
+            },
+        ));
     }
     {
         let labels: Vec<&str> = ColorScheme::ALL.iter().map(|s| s.label()).collect();
-        let dropdown = gtk::DropDown::from_strings(&labels);
-        dropdown.set_selected(state.color_scheme.get().index());
-        dropdown.set_tooltip_text(Some(
+        let state = state.clone();
+        settings.append(&appearance_dropdown(
+            "Color scheme",
             "System follows the desktop's light or dark preference.",
-        ));
-        {
-            let state = state.clone();
-            dropdown.connect_selected_notify(move |dd| {
-                state
-                    .color_scheme
-                    .set(ColorScheme::from_index(dd.selected()));
+            &labels,
+            state.color_scheme.get().index(),
+            move |index| {
+                state.color_scheme.set(ColorScheme::from_index(index));
                 theme::apply(state.color_scheme.get(), state.theme.get());
-            });
-        }
-        settings.append(&dropdown_row("Color scheme", &dropdown));
+            },
+        ));
     }
     stack.add_named(&settings, Some("settings"));
 

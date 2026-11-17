@@ -13,12 +13,22 @@ use std::time::Duration;
 const SHOW_SECONDS: u64 = 6;
 const SHOW_SECONDS_ERROR: u64 = 10;
 
+/// True if `needle` occurs in `haystack` ignoring ASCII case, without
+/// allocating a lowercased copy of `haystack`.
+fn contains_ascii_case_insensitive(haystack: &str, needle: &str) -> bool {
+    let haystack = haystack.as_bytes();
+    let needle = needle.as_bytes();
+    needle.len() <= haystack.len()
+        && haystack
+            .windows(needle.len())
+            .any(|window| window.eq_ignore_ascii_case(needle))
+}
+
 /// A message that reports a failure stays longer and gets the error accent.
 pub fn is_error(message: &str) -> bool {
-    let lower = message.to_lowercase();
     ["failed", "could not", "error", "refused", "cannot"]
         .iter()
-        .any(|word| lower.contains(word))
+        .any(|word| contains_ascii_case_insensitive(message, word))
 }
 
 struct Current {

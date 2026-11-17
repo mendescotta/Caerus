@@ -18,6 +18,26 @@ pub const ROOT_CLASS: &str = "caerus-themed";
 /// Whether this build offers the built-in theme (the libadwaita build does not).
 pub const BUILTIN_THEME_SUPPORTED: bool = cfg!(not(feature = "adwaita"));
 
+/// Lookup methods shared by every small, `ALL`-enumerable appearance choice
+/// (`ColorScheme`, `BuiltinTheme`): parsing a saved key, and converting to and
+/// from a dropdown's selected index. Each enum still defines its own `ALL`,
+/// `key` and `label`, since those differ per choice.
+macro_rules! choice_lookup_methods {
+    () => {
+        pub fn parse(value: &str) -> Option<Self> {
+            Self::ALL.iter().copied().find(|s| s.key() == value.trim())
+        }
+
+        pub fn from_index(index: u32) -> Self {
+            Self::ALL.get(index as usize).copied().unwrap_or_default()
+        }
+
+        pub fn index(self) -> u32 {
+            Self::ALL.iter().position(|s| *s == self).unwrap_or(0) as u32
+        }
+    };
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ColorScheme {
     #[default]
@@ -29,14 +49,7 @@ pub enum ColorScheme {
 impl ColorScheme {
     pub const ALL: [Self; 3] = [Self::System, Self::Light, Self::Dark];
 
-    pub fn parse(value: &str) -> Option<Self> {
-        match value.trim() {
-            "system" => Some(Self::System),
-            "light" => Some(Self::Light),
-            "dark" => Some(Self::Dark),
-            _ => None,
-        }
-    }
+    choice_lookup_methods!();
 
     pub const fn key(self) -> &'static str {
         match self {
@@ -53,14 +66,6 @@ impl ColorScheme {
             Self::Dark => "Dark",
         }
     }
-
-    pub fn from_index(index: u32) -> Self {
-        Self::ALL.get(index as usize).copied().unwrap_or_default()
-    }
-
-    pub fn index(self) -> u32 {
-        Self::ALL.iter().position(|s| *s == self).unwrap_or(0) as u32
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -74,13 +79,7 @@ pub enum BuiltinTheme {
 impl BuiltinTheme {
     pub const ALL: [Self; 2] = [Self::System, Self::Caerus];
 
-    pub fn parse(value: &str) -> Option<Self> {
-        match value.trim() {
-            "system" => Some(Self::System),
-            "caerus" => Some(Self::Caerus),
-            _ => None,
-        }
-    }
+    choice_lookup_methods!();
 
     pub const fn key(self) -> &'static str {
         match self {
@@ -94,14 +93,6 @@ impl BuiltinTheme {
             Self::System => "System",
             Self::Caerus => "Caerus",
         }
-    }
-
-    pub fn from_index(index: u32) -> Self {
-        Self::ALL.get(index as usize).copied().unwrap_or_default()
-    }
-
-    pub fn index(self) -> u32 {
-        Self::ALL.iter().position(|s| *s == self).unwrap_or(0) as u32
     }
 }
 

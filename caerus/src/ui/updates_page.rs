@@ -164,6 +164,15 @@ fn package_of(item: &gtk::ListItem) -> Option<Package> {
         .map(|object| object.pkg().clone())
 }
 
+/// One pass over the store's result: see `UpdatesPage::summarize`.
+#[derive(Default)]
+struct Summary {
+    available: usize,
+    held: usize,
+    included_names: Vec<String>,
+    included_bytes: u64,
+}
+
 fn is_available(pkg: &Package) -> bool {
     pkg.state == PkgState::Upgradable && !pkg.is_held_back()
 }
@@ -533,46 +542,50 @@ impl UpdatesPage {
 
     // ---- data ------------------------------------------------------------
 
-    /// Counts: (available, held back).
-    fn counts(&self) -> (usize, usize) {
-        let mut available = 0;
-        let mut held = 0;
-        for i in 0..self.inner.store.n_items() {
-            if let Some(object) = self.inner.store.item(i).and_downcast::<PackageObject>() {
-                if object.pkg().is_held_back() {
-                    held += 1;
-                } else {
-                    available += 1;
-                }
-            }
-        }
-        (available, held)
-    }
-
-    /// Names and total download of the included (available, not excluded) rows.
-    fn included(&self) -> (Vec<String>, u64) {
+    /// Available/held counts and the included (available, not excluded) rows,
+    /// in one pass over the store instead of a separate scan for each: this
+    /// runs on every render (every toggle, load and sync) and again in
+    /// `upgrade_request`.
+    fn summarize(&self) -> Summary {
         let excluded = self.inner.excluded.borrow();
-        let mut names = Vec::new();
-        let mut bytes = 0u64;
+        let mut summary = Summary::default();
         for i in 0..self.inner.store.n_items() {
             if let Some(object) = self.inner.store.item(i).and_downcast::<PackageObject>() {
                 let pkg = object.pkg();
+                if pkg.is_held_back() {
+                    summary.held += 1;
+                } else {
+                    summary.available += 1;
+                }
                 if is_available(&pkg) && !excluded.contains(&pkg.name) {
-                    names.push(pkg.name.clone());
-                    bytes = bytes.saturating_add(pkg.download_size);
+                    summary.included_names.push(pkg.name.clone());
+                    summary.included_bytes =
+                        summary.included_bytes.saturating_add(pkg.download_size);
                 }
             }
         }
-        (names, bytes)
+        summary
+    }
+
+    /// Counts: (available, held back).
+    fn counts(&self) -> (usize, usize) {
+        let s = self.summarize();
+        (s.available, s.held)
+    }
+
+    /// Names and total download of the included (available, not excluded) rows.
+    #[cfg(test)]
+    fn included(&self) -> (Vec<String>, u64) {
+        let s = self.summarize();
+        (s.included_names, s.included_bytes)
     }
 
     fn upgrade_request(&self) -> UpgradeRequest {
-        let (names, _) = self.included();
-        let (available, _) = self.counts();
-        if available > 0 && names.len() == available {
+        let summary = self.summarize();
+        if summary.available > 0 && summary.included_names.len() == summary.available {
             UpgradeRequest::All
         } else {
-            UpgradeRequest::Selected(names)
+            UpgradeRequest::Selected(summary.included_names)
         }
     }
 
@@ -657,12 +670,13 @@ impl UpdatesPage {
     /// Recompute everything derived from the model, selection and state.
     fn render(&self) {
         let inner = &self.inner;
-        let (available, held) = self.counts();
+        let summary = self.summarize();
+        let (available, held) = (summary.available, summary.held);
         inner
             .chip_available
             .set_label(&format!("Available · {available}"));
         inner.chip_held.set_label(&format!("Held back · {held}"));
-        let (included, bytes) = self.included();
+        let (included, bytes) = (summary.included_names, summary.included_bytes);
         let freshness = self.freshness_text();
         inner.header.set_subtitle(&if available > 0 {
             format!(
