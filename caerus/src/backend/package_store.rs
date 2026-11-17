@@ -276,10 +276,13 @@ impl PackageStore {
         out
     }
 
-    pub fn snapshot_objects(&self) -> HashMap<String, PackageObject> {
+    pub fn snapshot_objects_for(&self, names: &HashSet<String>) -> HashMap<String, PackageObject> {
         let mut out = HashMap::new();
         self.for_each(|o| {
-            out.insert(o.name(), o.clone());
+            let p = o.pkg();
+            if names.contains(&p.name) {
+                out.insert(p.name.clone(), o.clone());
+            }
         });
         out
     }
@@ -1369,6 +1372,34 @@ mod tests {
                     "transaction preview closed the inotify descriptor"
                 );
             }
+        }
+    }
+
+    #[test]
+    #[ignore = "reads installed XBPS metadata; run explicitly with --ignored --test-threads=1"]
+    fn installed_metadata_selection_stress() {
+        let mut handle = new_xbps_handle();
+        let mut inited = false;
+        let LoadResult::Ok(packages) = do_reload(&mut handle, &mut inited) else {
+            panic!("cannot load the installed package inventory");
+        };
+        let installed: Vec<_> = packages
+            .into_iter()
+            .filter(|p| p.state != PkgState::NotInstalled)
+            .take(20)
+            .collect();
+        assert!(!installed.is_empty());
+        for _ in 0..5 {
+            for pkg in &installed {
+                assert!(get_extra_info(&mut handle, inited, &pkg.name).is_some());
+                let _ = get_deps(&mut handle, inited, &pkg.name);
+                let _ = get_rdeps(&mut handle, inited, &pkg.name);
+                let _ = get_files(&mut handle, inited, &pkg.name);
+            }
+        }
+        unsafe {
+            xbps_sys::xbps_rpool_release(&mut handle);
+            xbps_sys::xbps_end(&mut handle);
         }
     }
 

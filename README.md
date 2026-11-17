@@ -26,6 +26,14 @@ Discover groups applications available from your enabled repositories:
   packages; ambiguous applications appear in Uncategorized (can be hidden)
 - Adaptive layout: sidebar, package table and inspector on desktop; bottom
   navigation and a separate details page in narrow windows
+- Updates page with per-package selection, download sizes and a total;
+  upgrading everything keeps the full system upgrade, a subset goes through
+  the pending-changes review
+- Color scheme setting (System, Light, Dark) that also works without a desktop
+  portal, plus an optional built-in green theme with light and dark variants
+  (off by default; plain-GTK build only)
+- Progress card with phases and collapsible output when applying changes, and
+  toasts for results that do not need a dialog
 
 The GUI runs unprivileged. Only the small `caerus-helper` is elevated, through
 polkit (`pkexec`), so a polkit authentication agent must be running.

@@ -1,10 +1,11 @@
 //! Task pages layered over the existing package store and privileged actions.
 use super::catalog::CATALOG;
 use super::discover::Discover;
-use crate::backend::package::{Package, PkgState};
+use super::updates_page::{UpdatesPage, UpgradeRequest};
+use crate::backend::package::Package;
 use gio::prelude::*;
 use gtk::prelude::*;
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 type PackageCallback = Rc<RefCell<Option<Box<dyn Fn(&str)>>>>;
@@ -15,46 +16,10 @@ pub struct Workflows {
     pub updates_button: gtk::ToggleButton,
     pub discover_button: gtk::ToggleButton,
     pub refresh: gtk::Button,
-    pub upgrade: gtk::Button,
     pub history: gtk::Button,
-    updates: gtk::ListBox,
-    update_status: gtk::Label,
-    freshness: gtk::Label,
+    updates: UpdatesPage,
     pub discovery: Discover,
-    update_state: gtk::Stack,
-    update_message: gtk::Label,
     open_package: PackageCallback,
-    last_sync: RefCell<Option<String>>,
-    sync_error: Cell<bool>,
-    loading: Cell<bool>,
-}
-
-fn title(text: &str) -> gtk::Label {
-    let label = gtk::Label::new(Some(text));
-    label.set_xalign(0.0);
-    label.add_css_class("title-2");
-    label.update_property(&[gtk::accessible::Property::Label(text)]);
-    label
-}
-fn page() -> gtk::Box {
-    let body = gtk::Box::new(gtk::Orientation::Vertical, 12);
-    body.set_margin_top(20);
-    body.set_margin_bottom(20);
-    body.set_margin_start(32);
-    body.set_margin_end(32);
-    body
-}
-fn scroll(child: &impl IsA<gtk::Widget>) -> gtk::ScrolledWindow {
-    let scroller = gtk::ScrolledWindow::new();
-    scroller.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
-    scroller.set_vexpand(true);
-    scroller.set_child(Some(child));
-    scroller
-}
-fn clear(list: &gtk::ListBox) {
-    while let Some(child) = list.first_child() {
-        list.remove(&child);
-    }
 }
 
 impl Workflows {
@@ -121,41 +86,10 @@ impl Workflows {
         let history = gtk::Button::from_icon_name("document-open-recent-symbolic");
         history.set_tooltip_text(Some("Transaction history"));
         history.update_property(&[gtk::accessible::Property::Label("Transaction history")]);
-        let update_page = page();
-        update_page.append(&title("Available updates"));
-        let update_status = gtk::Label::new(Some("Loading packages…"));
-        update_status.set_xalign(0.0);
-        update_status.set_wrap(true);
-        update_page.append(&update_status);
-        let freshness = gtk::Label::new(Some(
-            "Repositories have not been refreshed in this session.",
-        ));
-        freshness.set_xalign(0.0);
-        freshness.set_wrap(true);
-        freshness.add_css_class("dim-label");
-        update_page.append(&freshness);
-        let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        let refresh = gtk::Button::with_label("Check for updates");
-        let upgrade = gtk::Button::with_label("Review system upgrade");
-        upgrade.add_css_class("suggested-action");
-        upgrade.set_sensitive(false);
-        buttons.append(&refresh);
-        buttons.append(&upgrade);
-        update_page.append(&buttons);
-        let update_state = gtk::Stack::new();
-        update_state.set_vexpand(true);
-        let updates = gtk::ListBox::new();
-        updates.set_selection_mode(gtk::SelectionMode::None);
-        updates.add_css_class("boxed-list");
-        update_state.add_named(&scroll(&updates), Some("list"));
-        let update_message = gtk::Label::new(None);
-        update_message.set_wrap(true);
-        update_message.set_justify(gtk::Justification::Center);
-        update_message.set_margin_top(30);
-        update_state.add_named(&update_message, Some("message"));
-        update_page.append(&update_state);
-        stack.add_named(&update_page, Some("updates"));
         let open_package: PackageCallback = Rc::new(RefCell::new(None));
+        let updates = UpdatesPage::new(open_package.clone());
+        let refresh = updates.refresh_button();
+        stack.add_named(updates.widget(), Some("updates"));
         let discovery = Discover::new(open_package.clone());
         stack.add_named(discovery.widget(), Some("discover"));
         Self {
@@ -164,115 +98,31 @@ impl Workflows {
             updates_button,
             discover_button,
             refresh,
-            upgrade,
             history,
             updates,
-            update_status,
-            freshness,
             discovery,
-            update_state,
-            update_message,
             open_package,
-            last_sync: RefCell::new(None),
-            sync_error: Cell::new(false),
-            loading: Cell::new(false),
         }
     }
     pub fn connect_open_package(&self, callback: impl Fn(&str) + 'static) {
         *self.open_package.borrow_mut() = Some(Box::new(callback));
     }
+    pub fn connect_upgrade(&self, callback: impl Fn(UpgradeRequest) + 'static) {
+        self.updates.connect_upgrade(callback);
+    }
     pub fn sync_finished(&self, success: bool) {
-        self.sync_error.set(!success);
-        if success {
-            *self.last_sync.borrow_mut() = glib::DateTime::now_local()
-                .ok()
-                .and_then(|d| d.format("%H:%M:%S").ok())
-                .map(|s| s.to_string());
-        }
-        let text = if success {
-            format!(
-                "Last successful refresh: {}",
-                self.last_sync.borrow().as_deref().unwrap_or("just now")
-            )
-        } else {
-            "Repository refresh failed. Displaying cached data; use Check for updates to retry."
-                .into()
-        };
-        self.freshness.set_text(&text);
+        self.updates.sync_finished(success);
     }
     pub fn set_loading(&self, loading: bool) {
-        self.loading.set(loading);
-        self.refresh.set_sensitive(!loading);
-        self.upgrade.set_sensitive(false);
-        if loading {
-            self.show_message("Loading package information…");
-        }
+        self.updates.set_loading(loading);
     }
     pub fn load_error(&self, message: &str) {
-        self.show_message(&format!(
-            "Could not load packages: {message}\nUse Check for updates to retry."
-        ));
-    }
-    fn show_message(&self, message: &str) {
-        self.update_message.set_text(message);
-        self.update_message
-            .update_property(&[gtk::accessible::Property::Description(message)]);
-        self.update_state.set_visible_child_name("message");
+        self.updates.show_error(message);
     }
     pub fn refresh_packages(&self, packages: &[Package]) {
-        clear(&self.updates);
-        let updates: Vec<_> = packages
-            .iter()
-            .filter(|p| p.state == PkgState::Upgradable || p.is_held_back())
-            .collect();
-        let held = updates.iter().filter(|p| p.is_held_back()).count();
-        let count = updates.len() - held;
-        self.updates_button.set_label(&format!("Updates ({count})"));
-        let summary = format!("{count} available updates · {held} held back. Review the complete solver plan before applying.");
-        self.update_status.set_text(&summary);
-        self.update_status
-            .update_property(&[gtk::accessible::Property::Description(&summary)]);
-        self.upgrade.set_sensitive(count > 0 && !self.loading.get());
-        if updates.is_empty() {
-            self.show_message(if self.sync_error.get() {
-                "No updates in cached data. The latest repository refresh failed."
-            } else if self.last_sync.borrow().is_none() {
-                "No updates in cached data. Check for updates to refresh repositories."
-            } else {
-                "Your system is up to date."
-            });
-        } else {
-            self.update_state.set_visible_child_name("list");
-        }
-        for p in updates {
-            let row = gtk::Button::new();
-            row.add_css_class("flat");
-            let text = format!(
-                "{}   {} → {}{}",
-                p.name,
-                p.version_installed.as_deref().unwrap_or("—"),
-                p.version_available.as_deref().unwrap_or("—"),
-                if p.is_held_back() {
-                    " · On hold — excluded from upgrades"
-                } else {
-                    ""
-                }
-            );
-            let label = gtk::Label::new(Some(&text));
-            label.set_xalign(0.0);
-            label.set_wrap(true);
-            label.set_margin_top(8);
-            label.set_margin_bottom(8);
-            row.set_child(Some(&label));
-            let callback = self.open_package.clone();
-            let name = p.name.clone();
-            row.connect_clicked(move |_| {
-                if let Some(cb) = callback.borrow().as_ref() {
-                    cb(&name);
-                }
-            });
-            self.updates.append(&row);
-        }
+        self.updates.set_packages(packages);
+        self.updates_button
+            .set_label(&format!("Updates ({})", self.updates.available_count()));
         self.discovery.set_packages(packages);
     }
 }
@@ -321,9 +171,10 @@ pub fn application_icon(package: &str) -> gtk::Image {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::package::{PackageObject, PkgMark};
+    use crate::backend::package::{PackageObject, PkgMark, PkgState};
     use crate::backend::package_store::PackageStore;
     use crate::ui::package_list::PackageList;
+    use std::cell::Cell;
 
     #[test]
     #[ignore = "requires a GTK display; run with --ignored --test-threads=1"]
@@ -351,8 +202,18 @@ mod tests {
         pages.set_loading(false);
         pages.refresh_packages(&packages);
         assert_eq!(pages.updates_button.label().as_deref(), Some("Updates (1)"));
-        assert!(pages.update_status.text().contains("1 held back"));
-        assert!(pages.upgrade.is_sensitive());
+        let probe = pages.updates.probe();
+        assert!(
+            probe.subtitle.starts_with("1 of 1 update included"),
+            "{probe:?}"
+        );
+        assert_eq!(probe.available_chip, "Available · 1");
+        assert_eq!(probe.held_chip, "Held back · 1");
+        assert_eq!(probe.visible_state, "list");
+        assert_eq!(probe.upgrade_label, "Upgrade all");
+        assert!(probe.upgrade_sensitive);
+        assert!(probe.action_bar_visible);
+        assert_eq!(pages.updates.request_for_test(), UpgradeRequest::All);
         assert_eq!(pages.discovery.available_count(), 2);
         pages.discovery.smoke_test_sections_and_search();
         let mut with_discovered = packages.clone();
@@ -367,27 +228,115 @@ mod tests {
         assert!(!pages.discovery.show_for_test("", "unlisted-diagram"));
         pages.updates_button.set_active(true);
         assert_eq!(pages.stack.visible_child_name().as_deref(), Some("updates"));
+
+        // Selection: excluding a row turns "Upgrade all" into a subset.
+        let mut many = packages.clone();
+        many.push(Package {
+            download_size: 3 * 1_048_576,
+            ..package("mesa", PkgState::Upgradable)
+        });
+        many.push(Package {
+            download_size: 1_048_576,
+            ..package("zlib", PkgState::Upgradable)
+        });
+        pages.refresh_packages(&many);
+        let probe = pages.updates.probe();
+        assert!(
+            probe.subtitle.starts_with("3 of 3 updates included"),
+            "{probe:?}"
+        );
+        assert_eq!(probe.card_sub, "Total download: 4.0 MiB");
+        pages.updates.exclude("mesa");
+        let probe = pages.updates.probe();
+        assert!(
+            probe.subtitle.starts_with("2 of 3 updates included"),
+            "{probe:?}"
+        );
+        assert_eq!(probe.upgrade_label, "Upgrade selected (2)");
+        assert_eq!(probe.card_sub, "Total download: 1.0 MiB");
+        assert_eq!(probe.included, vec!["firefox", "zlib"]);
+        assert_eq!(
+            pages.updates.request_for_test(),
+            UpgradeRequest::Selected(vec!["firefox".into(), "zlib".into()])
+        );
+        let requests = Rc::new(RefCell::new(Vec::new()));
+        {
+            let requests = requests.clone();
+            pages.connect_upgrade(move |request| requests.borrow_mut().push(request));
+        }
+        pages.updates.upgrade_button().emit_clicked();
+        pages.updates.upgrade_one_for_test("zlib");
+        assert_eq!(
+            *requests.borrow(),
+            vec![
+                UpgradeRequest::Selected(vec!["firefox".into(), "zlib".into()]),
+                UpgradeRequest::Selected(vec!["zlib".into()]),
+            ]
+        );
+        // Exclusions for packages that are no longer offered are dropped.
+        let mut installed = many.clone();
+        for pkg in &mut installed {
+            if pkg.name == "mesa" {
+                pkg.state = PkgState::Installed;
+            }
+        }
+        pages.refresh_packages(&installed);
+        pages.refresh_packages(&many);
+        assert_eq!(
+            pages.updates.request_for_test(),
+            UpgradeRequest::All,
+            "a completed update must clear its previous exclusion"
+        );
+        pages.refresh_packages(&packages);
+        assert_eq!(pages.updates.request_for_test(), UpgradeRequest::All);
+        pages.updates.select_chip_for_test(true);
+        let probe = pages.updates.probe();
+        assert!(!probe.action_bar_visible);
+        assert_eq!(
+            probe.card_sub,
+            "On hold, so they are excluded from upgrades. Release the hold to update them."
+        );
+
         let opened = Rc::new(RefCell::new(String::new()));
         {
             let opened = opened.clone();
             pages.connect_open_package(move |name| *opened.borrow_mut() = name.into());
         }
-        let row = pages.updates.row_at_index(0).unwrap();
-        row.child()
-            .unwrap()
-            .downcast::<gtk::Button>()
-            .unwrap()
-            .emit_clicked();
+        pages.updates.activate_row("firefox");
         assert_eq!(opened.borrow().as_str(), "firefox");
+
+        // States: failed refresh, empty list, loading, load error.
+        pages.updates.select_chip_for_test(false);
         pages.sync_finished(false);
-        assert!(pages.freshness.text().contains("failed"));
+        assert!(pages.updates.probe().subtitle.contains("failed"));
         pages.refresh_packages(&[]);
-        assert!(!pages.upgrade.is_sensitive());
+        let probe = pages.updates.probe();
+        assert!(!probe.upgrade_sensitive);
+        assert_eq!(probe.visible_state, "empty");
+        assert_eq!(probe.empty_title, "No updates in cached data");
+        assert!(probe.empty_subtitle.contains("failed"));
+        pages.sync_finished(true);
+        let probe = pages.updates.probe();
+        assert_eq!(probe.empty_title, "Your system is up to date");
+        assert!(probe.subtitle.starts_with("Last refresh "), "{probe:?}");
+        pages.set_loading(true);
+        assert_eq!(pages.updates.probe().visible_state, "loading");
+        assert!(!pages.refresh.is_sensitive());
+        pages.set_loading(false);
+        pages.load_error("database locked");
+        let probe = pages.updates.probe();
+        assert_eq!(probe.visible_state, "error");
+        assert!(!probe.action_bar_visible);
+        pages.updates.select_chip_for_test(true);
+        pages.updates.select_chip_for_test(false);
+        assert!(!pages.updates.probe().upgrade_sensitive);
+        let count = requests.borrow().len();
+        pages.updates.upgrade_button().emit_clicked();
         assert_eq!(
-            pages.update_state.visible_child_name().as_deref(),
-            Some("message")
+            requests.borrow().len(),
+            count,
+            "failed data must not start an upgrade"
         );
-        assert!(pages.update_message.text().contains("cached"));
 
         let store = PackageStore::new();
         let list = PackageList::new(store.clone());
@@ -399,6 +348,12 @@ mod tests {
                 .map(PackageObject::new)
                 .collect::<Vec<_>>(),
         );
+        let wanted = ["firefox".to_string(), "absent".to_string()]
+            .into_iter()
+            .collect();
+        let subset = store.snapshot_objects_for(&wanted);
+        assert_eq!(subset.len(), 1);
+        assert!(subset.contains_key("firefox"));
         let notifications = Rc::new(Cell::new(0));
         {
             let notifications = notifications.clone();
@@ -422,6 +377,11 @@ mod tests {
         assert_eq!(list.visible_counts().0, 0);
         list.set_search("");
         assert_eq!(list.visible_counts().0, 3);
+        crate::ui::theme::smoke_test_theme_switching();
+        #[cfg(not(feature = "adwaita"))]
+        crate::ui::toast::smoke_test_toasts();
+        crate::ui::updates_page::smoke_test_rows();
+        crate::ui::detail_pane::smoke_test_metadata_replies();
         crate::ui::window::smoke_test_compact_layout();
         crate::ui::apply_confirm::smoke_test_incomplete_previews();
         crate::ui::apply_dialog::smoke_test_transaction_history();

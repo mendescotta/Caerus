@@ -240,11 +240,14 @@ impl PackageStore {
             .map(|p| (p.name, (p.state, p.mark)))
             .collect()
     }
-    pub fn snapshot_objects(&self) -> HashMap<String, PackageObject> {
+    pub fn snapshot_objects_for(&self, names: &HashSet<String>) -> HashMap<String, PackageObject> {
         let mut h = HashMap::new();
         for x in 0..self.inner.list.n_items() {
             if let Some(o) = package_obj_at(&self.inner.list, x) {
-                h.insert(o.name(), o);
+                let name = o.name();
+                if names.contains(&name) {
+                    h.insert(name, o);
+                }
             }
         }
         h

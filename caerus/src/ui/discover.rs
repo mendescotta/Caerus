@@ -3,6 +3,7 @@
 use super::catalog::{category_style, discovered_apps, DiscoverApp, CATEGORIES, FEATURED};
 use crate::backend::package::{pkg_format_size, Package, PkgMark, PkgState};
 use crate::backend::package_store::PackageStore;
+use crate::ui::widgets::{EmptyState, PageHeader};
 use crate::ui::{deps_confirm, remove_confirm};
 use gtk::prelude::*;
 use std::cell::{Cell, RefCell};
@@ -202,6 +203,9 @@ impl Discover {
 
         // Explore: search, sections and recommendations.
         let explore = gtk::Box::new(gtk::Orientation::Vertical, 14);
+        explore.append(
+            PageHeader::new("Discover", "Applications from your enabled repositories").widget(),
+        );
         let search = gtk::SearchEntry::new();
         search.set_placeholder_text(Some("Search applications…"));
         search.update_property(&[gtk::accessible::Property::Label("Search applications")]);
@@ -232,14 +236,12 @@ impl Discover {
         results.set_selection_mode(gtk::SelectionMode::None);
         results.add_css_class("boxed-list");
         results.add_css_class("discover-results");
-        let no_results = gtk::Label::new(Some(
-            "No applications match this search. Try another name, or search all packages from the header.",
-        ));
-        no_results.set_wrap(true);
-        no_results.set_margin_top(24);
-        no_results.set_margin_bottom(24);
-        no_results.add_css_class("dim-label");
-        results.set_placeholder(Some(&no_results));
+        let no_results = EmptyState::new(
+            "edit-find-symbolic",
+            "No applications match this search",
+            "Try another name, or search all packages from the header.",
+        );
+        results.set_placeholder(Some(no_results.widget()));
         results_box.append(&results);
         results_box.set_visible(false);
         explore.append(&results_box);

@@ -1,5 +1,6 @@
 use crate::backend::history;
 use crate::ui::dialog_util::{close_button, modal_window, present_focused};
+use crate::ui::widgets::{set_pill, status_pill, EmptyState, PillKind};
 use gtk::prelude::*;
 use std::rc::Rc;
 
@@ -16,12 +17,12 @@ pub fn show(parent: Option<&gtk::Window>) {
     scroll.set_vexpand(true);
     let list = gtk::ListBox::new();
     list.set_selection_mode(gtk::SelectionMode::None);
-    let empty = gtk::Label::new(Some(
-        "No matching transactions. New transactions include logs and version details.",
-    ));
-    empty.set_wrap(true);
-    empty.set_margin_top(24);
-    list.set_placeholder(Some(&empty));
+    let empty = EmptyState::new(
+        "document-open-recent-symbolic",
+        "No matching transactions",
+        "New transactions include logs and version details.",
+    );
+    list.set_placeholder(Some(empty.widget()));
     let entries = Rc::new(history::load());
     let rebuild = {
         let list = list.clone();
@@ -35,17 +36,17 @@ pub fn show(parent: Option<&gtk::Window>) {
                 content.set_margin_bottom(10);
                 content.set_margin_start(10);
                 content.set_margin_end(10);
-                let title = gtk::Label::new(Some(&format!(
-                    "{} · {}",
-                    if entry.success {
-                        "Completed"
-                    } else {
-                        "Failed or partially completed"
-                    },
-                    entry.timestamp
-                )));
-                title.set_xalign(0.0);
-                title.add_css_class(if entry.success { "success" } else { "error" });
+                let title = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+                let pill = status_pill("", PillKind::Done);
+                if entry.success {
+                    set_pill(&pill, "Completed", PillKind::Done);
+                } else {
+                    set_pill(&pill, "Failed or partially completed", PillKind::Failed);
+                }
+                title.append(&pill);
+                let when = gtk::Label::new(Some(&entry.timestamp));
+                when.add_css_class("dim-label");
+                title.append(&when);
                 content.append(&title);
                 let summary = gtk::Label::new(Some(&entry.summary()));
                 summary.set_xalign(0.0);

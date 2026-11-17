@@ -1,0 +1,91 @@
+/* Caerus built-in theme, dark palette. Values start from the icon's greens
+ * (#2f6b4c, #5fb488, #1d3b2c, #eafff2) and are contrast-checked: body text
+ * is above 12:1 on every surface, secondary text and accents above 4.5:1.
+ *
+ * @define-color is global to a provider, so each variant is its own sheet and
+ * the provider is reloaded when the variant flips. The sheet is loaded as
+ * palette + caerus-components.css. The GTK and libadwaita-style names are all
+ * defined so nothing resolves against the desktop palette (approach adapted
+ * from Shelly's themes/shelly-*.css, Seafoam-Labs/Shelly-ALPM, GPL-3.0).
+ */
+
+/* Caerus roles. */
+@define-color caerus_window #141a17;
+@define-color caerus_view #101512;
+@define-color caerus_card #1e2622;
+@define-color caerus_card_hover #26302b;
+@define-color caerus_border #3a4640;
+@define-color caerus_text #e3ebe6;
+@define-color caerus_dim #a3b0a9;
+@define-color caerus_accent #7fd1a5;
+@define-color caerus_accent_fg #0f3524;
+@define-color caerus_sel_bg #2f6b4c;
+@define-color caerus_sel_fg #dff5ec;
+@define-color caerus_control #232d28;
+@define-color caerus_control_hover #2c3832;
+@define-color caerus_control_active #34423b;
+@define-color caerus_headerbar #111714;
+@define-color caerus_sidebar #171f1b;
+
+/* GTK named colors consumed by style.css and the base theme. */
+@define-color theme_bg_color @caerus_window;
+@define-color theme_fg_color @caerus_text;
+@define-color theme_base_color @caerus_view;
+@define-color theme_text_color @caerus_text;
+@define-color theme_selected_bg_color @caerus_sel_bg;
+@define-color theme_selected_fg_color @caerus_sel_fg;
+@define-color theme_unfocused_bg_color @caerus_window;
+@define-color theme_unfocused_fg_color @caerus_text;
+@define-color theme_unfocused_base_color @caerus_view;
+@define-color theme_unfocused_text_color @caerus_text;
+@define-color theme_unfocused_selected_bg_color @caerus_sel_bg;
+@define-color theme_unfocused_selected_fg_color @caerus_sel_fg;
+@define-color insensitive_bg_color @caerus_control;
+@define-color insensitive_fg_color @caerus_dim;
+@define-color insensitive_base_color @caerus_view;
+@define-color content_view_bg @caerus_view;
+@define-color text_view_bg @caerus_view;
+@define-color borders @caerus_border;
+@define-color unfocused_borders @caerus_border;
+@define-color success_color #5fb488;
+@define-color warning_color #e5b567;
+@define-color error_color #f07178;
+@define-color accent_color @caerus_accent;
+@define-color accent_bg_color @caerus_accent;
+@define-color accent_fg_color @caerus_accent_fg;
+
+/* libadwaita-style names (adw-gtk3 and friends). */
+@define-color window_bg_color @caerus_window;
+@define-color window_fg_color @caerus_text;
+@define-color view_bg_color @caerus_view;
+@define-color view_fg_color @caerus_text;
+@define-color headerbar_bg_color @caerus_headerbar;
+@define-color headerbar_fg_color @caerus_text;
+@define-color headerbar_border_color @caerus_border;
+@define-color headerbar_backdrop_color @caerus_headerbar;
+@define-color headerbar_shade_color @caerus_border;
+@define-color headerbar_darker_shade_color @caerus_border;
+@define-color sidebar_bg_color @caerus_sidebar;
+@define-color sidebar_fg_color @caerus_text;
+@define-color sidebar_backdrop_color @caerus_sidebar;
+@define-color sidebar_border_color @caerus_border;
+@define-color sidebar_shade_color @caerus_border;
+@define-color secondary_sidebar_bg_color @caerus_sidebar;
+@define-color secondary_sidebar_fg_color @caerus_text;
+@define-color secondary_sidebar_backdrop_color @caerus_sidebar;
+@define-color secondary_sidebar_border_color @caerus_border;
+@define-color secondary_sidebar_shade_color @caerus_border;
+@define-color card_bg_color @caerus_card;
+@define-color card_fg_color @caerus_text;
+@define-color card_shade_color @caerus_border;
+@define-color dialog_bg_color @caerus_card;
+@define-color dialog_fg_color @caerus_text;
+@define-color popover_bg_color @caerus_card;
+@define-color popover_fg_color @caerus_text;
+@define-color popover_shade_color @caerus_border;
+@define-color thumbnail_bg_color @caerus_control;
+@define-color thumbnail_fg_color @caerus_text;
+@define-color overview_bg_color @caerus_card;
+@define-color overview_fg_color @caerus_text;
+@define-color shade_color alpha(@caerus_text, 0.08);
+@define-color scrollbar_outline_color @caerus_window;

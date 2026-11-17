@@ -1,0 +1,387 @@
+/* Caerus built-in theme: component rules, shared by the light and dark
+ * variants (the palette comes from caerus-{dark,light}.css, loaded first in
+ * the same provider).
+ *
+ * Every rule is scoped under .caerus-themed, which the theme module adds to
+ * every toplevel only while the built-in theme is active, so system mode never
+ * sees any of this.
+ *
+ * GTK's embedded base theme is plain literal colors, so the surfaces below
+ * repaint it from the palette. This provider outranks style.css (USER+1
+ * against APPLICATION), so any property declared here also overrides
+ * style.css: the generic button rule sets only colors, border and radius, and
+ * the style.css classes that need their own look are restated near the end.
+ *
+ * Geometry (16px cards, pill buttons, 10px entries, hairline separators, pill
+ * scrollbars, 2px accent focus ring, accent-filled switches and checks) and
+ * the way component rules are scoped are adapted from Shelly's
+ * themes/shelly-*.css and style.css (Seafoam-Labs/Shelly-ALPM, GPL-3.0).
+ * Not borrowed: forced font, brand headerbar, pinned window buttons, window
+ * outline. Row paddings are left alone so the Packages table keeps its density.
+ */
+
+/* ---- Surfaces ---------------------------------------------------------- */
+window.caerus-themed,
+.caerus-themed.background,
+.caerus-themed dialog,
+.caerus-themed .background {
+  background: @caerus_window;
+  color: @caerus_text;
+}
+.caerus-themed .view,
+.caerus-themed iconview,
+.caerus-themed columnview,
+.caerus-themed listview {
+  background-color: @caerus_view;
+  color: @caerus_text;
+}
+.caerus-themed textview,
+.caerus-themed textview > text {
+  background-color: transparent;
+  color: @caerus_text;
+}
+.caerus-themed textview > border { background-color: @caerus_view; }
+.caerus-themed selection,
+.caerus-themed textview > text > selection {
+  background-color: alpha(@caerus_accent, 0.35);
+  color: @caerus_text;
+}
+.caerus-themed .dim-label { opacity: 1; color: @caerus_dim; }
+.caerus-themed .section-header { opacity: 1; color: @caerus_dim; }
+.caerus-themed link,
+.caerus-themed label.link,
+.caerus-themed button.link { color: @caerus_accent; }
+.caerus-themed separator { background: alpha(@caerus_text, 0.1); }
+.caerus-themed paned > separator { background: @caerus_border; }
+
+/* ---- Header bar and status bar ----------------------------------------- */
+.caerus-themed headerbar {
+  background: @caerus_headerbar;
+  color: @caerus_text;
+  border-bottom: 1px solid @caerus_border;
+  box-shadow: none;
+}
+.caerus-themed .statusbar {
+  background: @caerus_headerbar;
+  border-top: 1px solid @caerus_border;
+}
+
+/* ---- Buttons ------------------------------------------------------------ */
+.caerus-themed button {
+  border-radius: 999px;
+  background: @caerus_control;
+  color: @caerus_text;
+  border: 1px solid @caerus_border;
+  box-shadow: none;
+  text-shadow: none;
+  -gtk-icon-shadow: none;
+}
+.caerus-themed button:hover { background: @caerus_control_hover; }
+.caerus-themed button:active,
+.caerus-themed button:checked { background: @caerus_control_active; color: @caerus_text; }
+.caerus-themed button:disabled { opacity: 0.5; }
+.caerus-themed button.flat {
+  background: transparent;
+  border-color: transparent;
+}
+.caerus-themed button.flat:hover { background: alpha(@caerus_text, 0.08); }
+.caerus-themed button.flat:active,
+.caerus-themed button.flat:checked { background: alpha(@caerus_text, 0.14); }
+.caerus-themed button.suggested-action {
+  background: @caerus_accent;
+  color: @caerus_accent_fg;
+  border-color: transparent;
+  padding: 5px 16px;
+}
+.caerus-themed button.suggested-action label,
+.caerus-themed button.suggested-action image { color: @caerus_accent_fg; }
+.caerus-themed button.suggested-action:hover {
+  background-color: @caerus_accent;
+  background-image: linear-gradient(alpha(white, 0.14), alpha(white, 0.14));
+}
+.caerus-themed button.suggested-action:active {
+  background-color: @caerus_accent;
+  background-image: linear-gradient(alpha(black, 0.14), alpha(black, 0.14));
+}
+.caerus-themed button.suggested-action:disabled { background: alpha(@caerus_accent, 0.2); }
+.caerus-themed button.suggested-action:disabled label,
+.caerus-themed button.suggested-action:disabled image { color: @caerus_dim; }
+.caerus-themed button.destructive-action {
+  background: alpha(@error_color, 0.16);
+  color: @error_color;
+  border-color: transparent;
+}
+.caerus-themed button.destructive-action label,
+.caerus-themed button.destructive-action image { color: @error_color; }
+.caerus-themed .utility-dialog-content button:not(.flat):not(.suggested-action) {
+  padding: 5px 16px;
+}
+/* Segments of a linked group keep square inner corners. */
+.caerus-themed .linked > :not(:first-child):not(:last-child) { border-radius: 0; }
+.caerus-themed .linked > :first-child:not(:last-child) {
+  border-top-right-radius: 0; border-bottom-right-radius: 0;
+}
+.caerus-themed .linked > :last-child:not(:first-child) {
+  border-top-left-radius: 0; border-bottom-left-radius: 0;
+}
+
+/* ---- Entries and dropdowns --------------------------------------------- */
+.caerus-themed entry,
+.caerus-themed searchentry,
+.caerus-themed spinbutton {
+  background: @caerus_view;
+  color: @caerus_text;
+  border: 1px solid @caerus_border;
+  border-radius: 10px;
+  box-shadow: none;
+}
+.caerus-themed entry:focus-within,
+.caerus-themed searchentry:focus-within,
+.caerus-themed spinbutton:focus-within {
+  border-color: @caerus_accent;
+  outline: 2px solid alpha(@caerus_accent, 0.55);
+  outline-offset: -2px;
+}
+.caerus-themed entry > text > placeholder,
+.caerus-themed searchentry > text > placeholder { color: @caerus_dim; opacity: 1; }
+.caerus-themed spinbutton button { border-radius: 0; background: transparent; border: none; }
+.caerus-themed dropdown > button { border-radius: 10px; }
+/* Linked entries (the header search) keep their group's square corners. */
+.caerus-themed .linked > entry:first-child:not(:last-child),
+.caerus-themed .linked > searchentry:first-child:not(:last-child) {
+  border-top-right-radius: 0; border-bottom-right-radius: 0;
+}
+
+/* ---- Popovers and menus ------------------------------------------------- */
+.caerus-themed popover > contents {
+  background: @caerus_card;
+  color: @caerus_text;
+  border: 1px solid @caerus_border;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px alpha(black, 0.35);
+}
+.caerus-themed popover > arrow {
+  background: @caerus_card;
+  border: 1px solid @caerus_border;
+}
+.caerus-themed popover button { border-radius: 8px; }
+.caerus-themed popover modelbutton:hover { background: alpha(@caerus_text, 0.08); }
+
+/* ---- Lists, rows and the package table ---------------------------------- */
+.caerus-themed list,
+.caerus-themed listbox { background: transparent; color: @caerus_text; }
+.caerus-themed row:hover { background: alpha(@caerus_text, 0.05); }
+.caerus-themed row:selected,
+.caerus-themed .view:selected,
+.caerus-themed listview > row:selected,
+.caerus-themed columnview > listview > row:selected {
+  background: @caerus_sel_bg;
+  color: @caerus_sel_fg;
+}
+.caerus-themed row:selected label,
+.caerus-themed row:selected image { color: @caerus_sel_fg; }
+.caerus-themed columnview > listview > row:hover { background: alpha(@caerus_text, 0.05); }
+.caerus-themed columnview > listview > row:selected:hover { background: @caerus_sel_bg; }
+.caerus-themed columnview > header {
+  background: @caerus_headerbar;
+  border-bottom: 1px solid @caerus_border;
+}
+.caerus-themed columnview > header > button,
+.caerus-themed .package-catalog > header > button {
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  color: @caerus_dim;
+  font-weight: 600;
+}
+.caerus-themed columnview > header > button:hover { background: alpha(@caerus_text, 0.06); }
+.caerus-themed .boxed-list,
+.caerus-themed .card {
+  background: @caerus_card;
+  border: 1px solid @caerus_border;
+  border-radius: 16px;
+  box-shadow: none;
+}
+.caerus-themed .boxed-list > row { padding: 12px 18px; }
+.caerus-themed .boxed-list > row:not(:first-child) { border-top: 1px solid alpha(@caerus_text, 0.08); }
+.caerus-themed .updates-list { background: transparent; }
+.caerus-themed .updates-list > row:hover { background: alpha(@caerus_text, 0.04); }
+.caerus-themed .updates-list > row:not(:first-child) { border-top: 1px solid alpha(@caerus_text, 0.08); }
+.caerus-themed .discover-results > row:hover { background: @caerus_card_hover; }
+.caerus-themed flowboxchild:selected { background: alpha(@caerus_sel_bg, 0.6); border-radius: 12px; }
+
+/* ---- Switches, checks, scales ------------------------------------------ */
+.caerus-themed switch {
+  background: @caerus_control_hover;
+  border: 1px solid @caerus_border;
+  border-radius: 999px;
+  box-shadow: none;
+  color: @caerus_text;
+}
+.caerus-themed switch:checked {
+  background: @caerus_accent;
+  border-color: @caerus_accent;
+}
+.caerus-themed switch slider {
+  background: @caerus_text;
+  border: none;
+  border-radius: 50%;
+  box-shadow: none;
+}
+.caerus-themed switch:checked slider { background: @caerus_accent_fg; }
+.caerus-themed check,
+.caerus-themed radio {
+  border: 2px solid @caerus_dim;
+  background: transparent;
+  box-shadow: none;
+  color: @caerus_accent_fg;
+}
+.caerus-themed check { border-radius: 5px; }
+.caerus-themed radio { border-radius: 50%; }
+.caerus-themed check:checked,
+.caerus-themed check:indeterminate,
+.caerus-themed radio:checked {
+  background: @caerus_accent;
+  border-color: @caerus_accent;
+  color: @caerus_accent_fg;
+}
+.caerus-themed scale trough { background: alpha(@caerus_text, 0.12); border-radius: 999px; }
+.caerus-themed scale highlight { background: @caerus_accent; border-radius: 999px; }
+.caerus-themed scale slider { background: @caerus_accent; border-radius: 50%; border: none; }
+
+/* ---- Focus ring ---------------------------------------------------------- */
+.caerus-themed button:focus-visible,
+.caerus-themed switch:focus-visible,
+.caerus-themed checkbutton:focus-visible,
+.caerus-themed check:focus-visible {
+  outline: 2px solid @caerus_accent;
+  outline-offset: 1px;
+}
+.caerus-themed row:focus-visible,
+.caerus-themed flowboxchild:focus-visible {
+  outline: 2px solid @caerus_accent;
+  outline-offset: -3px;
+}
+
+/* ---- Progress and scrollbars -------------------------------------------- */
+.caerus-themed progressbar > trough {
+  background: alpha(@caerus_text, 0.1);
+  border: none;
+  border-radius: 999px;
+  box-shadow: none;
+}
+.caerus-themed progressbar > trough > progress {
+  background: @caerus_accent;
+  border: none;
+  border-radius: 999px;
+}
+.caerus-themed .overall-ok progressbar > trough > progress { background: @success_color; }
+.caerus-themed .overall-warn progressbar > trough > progress { background: @warning_color; }
+.caerus-themed .overall-err progressbar > trough > progress { background: @error_color; }
+.caerus-themed .overall-bar > trough,
+.caerus-themed .overall-bar > trough > progress { min-height: 10px; }
+.caerus-themed scrollbar trough {
+  background: alpha(@caerus_text, 0.07);
+  border: none;
+  border-radius: 999px;
+}
+.caerus-themed scrollbar slider {
+  background: alpha(@caerus_accent, 0.5);
+  border: none;
+  border-radius: 999px;
+  min-width: 6px;
+  min-height: 6px;
+}
+.caerus-themed scrollbar slider:hover { background: alpha(@caerus_accent, 0.75); }
+.caerus-themed scrollbar slider:active { background: @caerus_accent; }
+.caerus-themed scrollbar.overlay-indicator:not(.dragging):not(.hovering) slider {
+  background: alpha(@caerus_accent, 0.4);
+}
+
+/* ---- Caerus classes from style.css --------------------------------------- */
+.caerus-themed .workflow-navigation button {
+  background: transparent;
+  border-color: transparent;
+  color: @caerus_dim;
+}
+.caerus-themed .workflow-navigation button:hover { background: alpha(@caerus_text, 0.08); }
+.caerus-themed .workflow-navigation button:checked {
+  background: alpha(@caerus_accent, 0.2);
+  color: @caerus_accent;
+}
+.caerus-themed .category-tile,
+.caerus-themed .app-card {
+  background: @caerus_card;
+  border: 1px solid @caerus_border;
+  border-radius: 16px;
+  color: @caerus_text;
+}
+.caerus-themed .category-tile:hover,
+.caerus-themed .app-card:hover { background: @caerus_card_hover; }
+.caerus-themed .info-tile { background: @caerus_card; border-radius: 16px; }
+.caerus-themed .inline-link,
+.caerus-themed button.inline-link {
+  background: transparent;
+  border: none;
+  color: @caerus_accent;
+}
+.caerus-themed .icon-btn { background: @caerus_control; border: 1px solid @caerus_border; }
+.caerus-themed .icon-btn:hover { background: @caerus_control_hover; }
+.caerus-themed .pending-bar {
+  background: alpha(@caerus_accent, 0.12);
+  border-top: 1px solid @caerus_border;
+}
+.caerus-themed .pill-button { font-weight: 700; }
+.caerus-themed .discover-search { border-radius: 999px; }
+.caerus-themed .info-tile-icon,
+.caerus-themed .empty-state-icon { color: @caerus_accent; }
+.caerus-themed .empty-state-icon { opacity: 0.8; }
+.caerus-themed .state-dot.on { background: @caerus_accent; }
+
+/* ---- Task pages ----------------------------------------------------------- */
+.caerus-themed .page-body { margin: 24px 32px; }
+.caerus-themed .page-heading { font-size: 1.9em; font-weight: 600; letter-spacing: -0.02em; }
+.caerus-themed .page-head { margin-bottom: 6px; }
+.caerus-themed .update-chip {
+  background: alpha(@caerus_text, 0.08);
+  border-color: transparent;
+  color: @caerus_dim;
+  padding: 5px 16px;
+}
+.caerus-themed .update-chip:checked {
+  background: alpha(@caerus_accent, 0.2);
+  color: @caerus_accent;
+}
+.caerus-themed .updates-card-title { padding: 16px 20px 2px; font-size: 1.05em; }
+.caerus-themed .updates-card-sub { padding: 0 20px 10px; }
+.caerus-themed .update-row { padding: 12px 20px; }
+.caerus-themed .action-bar { padding: 14px 20px; }
+.caerus-themed .overall-card { border-radius: 16px; padding: 18px 20px; }
+.caerus-themed .overall-title { font-size: 1.1em; }
+.caerus-themed .overall-pct { font-size: 1.7em; font-weight: 700; color: @caerus_accent; }
+.caerus-themed .overall-ok .overall-pct { color: @success_color; }
+.caerus-themed .overall-warn .overall-pct { color: @warning_color; }
+.caerus-themed .overall-err .overall-pct { color: @error_color; }
+.caerus-themed .phase-chip {
+  background: alpha(@caerus_text, 0.08);
+  color: @caerus_dim;
+}
+.caerus-themed .phase-chip.active { background: alpha(@caerus_accent, 0.22); color: @caerus_accent; }
+.caerus-themed .phase-chip.done { background: alpha(@success_color, 0.18); color: @success_color; }
+.caerus-themed .phase-chip.err { background: alpha(@error_color, 0.18); color: @error_color; }
+.caerus-themed .urow:not(:last-child) { border-bottom: 1px solid alpha(@caerus_text, 0.07); }
+.caerus-themed .pkg-status.done { color: @success_color; }
+.caerus-themed .pkg-status.warn { color: @warning_color; }
+.caerus-themed .pkg-status.failed { color: @error_color; }
+.caerus-themed .pkg-status.accent { color: @caerus_accent; }
+
+/* ---- Toasts --------------------------------------------------------------- */
+.caerus-themed .toast-card {
+  background: @caerus_card;
+  color: @caerus_text;
+  border: 1px solid @caerus_border;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px alpha(black, 0.35);
+}
+.caerus-themed .toast-card.toast-ok { border-color: alpha(@success_color, 0.6); }
+.caerus-themed .toast-card.toast-err { border-color: alpha(@error_color, 0.6); }
