@@ -2381,25 +2381,50 @@ const CLASSIFY_RULES: &[(&str, &[&str])] = &[
     ),
 ];
 
+/// Generic phrases that mark a description as end-user software even when no
+/// specific category rule matched.
+const GENERIC_APP_PHRASES: &[&str] = &[
+    "desktop application",
+    "graphical application",
+    "gui application",
+    "graphical user interface",
+    "desktop environment application",
+];
+
+/// True if `phrase` (space-separated, lowercase) occurs as a contiguous run
+/// of whole words in `words`. Compares word slices directly instead of
+/// rebuilding padded strings per phrase, since `classify` runs on every
+/// uncatalogued package in a repository load.
+fn contains_phrase(words: &[String], phrase: &str) -> bool {
+    let phrase_words: Vec<&str> = phrase.split(' ').collect();
+    if phrase_words.is_empty() || phrase_words.len() > words.len() {
+        return false;
+    }
+    words
+        .windows(phrase_words.len())
+        .any(|window| window.iter().zip(&phrase_words).all(|(w, p)| w == p))
+}
+
 /// Classify only explicit descriptions of end-user software. These phrases are
 /// intentionally specific: package metadata alone cannot prove eligibility.
 fn classify(pkg: &Package) -> Option<&'static str> {
     let name = pkg.name.to_ascii_lowercase();
+    // Hyphens are dropped (not treated as word separators) so a hyphenated
+    // spelling like "e-mail client" still matches the rule "email client".
     let words: Vec<_> = pkg
         .short_desc
+        .replace('-', "")
         .split(|c: char| !c.is_ascii_alphanumeric())
         .filter(|word| !word.is_empty())
         .map(str::to_ascii_lowercase)
         .collect();
-    let desc = format!(" {} ", words.join(" "));
-    let has = |phrase: &str| desc.contains(&format!(" {phrase} "));
-    if name.starts_with("lib")
-        || [
-            "-devel", "-dev", "-dbg", "-doc", "-docs", "-data", "-common", "-locale", "-plugin",
-            "-libs", "-static",
-        ]
-        .iter()
-        .any(|suffix| name.ends_with(suffix))
+    let has = |phrase: &str| contains_phrase(&words, phrase);
+    if [
+        "-devel", "-dev", "-dbg", "-doc", "-docs", "-data", "-common", "-locale", "-plugin",
+        "-libs", "-static",
+    ]
+    .iter()
+    .any(|suffix| name.ends_with(suffix))
         || ["python3-", "perl-", "ruby-", "rust-", "go-"]
             .iter()
             .any(|prefix| name.starts_with(prefix))
@@ -2427,17 +2452,7 @@ fn classify(pkg: &Package) -> Option<&'static str> {
     match (matches.next(), matches.next()) {
         (Some(category), None) => Some(category),
         (Some(_), Some(_)) => Some("Uncategorized"),
-        (None, _)
-            if [
-                "desktop application",
-                "graphical application",
-                "gui application",
-            ]
-            .iter()
-            .any(|term| has(term)) =>
-        {
-            Some("Uncategorized")
-        }
+        (None, _) if GENERIC_APP_PHRASES.iter().any(|term| has(term)) => Some("Uncategorized"),
         _ => None,
     }
 }
@@ -2486,6 +2501,8 @@ mod tests {
             package("new-gui", "A graphical application for making things"),
             package("new-plugin", "A plugin for a web browser"),
             package("libexample", "A web browser library"),
+            package("librewolf", "a web browser"),
+            package("newmail", "An e-mail client for X"),
             Package {
                 version_available: None,
                 ..package("old-browser", "web browser")
@@ -2504,6 +2521,16 @@ mod tests {
         assert_eq!(category("new-gui"), Some("Uncategorized"));
         assert_eq!(category("new-plugin"), None);
         assert_eq!(category("libexample"), None);
+        assert_eq!(
+            category("librewolf"),
+            Some("Web"),
+            "a lib-prefixed name must not be excluded when nothing else marks it as a library"
+        );
+        assert_eq!(
+            category("newmail"),
+            Some("Mail & communication"),
+            "a hyphenated spelling must still match the un-hyphenated rule phrase"
+        );
         assert_eq!(category("old-browser"), None);
         assert_eq!(category("libreoffice-writer"), None);
         assert_eq!(
