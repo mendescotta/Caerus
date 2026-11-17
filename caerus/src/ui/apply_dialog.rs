@@ -57,6 +57,10 @@ struct PackageRow {
     name: gtk::Label,
     pill: gtk::Label,
     state: ResultState,
+    /// Index into the overall phase plan of the last stage reported for this
+    /// package, so a chip reflects every row currently in it rather than only
+    /// the furthest phase any row has reached.
+    phase: Cell<usize>,
 }
 
 impl PackageRow {
@@ -76,6 +80,7 @@ impl PackageRow {
             name: label,
             pill,
             state: ResultState::Pending,
+            phase: Cell::new(0),
         }
     }
 
@@ -160,6 +165,26 @@ fn phase_chip_state(index: usize, current: usize) -> ChipState {
         std::cmp::Ordering::Less => ChipState::Done,
         std::cmp::Ordering::Equal => ChipState::Active,
         std::cmp::Ordering::Greater => ChipState::Idle,
+    }
+}
+
+/// Mid-run chip state, derived from every row's own (state, phase) instead
+/// of a single ratchet: a phase beyond anything reported yet is Idle, a
+/// phase some row is currently working in is Active even if other rows are
+/// further along, and a reached phase with nothing currently in it is Done.
+fn phase_chip_state_for_rows(
+    index: usize,
+    furthest: usize,
+    mut rows: impl Iterator<Item = (ResultState, usize)>,
+) -> ChipState {
+    if index > furthest {
+        return ChipState::Idle;
+    }
+    let active_here = rows.any(|(state, phase)| state == ResultState::Working && phase == index);
+    if active_here {
+        ChipState::Active
+    } else {
+        ChipState::Done
     }
 }
 
@@ -343,23 +368,30 @@ fn run_inner(
         let pct = pct.clone();
         let chips = chips.clone();
         let phase_index = phase_index.clone();
+        // A dependency package can be discovered mid-run (Event::Package for
+        // a name outside the original request), growing `total` after some
+        // requested packages already finished. The progress bar must not
+        // visibly move backward, so the shown fraction only ever increases.
+        let max_fraction = Rc::new(Cell::new(0.0f64));
         Rc::new(move || {
-            let (total, done) = {
-                let rows = rows.borrow();
-                (
-                    rows.len(),
-                    rows.values()
-                        .filter(|row| row.state == ResultState::Completed)
-                        .count(),
-                )
-            };
+            let rows_ref = rows.borrow();
+            let total = rows_ref.len();
+            let done = rows_ref
+                .values()
+                .filter(|row| row.state == ResultState::Completed)
+                .count();
             if total > 0 {
-                let fraction = done as f64 / total as f64;
+                let fraction = (done as f64 / total as f64).max(max_fraction.get());
+                max_fraction.set(fraction);
                 progress.set_fraction(fraction);
                 pct.set_text(&format!("{}%", (fraction * 100.0).round()));
             }
             for (i, chip) in chips.iter().enumerate() {
-                set_phase_chip(chip, phase_chip_state(i, phase_index.get()));
+                let states = rows_ref.values().map(|row| (row.state, row.phase.get()));
+                set_phase_chip(
+                    chip,
+                    phase_chip_state_for_rows(i, phase_index.get(), states),
+                );
             }
         })
     };
@@ -401,6 +433,7 @@ fn run_inner(
                     version,
                     stage,
                 } => {
+                    let stage_phase = phase_for_stage(&stage, &plan);
                     {
                         let mut rows = rows.borrow_mut();
                         let row = rows.entry(name.clone()).or_insert_with(|| {
@@ -414,11 +447,12 @@ fn run_inner(
                         } else {
                             ResultState::Working
                         };
+                        row.phase.set(stage_phase);
                         row.show(&name, &version, &stage);
                     }
                     active.borrow_mut().insert(name);
                     phase.set_text(&stage);
-                    phase_index.set(phase_for_stage(&stage, &plan).max(phase_index.get()));
+                    phase_index.set(stage_phase.max(phase_index.get()));
                 }
                 Event::Finished(success) => {
                     for name in active.borrow().iter() {
@@ -809,6 +843,34 @@ mod tests {
         assert_eq!(final_chip_state(1, 1, false), ChipState::Failed);
         assert_eq!(final_chip_state(0, 1, false), ChipState::Done);
         assert_eq!(final_chip_state(2, 1, false), ChipState::Idle);
+    }
+    #[test]
+    fn overlapping_packages_keep_an_earlier_phase_active() {
+        // One package has reached Install (phase 1, furthest=1) while
+        // another is still Working in Download (phase 0): phase 0 must stay
+        // Active, not freeze as Done just because something moved ahead.
+        let rows = vec![
+            (ResultState::Working, 1usize),
+            (ResultState::Working, 0usize),
+        ];
+        assert_eq!(
+            phase_chip_state_for_rows(0, 1, rows.clone().into_iter()),
+            ChipState::Active
+        );
+        assert_eq!(
+            phase_chip_state_for_rows(1, 1, rows.clone().into_iter()),
+            ChipState::Active
+        );
+        assert_eq!(
+            phase_chip_state_for_rows(2, 1, rows.into_iter()),
+            ChipState::Idle
+        );
+        // Once nothing is left working in the earlier phase, it reads Done.
+        let rows = vec![(ResultState::Completed, 0usize), (ResultState::Working, 1)];
+        assert_eq!(
+            phase_chip_state_for_rows(0, 1, rows.into_iter()),
+            ChipState::Done
+        );
     }
 
     #[test]
