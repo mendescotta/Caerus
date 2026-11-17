@@ -9,6 +9,15 @@ updates:
     groups:
       cargo:
         patterns: ["*"]
+    ignore:
+      # gtk-rs releases gtk4/glib/gio/libadwaita in lockstep. Bumping glib/gio
+      # alone ahead of a matching gtk4/libadwaita release puts two
+      # incompatible glib versions in the dependency graph and breaks the
+      # build (see PR #48). Bump all four together by hand instead.
+      - dependency-name: "glib"
+        versions: [">0.20"]
+      - dependency-name: "gio"
+        versions: [">0.20"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
